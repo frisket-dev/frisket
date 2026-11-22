@@ -146,7 +146,11 @@ def test_acquire_reclaims_expired_lease_but_not_live_one() -> None:
     )
     db.commit()
     token = acquire_lease(db, table="things", id_value="t1", token_prefix="test")
-    assert token is not None  # crashed (expired) lease is reclaimable
+    assert token is not None and token.startswith("test")
+    row = db.execute("SELECT refresh_claim_token FROM things WHERE id='t1'").fetchone()
+    assert row["refresh_claim_token"] == token
+    # Once reclaimed with a live lease, a competing acquisition is refused.
+    assert acquire_lease(db, table="things", id_value="t1", token_prefix="test") is None
 
 
 def test_acquire_respects_held_requires_predicate() -> None:
@@ -167,7 +171,21 @@ def test_acquire_respects_held_requires_predicate() -> None:
         token_prefix="test",
         held_requires=lambda row: row["status"] == "refreshing",
     )
-    assert token is not None
+    assert token is not None and token.startswith("test")
+    row = db.execute("SELECT refresh_claim_token FROM things WHERE id='t1'").fetchone()
+    assert row["refresh_claim_token"] == token
+    db.execute("UPDATE things SET status='refreshing' WHERE id='t1'")
+    db.commit()
+    assert (
+        acquire_lease(
+            db,
+            table="things",
+            id_value="t1",
+            token_prefix="test",
+            held_requires=lambda row: row["status"] == "refreshing",
+        )
+        is None
+    )
 
 
 def test_release_with_wrong_token_is_a_noop() -> None:

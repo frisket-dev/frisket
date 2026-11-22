@@ -295,6 +295,7 @@ def test_every_capability_canonicalizes_through_its_own_engine_table():
     from frisket.execution.resolver import capability_engine_table
     from frisket.execution.targets import EXECUTION_CAPABILITIES
 
+    assert EXECUTION_CAPABILITIES
     for capability in sorted(EXECUTION_CAPABILITIES):
         table = capability_engine_table(capability)
         assert table, f"{capability} canonicalizes through an EMPTY roster table"
@@ -328,7 +329,9 @@ def test_every_declared_venue_has_a_runtime_provider_label():
     from frisket.execution.definitions import build_static_targets
     from frisket.execution.runtime_binding import _provider_for_target
 
-    for target in build_static_targets():
+    targets = list(build_static_targets())
+    assert targets
+    for target in targets:
         assert _provider_for_target(target.id, target.operator)
 
 

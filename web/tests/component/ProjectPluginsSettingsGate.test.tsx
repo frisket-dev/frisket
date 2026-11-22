@@ -6,7 +6,7 @@
 // runtime layout while keeping lifecycle management hidden.
 
 import '@testing-library/jest-dom/vitest';
-import { cleanup, screen, waitFor } from '@testing-library/react';
+import { cleanup, fireEvent, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import type { ProjectInfo } from '../../src/api/types';
@@ -29,6 +29,8 @@ import { createWorkspaceTestHarness } from '../support/workspaceTestHarness';
 
 const api = createProjectApi('test-project');
 const getWorkbenchPluginRuntimeIndex = vi.spyOn(api, 'getWorkbenchPluginRuntimeIndex');
+const getWorkbenchPluginSettings = vi.spyOn(api, 'getWorkbenchPluginSettings');
+const patchWorkbenchPluginSettings = vi.spyOn(api, 'patchWorkbenchPluginSettings');
 const getProjectSecrets = vi.spyOn(api, 'getProjectSecrets');
 const { render } = createWorkspaceTestHarness({
   projectId: 'test-project',
@@ -100,6 +102,96 @@ describe('ProjectPluginsSettings gate (fail closed)', () => {
 
     expect(await screen.findByText('Plugin management is not available on this server.')).toBeInTheDocument();
     expect(getWorkbenchPluginRuntimeIndex).not.toHaveBeenCalled();
+  });
+
+  it('renders typed plugin options, saves updates, and disables read-only options', async () => {
+    vi.mocked(apiModule.getRuntimeConfig).mockResolvedValue({
+      cache_mode: 'replay',
+      live_calls_possible: true,
+      cache_mode_editable: false,
+      email_from_address: null,
+      email_from_name: null,
+      plugins_available: true,
+      plugin_management_available: true,
+    } as Awaited<ReturnType<typeof apiModule.getRuntimeConfig>>);
+    getWorkbenchPluginRuntimeIndex.mockResolvedValue({
+      schemaVersion: 'frisket.workbench_plugin_runtime_index.v1',
+      projectId: 'test-project',
+      arbitraryPackageLoadAllowed: false,
+      receiptScanLimit: 50,
+      skippedInvalidReceipts: 0,
+      skippedInvalidManifestRefs: 0,
+      loadedPluginCount: 1,
+      firstParty: { schemaVersion: 'frisket.workbench_descriptor_package.v1', descriptors: [] },
+      plugins: [
+        {
+          schemaVersion: 'frisket.workbench_plugin_runtime_plugin.v1',
+          pluginId: 'demo.env_settings',
+          version: '1.0.0',
+          installState: 'enabled',
+          activation: 'registryManifestRegistered',
+          runtimeSource: 'plugin.load_receipt',
+          receiptId: 'receipt-demo',
+          manifestSha256: 'manifest-sha',
+          packageSha256: 'package-sha',
+          byteCount: 100,
+          source: { kind: 'localPath', value: '/plugins/demo' },
+          contributionSummary: [],
+          frontendComponentBindings: [],
+          requires: { capabilities: [], secrets: [] },
+          arbitraryPackageLoadAllowed: false,
+          registryActivated: true,
+          installStateSchemaVersion: 'frisket.workbench_plugin_install_state.v1',
+          disabledReason: null,
+        },
+      ],
+    });
+    const mutableSettings = {
+      schemaVersion: 'frisket.workbench_plugin_settings.v1' as const,
+      projectId: 'test-project',
+      pluginId: 'demo.env_settings',
+      canMutate: true,
+      settings: [
+        {
+          id: 'demo.env_settings.mode',
+          title: 'Mode',
+          type: 'enum' as const,
+          description: null,
+          defaultValue: 'summary',
+          effectiveValue: 'summary',
+          source: 'default' as const,
+          enum: ['summary', 'detail'],
+          min: null,
+          max: null,
+          readOnly: false,
+        },
+      ],
+    };
+    getWorkbenchPluginSettings.mockResolvedValueOnce(mutableSettings);
+    patchWorkbenchPluginSettings.mockResolvedValue({
+      ...mutableSettings,
+      settings: [{ ...mutableSettings.settings[0], effectiveValue: 'detail', source: 'project' }],
+    });
+
+    const { unmount } = render(<ProjectPluginsSettings identityMode={false} project={OWNER} />);
+
+    const select = await screen.findByTestId('plugin-option-demo.env_settings.mode');
+    fireEvent.change(select, { target: { value: 'detail' } });
+    fireEvent.click(screen.getByTestId('plugin-option-save-demo.env_settings.mode'));
+    await waitFor(() => expect(patchWorkbenchPluginSettings).toHaveBeenCalledWith(
+      'demo.env_settings',
+      { 'demo.env_settings.mode': 'detail' },
+    ));
+    unmount();
+
+    getWorkbenchPluginSettings.mockResolvedValueOnce({
+      ...mutableSettings,
+      canMutate: false,
+      settings: [{ ...mutableSettings.settings[0], readOnly: true }],
+    });
+    render(<ProjectPluginsSettings identityMode={false} project={OWNER} />);
+    expect(await screen.findByTestId('plugin-option-demo.env_settings.mode')).toBeDisabled();
+    expect(screen.getByTestId('plugin-option-save-demo.env_settings.mode')).toBeDisabled();
   });
 });
 

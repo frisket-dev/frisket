@@ -276,7 +276,9 @@ def test_scratch_compare_response_models_keep_exact_schema_versions_and_nulls() 
 
 
 def test_scratch_compare_response_models_keep_typed_core_and_json_extensions() -> None:
-    for model, payload in _valid_scratch_compare_payloads():
+    cases = list(_valid_scratch_compare_payloads())
+    assert cases
+    for model, payload in cases:
         assert model.model_validate(payload).model_dump(exclude_unset=True) == payload
 
 

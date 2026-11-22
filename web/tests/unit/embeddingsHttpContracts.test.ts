@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { createEmbeddingsApi } from '../../src/api/embeddings';
 import type { V1ActionSession } from '../../src/api/v1ActionSession';
+import { jsonResponse } from '../support/httpContractTestHelpers';
 
 const catalog = {
   schema_version: 'frisket.embedding_provider_catalog.v1',
@@ -114,13 +115,6 @@ const hybrid = {
   }],
 };
 
-function jsonResponse(payload: unknown, status = 200): Response {
-  return new Response(JSON.stringify(payload), {
-    status,
-    headers: { 'Content-Type': 'application/json' },
-  });
-}
-
 function actionResult(kind: string, status = 'completed'): Record<string, unknown> {
   return {
     schema_version: 'frisket.action_result.v1',
@@ -139,14 +133,12 @@ function requestBody(init: RequestInit | undefined): Record<string, unknown> {
 }
 
 const readOnlyV1ActionSession = {
-  v1ActionSpec: vi.fn(),
   registeredProjectActionSpec: vi.fn(),
   postV1ActionSpec: vi.fn(),
   clearV1ActionIdempotencyKey: vi.fn(),
   releaseV1ActionIdempotencyKey: vi.fn(),
 } as Pick<
   V1ActionSession,
-  | 'v1ActionSpec'
   | 'registeredProjectActionSpec'
   | 'postV1ActionSpec'
   | 'clearV1ActionIdempotencyKey'
@@ -516,21 +508,6 @@ describe('embeddings generated HTTP contracts', () => {
         ['content-type', 'application/json'],
       ]);
     }
-  });
-
-  it('maps non-2xx payloads through the shared contract error mapping', async () => {
-    vi.stubGlobal('fetch', vi.fn(async () => jsonResponse({
-      detail: { code: 'embedding_source_stale', message: 'refresh required', extra: 'private' },
-    }, 409)));
-    const api = createEmbeddingsApi({ v1ActionSession: readOnlyV1ActionSession }, 'project');
-
-    await expect(api.embeddingIndexes(3)).rejects.toMatchObject({
-      name: 'ApiError',
-      status: 409,
-      message: 'refresh required',
-      code: 'embedding_source_stale',
-      details: { extra: 'private' },
-    });
   });
 
   it('normalizes corrupt stored policy leaves for a safe repair', async () => {

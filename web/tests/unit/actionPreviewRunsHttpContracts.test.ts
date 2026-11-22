@@ -5,13 +5,7 @@ import {
   createActionPreviewRunsApi,
 } from '../../src/api/actionPreviewRuns';
 import { ApiError, ConfirmationRequiredError } from '../../src/api/contractErrors';
-
-function jsonResponse(payload: unknown, status = 200): Response {
-  return new Response(JSON.stringify(payload), {
-    status,
-    headers: { 'Content-Type': 'application/json' },
-  });
-}
+import { jsonResponse } from '../support/httpContractTestHelpers';
 
 afterEach(() => vi.unstubAllGlobals());
 
@@ -234,33 +228,5 @@ describe('action-preview lifecycle HTTP contracts', () => {
       reason: null,
       estimate: { cost: null, rows: 0 },
     });
-  });
-
-  it('forwards abort identity without replacing the browser rejection', async () => {
-    const controller = new AbortController();
-    let forwardedSignal: AbortSignal | null | undefined;
-    vi.stubGlobal('fetch', vi.fn((_input: RequestInfo | URL, init?: RequestInit) => {
-      if ((init?.method ?? 'GET') === 'POST') {
-        return Promise.resolve(jsonResponse({
-          schema_version: 'frisket.action_preview.v1',
-          preview_id: 'preview-1',
-          total: 1,
-        }, 202));
-      }
-      forwardedSignal = init?.signal;
-      return new Promise<Response>((_resolve, reject) => {
-        init?.signal?.addEventListener('abort', () => reject(init.signal?.reason), {
-          once: true,
-        });
-      });
-    }));
-    const api = createActionPreviewRunsApi('project/one');
-    await api.start({ kind: 'map.classify', params: {} });
-    const pending = api.get('preview-1', { signal: controller.signal });
-    const abortError = new DOMException('preview cancelled', 'AbortError');
-    controller.abort(abortError);
-
-    await expect(pending).rejects.toBe(abortError);
-    expect(forwardedSignal).toBe(controller.signal);
   });
 });

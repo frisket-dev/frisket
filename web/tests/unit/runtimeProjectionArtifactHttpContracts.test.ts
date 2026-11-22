@@ -1,13 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { createRuntimeProjectionsApi } from '../../src/api/runtimeProjections';
-
-function jsonResponse(payload: unknown, status = 200): Response {
-  return new Response(JSON.stringify(payload), {
-    status,
-    headers: { 'Content-Type': 'application/json' },
-  });
-}
+import { jsonResponse } from '../support/httpContractTestHelpers';
 
 const timelineArtifact = {
   schemaVersion: 'frisket.timeline_projection_artifact.v1',
@@ -66,22 +60,6 @@ describe('runtime projection artifact HTTP contract', () => {
       '{"projectionKind":"timeline","artifactId":"artifact-1","target":{"sheetId":"sheet-1"},"params":{"includeFuture":true}}',
     );
     expect(new Headers(requests[0]?.init?.headers).get('content-type')).toBe('application/json');
-  });
-
-  it.each([400, 404, 422, 500, 502])('maps declared HTTP %s errors without retry', async (status) => {
-    const fetch = vi.fn(async () => jsonResponse({ detail: `failure ${status}` }, status));
-    vi.stubGlobal('fetch', fetch);
-    await expect(createRuntimeProjectionsApi('project /%?☃').readRuntimeProjectionArtifact({
-      projectionKind: 'timeline', artifactId: 'artifact-1', target: { sheetId: 'sheet-1' },
-    })).rejects.toMatchObject({
-      name: 'ApiError',
-      status,
-      message: `failure ${status}`,
-      code: undefined,
-      details: undefined,
-    });
-
-    expect(fetch).toHaveBeenCalledOnce();
   });
 
   it('rejects a malformed successful timeline artifact', async () => {

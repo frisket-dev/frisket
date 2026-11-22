@@ -61,8 +61,7 @@ def test_spacy_availability_never_imports_spacy_module():
 
     was_present = "spacy" in sys.modules
     spacy_available(model="definitely-not-a-real-spacy-model-xyz")
-    if not was_present:
-        assert "spacy" not in sys.modules
+    assert ("spacy" in sys.modules) == was_present
 
 
 def test_spacy_unavailable_reports_install_hint_for_missing_library(monkeypatch):

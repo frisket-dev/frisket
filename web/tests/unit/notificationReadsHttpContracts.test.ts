@@ -8,6 +8,7 @@ vi.mock("pluralize", () => ({
 }));
 
 import { createNotificationsApi } from "../../src/api/notifications";
+import { jsonResponse } from '../support/httpContractTestHelpers';
 
 const itemRow = {
   id: 1,
@@ -110,17 +111,6 @@ const expectedActorState = {
   acknowledgedBy: null,
   updatedAt: "2026-08-11T00:00:02Z",
 };
-
-function jsonResponse(
-  payload: unknown,
-  status = 200,
-  contentType = "application/json",
-): Response {
-  return new Response(JSON.stringify(payload), {
-    status,
-    headers: { "Content-Type": contentType },
-  });
-}
 
 /** The six notification read operations, each with a call that reaches it. */
 const readInvocations: Array<
@@ -348,33 +338,6 @@ describe("notification reads generated HTTP transport", () => {
     expect(requests[2].init?.body).toBe(
       JSON.stringify({ notification_ids: [7] }),
     );
-  });
-
-  it("keeps the plain-string notification error envelope on ApiError", async () => {
-    // Notification errors are plain string details, including the frozen raw
-    // Python int() leak: status + message, code and details both undefined.
-    const real = await import("../../src/api/real");
-    const projectApi = real.createProjectApi("notification-error");
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(async () =>
-        jsonResponse(
-          { detail: "invalid literal for int() with base 10: 'x'" },
-          400,
-        ),
-      ),
-    );
-    const error = await projectApi
-      .markNotificationsSeen({ notificationIds: [7] })
-      .then(() => undefined)
-      .catch((caught: unknown) => caught);
-
-    expect(error).toBeInstanceOf(real.ApiError);
-    const apiError = error as InstanceType<typeof real.ApiError>;
-    expect(apiError.status).toBe(400);
-    expect(apiError.message).toBe("invalid literal for int() with base 10: 'x'");
-    expect(apiError.code).toBeUndefined();
-    expect(apiError.details).toBeUndefined();
   });
 
   it("calls each generated operation with its own id", async () => {

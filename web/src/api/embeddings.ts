@@ -21,7 +21,6 @@ import type { V1ActionSession, V1ActionResult } from './v1ActionSession';
 
 type EmbeddingsV1ActionSession = Pick<
   V1ActionSession,
-  | 'v1ActionSpec'
   | 'registeredProjectActionSpec'
   | 'postV1ActionSpec'
   | 'clearV1ActionIdempotencyKey'

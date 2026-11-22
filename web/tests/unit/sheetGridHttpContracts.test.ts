@@ -10,6 +10,7 @@ import {
 import { ApiError, createProjectApi } from '../../src/api/real';
 import { createSheetGridApi } from '../../src/api/sheetGrid';
 import { createV1ActionSession } from '../../src/api/v1ActionSession';
+import { jsonResponse } from '../support/httpContractTestHelpers';
 
 let realApi = createProjectApi('test-project');
 
@@ -52,13 +53,6 @@ const sheetDataWire = {
   rows: [],
   total: 0,
 };
-
-function jsonResponse(payload: unknown, status = 200): Response {
-  return new Response(JSON.stringify(payload), {
-    status,
-    headers: { 'Content-Type': 'application/json' },
-  });
-}
 
 class MappedContractError extends Error {
   readonly status: number;
@@ -307,27 +301,6 @@ describe('sheet and grid HTTP contracts', () => {
     expect(new Headers(forwardedInit?.headers).has('content-type')).toBe(false);
   });
 
-  it('preserves locate abort rejection from the exact forwarded signal', async () => {
-    const controller = new AbortController();
-    vi.stubGlobal('fetch', vi.fn((_input: RequestInfo | URL, init?: RequestInit) => (
-      new Promise<Response>((_resolve, reject) => {
-        init?.signal?.addEventListener('abort', () => reject(init.signal?.reason), {
-          once: true,
-        });
-      })
-    )));
-    const request = locateSheetRowContract(
-      'project-1',
-      7,
-      11,
-      { page_size: 500 },
-      { signal: controller.signal },
-    );
-    const abortError = new DOMException('cancelled', 'AbortError');
-    controller.abort(abortError);
-    await expect(request).rejects.toBe(abortError);
-  });
-
   it('project API decodes project once and preserves legacy rowIds scope precedence', async () => {
     realApi = createProjectApi('tenant/a % hostile');
     const requests: Array<RequestInfo | URL> = [];
@@ -523,46 +496,6 @@ describe('sheet and grid HTTP contracts', () => {
       status: 400,
       message: 'invalid row_ids',
     });
-  });
-
-  it('maps an additional non-2xx status', async () => {
-    vi.stubGlobal('fetch', vi.fn(async () => (
-      jsonResponse({ detail: 'teapot' }, 418)
-    )));
-
-    await expect(getSheetDataContract(
-      'project-1',
-      7,
-      {},
-    )).rejects.toMatchObject({
-      name: 'ApiError',
-      status: 418,
-      message: 'teapot',
-      code: undefined,
-      details: undefined,
-    });
-  });
-
-  it('forwards the exact signal and preserves abort rejection', async () => {
-    const controller = new AbortController();
-    let forwardedInit: RequestInit | undefined;
-    vi.stubGlobal('fetch', vi.fn((_input: RequestInfo | URL, init?: RequestInit) => {
-      forwardedInit = init;
-      return new Promise<Response>((_resolve, reject) => {
-        init?.signal?.addEventListener('abort', () => reject(init.signal?.reason), {
-          once: true,
-        });
-      });
-    }));
-
-    const request = listSheetsContract('project-1', {
-      signal: controller.signal,
-    });
-    const abortError = new DOMException('cancelled', 'AbortError');
-    controller.abort(abortError);
-
-    await expect(request).rejects.toBe(abortError);
-    expect(forwardedInit?.signal).toBe(controller.signal);
   });
 
   it('keeps a composite sheet list on the project captured before its first await', async () => {

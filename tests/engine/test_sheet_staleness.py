@@ -271,6 +271,7 @@ def test_ancestry_is_acyclic_by_construction(make_project) -> None:
     # ancestor. Assert the invariant holds on the built graph.
     rows = project.db.execute("SELECT id, parent_sheet_id FROM sheets").fetchall()
     parent_of = {int(r["id"]): r["parent_sheet_id"] for r in rows}
+    assert parent_of
     for sid in parent_of:
         seen = set()
         cur = sid

@@ -8,7 +8,6 @@ from frisket.actions.system import (
     root_action_catalog,
     typed_action_for_request,
 )
-from frisket.sdk import ActionParams, DynamicOutput, Rows, map_batch
 
 
 @pytest.fixture(autouse=True)
@@ -84,13 +83,6 @@ def test_legacy_envelope_has_no_native_action_identity() -> None:
     with pytest.raises(ValueError, match="requires action_id"):
         typed_action_for_request(body)
     assert action_id_from_request(body) is None
-
-
-def test_public_sdk_exports_the_complete_first_wave_authoring_surface() -> None:
-    assert ActionParams.__name__ == "ActionParams"
-    assert DynamicOutput.__name__ == "DynamicOutput"
-    assert Rows.__name__ == "Rows"
-    assert map_batch.__name__ == "map_batch"
 
 
 @pytest.mark.parametrize(

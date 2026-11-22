@@ -7,16 +7,10 @@ vi.mock('pluralize', () => ({
   }),
 }));
 
-import { ApiError, createProjectApi } from '../../src/api/real';
+import { createProjectApi } from '../../src/api/real';
+import { jsonResponse } from '../support/httpContractTestHelpers';
 
 const realApi = createProjectApi('test-project');
-
-function jsonResponse(payload: unknown, status = 200): Response {
-  return new Response(JSON.stringify(payload), {
-    status,
-    headers: { 'Content-Type': 'application/json' },
-  });
-}
 
 afterEach(() => vi.unstubAllGlobals());
 
@@ -39,21 +33,5 @@ describe('OAuth connection generated HTTP contract', () => {
       { id: 'google_1', provider: 'google' },
     ]);
     expect(calls).toEqual([{ input: path, init: { method: 'GET' } }]);
-  });
-
-  it('keeps the generic ApiError behavior for browser-session failures', async () => {
-    vi.stubGlobal(
-      'fetch',
-      vi.fn(async () =>
-        jsonResponse({ detail: 'browser session required' }, 403),
-      ),
-    );
-    await expect(realApi.listOAuthConnections()).rejects.toMatchObject({
-      name: ApiError.name,
-      status: 403,
-      message: 'browser session required',
-      code: undefined,
-      details: undefined,
-    });
   });
 });

@@ -395,9 +395,9 @@ def _candidate_facts(promise) -> list[dict]:
 @pytest.mark.parametrize("name,route,cost", _GOLDEN_INPUTS)
 def test_every_user_claim_discriminates(name, route, cost):
     ps = compile_route_promises(route, cost)
-    for promise in ps.promises:
-        if promise.audience != "user_claim":
-            continue
+    assert ps.promises, f"{name}: route compiled with no promises"
+    user_claims = [p for p in ps.promises if p.audience == "user_claim"]
+    for promise in user_claims:
         if promise.op == "unbounded":
             # The deliberate exception: unbounded promises nothing (no
             # binding can violate it); its presence is the consent claim.

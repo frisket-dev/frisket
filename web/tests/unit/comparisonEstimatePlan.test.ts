@@ -18,7 +18,7 @@ const context: ActionComparisonContext = {
   locked_params: [],
   source_columns: [],
   source_rows: {},
-  output_columns: [],
+  generated_columns: [],
   expected_output_signature: 'signature',
   replacement_targets: [],
   baseline_rows: null,

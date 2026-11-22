@@ -73,9 +73,9 @@ def test_nonblank_context_rejected_on_every_non_llm_engine():
     # a nonblank context on those engines is accept-and-ignore — identity
     # and receipt provenance change with no behavior change. Fenced per
     # engine, fail-closed.
-    for engine in TRANSLATE_ENGINES:
-        if engine == "llm":
-            continue
+    non_llm = [engine for engine in TRANSLATE_ENGINES if engine != "llm"]
+    assert non_llm
+    for engine in non_llm:
         overrides: dict = {"engine": engine, "model": "", "context": "tariff rows"}
         if engine == "opus_mt":
             overrides["language"] = ["es"]

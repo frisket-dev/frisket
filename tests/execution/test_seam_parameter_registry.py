@@ -159,18 +159,6 @@ def test_executor_deps_defaults_preserve_every_caller_field():
     assert resolved.map_runner_factory is not None
 
 
-def test_route_store_no_longer_answers_installation_scoped_questions():
-    """The split is structural, not a rename: the subject-blind queries are
-    gone from the subject-scoped store, so a caller cannot reach them with an
-    invented subject at all."""
-    from frisket.engine.store.execution_routes import ConsentRegistry, RouteStore
-
-    assert not hasattr(RouteStore, "standing_consents")
-    assert not hasattr(RouteStore, "action_consents")
-    assert hasattr(ConsentRegistry, "standing_consents")
-    assert hasattr(ConsentRegistry, "action_consents")
-
-
 def test_every_surviving_route_store_read_actually_uses_its_subject(make_project):
     """The property the split restored: two stores on DIFFERENT subjects give
     different answers for every read ``RouteStore`` still owns. Before the

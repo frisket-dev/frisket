@@ -389,18 +389,6 @@ class _QueuedActionInventoryEntry:
     finalize_action: Callable[..., ActionResult] | None = None
 
 
-def _group_label_from_output_intent(action: _ActionExecutionEnvelope) -> str | None:
-    for intent in getattr(action, "output_intent", ()):
-        if not isinstance(intent, dict):
-            continue
-        if intent.get("kind") != "column_group":
-            continue
-        label = intent.get("group_label")
-        if isinstance(label, str) and label.strip():
-            return label.strip()
-    return None
-
-
 def _replace_existing_from_output_intent(action: _ActionExecutionEnvelope) -> bool:
     """True when the caller declared an ``overwrite_existing`` output intent:
     the runner then reuses a colliding generated column instead of rejecting."""
@@ -431,9 +419,6 @@ def _apply_action_envelope_to_runner_spec(
             runner_spec["row_ids"] = list(selector.membership.row_ids)
         else:
             runner_spec.pop("row_ids", None)
-    group_label = _group_label_from_output_intent(action)
-    if group_label is not None:
-        runner_spec["group_label"] = group_label
     if _replace_existing_from_output_intent(action):
         runner_spec["overwrite"] = True
     return runner_spec

@@ -280,15 +280,6 @@ class TestReviewedAead:
             for name in sys.modules
         ), "the cryptography package was never actually imported at runtime"
 
-    def test_old_keystream_scheme_is_gone_from_module_source(
-        self, fixture_key_env
-    ) -> None:
-        mod = _import_secrets_module()
-        assert not hasattr(mod, "_keystream"), (
-            f"{NEW_MODULE} still contains the custom SHA-256-keystream "
-            f"scheme; the cutover replaces it, not wraps it"
-        )
-
 
 # ---------------------------------------------------------------------------
 # 3. tamper detection

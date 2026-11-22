@@ -24,11 +24,11 @@ from pydantic import BaseModel, JsonValue, ValidationError
 
 from frisket.contracts.http.endpoint_catalog import BASE_ENDPOINT_CATALOG
 from frisket.contracts.http.models import HttpError, WireModel
-from frisket.server.app import create_app
-from frisket.server.notifications.service import (
+from frisket.contracts.http.notifications import (
     NOTIFICATION_PAGE_SCHEMA_VERSION,
     NOTIFICATION_SUMMARY_SCHEMA_VERSION,
 )
+from frisket.server.app import create_app
 
 
 _CONTRACT_MODULE = "frisket.contracts.http.notifications"

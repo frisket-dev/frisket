@@ -212,6 +212,7 @@ def _params_model():
 def test_every_declared_engine_validates_through_the_params_model():
     from frisket.contracts.action import TO_MARKDOWN_SYMBOLIC_ENGINES
 
+    assert TO_MARKDOWN_SYMBOLIC_ENGINES
     for engine in sorted(TO_MARKDOWN_SYMBOLIC_ENGINES):
         params = _params_model().model_validate({"source": "doc", "engine": engine})
         assert params.model_dump(mode="json")["engine"] == engine
@@ -221,7 +222,9 @@ def test_every_catalog_advertised_engine_validates_through_the_params_model():
     """The picker renders the catalog roster, so every advertised id must
     clear contract validation rather than bounce with
     invalid_to_markdown_engine."""
-    for entry in _to_markdown_engines():
+    entries = _to_markdown_engines()
+    assert entries
+    for entry in entries:
         params = _params_model().model_validate(
             {"source": "doc", "engine": entry["id"]}
         )
@@ -317,6 +320,7 @@ def test_catalog_roster_carries_every_listed_table_engine_with_its_label():
     from frisket.contracts.actions.schemas._engines import TO_MARKDOWN_ENGINE_TABLE
 
     by_id = {e["id"]: e for e in _to_markdown_engines()}
+    assert TO_MARKDOWN_ENGINE_TABLE
     for decl in TO_MARKDOWN_ENGINE_TABLE:
         if not decl.listed:
             assert decl.id not in by_id

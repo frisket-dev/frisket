@@ -48,6 +48,7 @@ def test_helper_entry_shape():
         "pricing",
         "privacy",
     }
+    assert payload["providers"]
     for p in payload["providers"]:
         assert required <= set(p), p.get("model_id")
 

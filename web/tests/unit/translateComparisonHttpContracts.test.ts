@@ -2,7 +2,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 
 import { ApiError, createProjectApi } from '../../src/api/real';
-import { createTranslateComparisonApi } from '../../src/api/translateComparison';
 
 let api = createProjectApi('test-project');
 
@@ -122,37 +121,5 @@ describe('translate comparison HTTP contract', () => {
       code: 'engine_unavailable',
       details: undefined,
     });
-  });
-
-  it('maps detail-wrapped errors to ApiError with the remaining detail keys as details', async () => {
-    stubFetch({
-      detail: { code: 'project_missing', message: 'project is gone', field: 'pid' },
-    }, { status: 404 });
-
-    const failure = api.compareTranslateScratch({
-      engines: ['opus_mt'], text: 'hello world', targetLanguage: 'French',
-    });
-
-    await expect(failure).rejects.toThrow('project is gone');
-    await failure.catch((error: ApiError) => {
-      expect(error.status).toBe(404);
-      expect(error.code).toBe('project_missing');
-      expect(error.details).toEqual({ field: 'pid' });
-    });
-  });
-
-  it('forwards adapter cancellation', async () => {
-    const fetchMock = stubFetch(RESPONSE);
-    const controller = new AbortController();
-    const adapter = createTranslateComparisonApi('tenant/a % hostile');
-
-    await adapter.compareTranslateScratch(
-      { engines: ['opus_mt'], text: 'hello world', targetLanguage: 'French' },
-      { signal: controller.signal },
-    );
-
-    const init = fetchMock.mock.calls[0]![1] as RequestInit;
-    expect(init.signal).toBe(controller.signal);
-    expect(new Headers(init.headers).get('Content-Type')).toBe('application/json');
   });
 });

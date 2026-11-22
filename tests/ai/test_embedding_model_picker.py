@@ -97,9 +97,13 @@ def test_catalog_numbers_are_sourced_from_fastembed_not_invented():
     from fastembed import TextEmbedding
 
     src = {m["model"]: m for m in TextEmbedding.list_supported_models()}
-    for cap in embedding_capabilities(local_available=True):
-        if cap["provider_id"] != "fastembed" or "text" not in cap["modalities"]:
-            continue
+    curated = [
+        cap
+        for cap in embedding_capabilities(local_available=True)
+        if cap["provider_id"] == "fastembed" and "text" in cap["modalities"]
+    ]
+    assert curated
+    for cap in curated:
         mid = _FASTEMBED_ALIASES.get(cap["model_id"], cap["model_id"])
         ref = src.get(mid)
         assert ref is not None, f"{cap['model_id']} is not a real fastembed model"
