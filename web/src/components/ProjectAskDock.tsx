@@ -25,6 +25,7 @@ import { AskResearchSettings } from './project-ask/AskResearchSettings';
 import { inlineMarkerIndexes } from './project-ask/inlineReferences';
 import { SkillReviewDialog } from './project-ask/SkillReviewDialog';
 import { askSkillProposal, resolveAskSkillProposal, skillProposalTarget, type AskSkillProposal } from './project-ask/skillProposal';
+import { useWalkthroughFiller } from '../walkthrough/context';
 import './ProjectAskDock.css';
 
 function pendingResearchPause(value: unknown): AskResearchPendingPause | null {
@@ -152,6 +153,12 @@ export function ProjectAskDock({ initialScope, sheets, onClose, onInspectProposa
     qa.setOptions({ model: requestModel });
     void qa.send();
   };
+  useWalkthroughFiller('project-ask', (spec) => {
+    if (spec.kind !== 'project-ask') return false;
+    qa.setOptions({ scope: { kind: 'project' } });
+    qa.setDraft(spec.question);
+    return true;
+  });
   const resizeComposer = useCallback(() => {
     const textarea = textareaRef.current;
     if (!textarea) return;
@@ -232,7 +239,7 @@ export function ProjectAskDock({ initialScope, sheets, onClose, onInspectProposa
       </div>
       {state.scope && !scopeMatchesCurrentView && <div className="ask-scope-mismatch"><span>Viewing {currentViewLabel}</span><button type="button" onClick={() => qa.setOptions({ scope: initialScope })}>{contextIsSelection ? 'Use current selection' : 'Use this sheet'}</button></div>}
       <div className="ask-compose-box">
-        <textarea ref={textareaRef} rows={1} aria-label="Question" placeholder={state.thread ? 'Follow up in this conversation…' : 'Ask about your project…'} value={state.draft} onChange={(event) => qa.setDraft(event.target.value)}
+        <textarea ref={textareaRef} rows={1} data-testid="ask-composer-input" aria-label="Question" placeholder={state.thread ? 'Follow up in this conversation…' : 'Ask about your project…'} value={state.draft} onChange={(event) => qa.setDraft(event.target.value)}
           onKeyDown={(event) => { if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing && !state.activeTurn && canSend) { event.preventDefault(); send(); } }} />
         <div className="ask-compose-controls">
           <button type="button" className="ask-options-trigger" ref={optionsTriggerRef} data-testid="ask-options-trigger" aria-label="Ask options" title="Ask options" aria-haspopup="dialog" aria-expanded={optionsOpen} onClick={() => setOptionsOpen((open) => !open)}><Plus size={16} aria-hidden /></button>
@@ -253,7 +260,7 @@ export function ProjectAskDock({ initialScope, sheets, onClose, onInspectProposa
             />
           </MenuPop>
           {state.activeTurn ? <button type="button" disabled={state.activeTurn.status === 'stopping'} onClick={() => void qa.stop()}><Square size={14} />Stop</button>
-            : <button type="button" disabled={!canSend} onClick={send}><Send size={14} />Send</button>}
+            : <button type="button" data-testid="ask-send-button" disabled={!canSend} onClick={send}><Send size={14} />Send</button>}
         </div>
       </div>
     </div>

@@ -17,6 +17,8 @@ from frisket.server.services.sample_project import (
     SAMPLE_CONTRACTS_SHEET_NAME,
     SAMPLE_DOCKET_SHEET_NAME,
     SAMPLE_FILINGS_SHEET_NAME,
+    SAMPLE_FOREIGN_REGISTRY_ROWS,
+    SAMPLE_FOREIGN_REGISTRY_SHEET_NAME,
     SAMPLE_LAWSUIT_ROWS,
     SAMPLE_LOCAL_MODEL_LAB_ROWS,
     SAMPLE_SMALL_MODEL_LAB_SHEET_NAME,
@@ -107,7 +109,8 @@ def test_sample_search_reports_the_sheets_that_can_be_prepared(
     assert batch["status"] == "needs_consent"
     assert batch["jobs"] == []
     assert batch["groups"] == [
-        {"kind": "native_pdf", "count": SAMPLE_LAWSUIT_ROWS, "status": "needs_consent"}
+        {"kind": "native_pdf", "count": 4, "status": "needs_consent"},
+        {"kind": "ocr", "count": 2, "status": "needs_consent"},
     ]
     decided = client.post(
         f"/api/projects/{pid}/search-preparation/{batch['id']}/decision",
@@ -119,7 +122,8 @@ def test_sample_search_reports_the_sheets_that_can_be_prepared(
     )
     assert decided.status_code == 200, decided.text
     assert decided.json()["groups"] == [
-        {"kind": "native_pdf", "count": SAMPLE_LAWSUIT_ROWS, "status": "queued"}
+        {"kind": "native_pdf", "count": 4, "status": "queued"},
+        {"kind": "ocr", "count": 2, "status": "planning"},
     ]
 
 
@@ -171,14 +175,17 @@ def test_seed_sample_second_call_reuses_existing_sheet_no_duplicate(
     assert len(filings) == 1
     assert docket[0]["rows"] == SAMPLE_LAWSUIT_ROWS
     assert filings[0]["rows"] == SAMPLE_LAWSUIT_ROWS
-    assert len(meetings) == 1
+    # Council meetings is reserved for the standalone council-recordings guide sample.
+    assert len(meetings) == 0
     assert len(audio) == 1
-    assert meetings[0]["rows"] == SAMPLE_COUNCIL_AUDIO_ROWS
     assert audio[0]["rows"] == SAMPLE_COUNCIL_AUDIO_ROWS
+    assert SAMPLE_MULTILINGUAL_SHEET_NAME == SAMPLE_FOREIGN_REGISTRY_SHEET_NAME
+    assert SAMPLE_MULTILINGUAL_ROWS == SAMPLE_FOREIGN_REGISTRY_ROWS == 12
     assert len(multilingual) == 1
-    assert multilingual[0]["rows"] == SAMPLE_MULTILINGUAL_ROWS
+    assert multilingual[0]["rows"] == SAMPLE_FOREIGN_REGISTRY_ROWS
     assert len(agency_payments) == 1
     assert agency_payments[0]["rows"] == SAMPLE_AGENCY_PAYMENT_ROWS
+    assert len(sheets) == 8
 
     agency_data = client.get(
         f"/api/projects/{pid}/sheets/{agency_payments[0]['id']}/data?offset=0&limit=20"
@@ -302,10 +309,13 @@ def test_seed_sample_third_call_still_idempotent(tmp_path: Path) -> None:
     assert len([s for s in sheets if s["name"] == SAMPLE_DOCKET_SHEET_NAME]) == 1
     assert len([s for s in sheets if s["name"] == SAMPLE_FILINGS_SHEET_NAME]) == 1
     assert (
-        len([s for s in sheets if s["name"] == SAMPLE_COUNCIL_MEETINGS_SHEET_NAME]) == 1
+        len([s for s in sheets if s["name"] == SAMPLE_COUNCIL_MEETINGS_SHEET_NAME]) == 0
     )
     assert len([s for s in sheets if s["name"] == SAMPLE_COUNCIL_AUDIO_SHEET_NAME]) == 1
-    assert len([s for s in sheets if s["name"] == SAMPLE_MULTILINGUAL_SHEET_NAME]) == 1
+    assert (
+        len([s for s in sheets if s["name"] == SAMPLE_FOREIGN_REGISTRY_SHEET_NAME]) == 1
+    )
+    assert len(sheets) == 8
     assert (
         len([s for s in sheets if s["name"] == SAMPLE_AGENCY_PAYMENTS_SHEET_NAME]) == 1
     )

@@ -23,11 +23,15 @@ function instructionText(instruction: WalkthroughInstruction): string {
   return `${instruction.lead} ${instruction.code}${instruction.explanation ? ` ${instruction.explanation}` : ''}`;
 }
 
-test('Combine values walkthrough cleans agency names and repairs their counts', async ({
+test('Combine values walkthrough clusters, combines agency names, verifies counts, and joins to Contracts', async ({
   page,
 }, testInfo) => {
   const completedSteps: string[] = [];
-  const walkthroughStep = async (id: string, body: () => Promise<void>) => {
+  const walkthroughStep = async (
+    id: string,
+    body: () => Promise<void>,
+    options: { advancedByFill?: boolean } = {},
+  ) => {
     const step = COMBINE_VALUES_WALKTHROUGH.steps.find((candidate) => candidate.id === id);
     if (!step) throw new Error(`Unknown Combine values walkthrough step: ${id}`);
     expect(step).toBe(COMBINE_VALUES_WALKTHROUGH.steps[completedSteps.length]);
@@ -43,7 +47,7 @@ test('Combine values walkthrough cleans agency names and repairs their counts', 
         path: testInfo.outputPath(`${String(completedSteps.length + 1).padStart(2, '0')}-${id}.png`),
       });
       await body();
-      if (step.advance === 'next-button') {
+      if (step.advance === 'next-button' && !options.advancedByFill) {
         await card.getByRole('button', {
           name: completedSteps.length === COMBINE_VALUES_WALKTHROUGH.steps.length - 1
             ? 'Finish'
@@ -78,14 +82,30 @@ test('Combine values walkthrough cleans agency names and repairs their counts', 
   await walkthroughStep('choose-raw-agency-facet', async () => {
     await expect(page.getByTestId('friendly-facet-agency')).toContainText('12 values');
   });
-  await walkthroughStep('review-fragmented-counts', async () => {
-    const values = page.getByTestId('facet-values-agency');
-    await expect(values.locator('.friendly-checkbox-row')).toHaveCount(12);
-    await expect(values).toContainText('Public Works Dept.');
-    await expect(values).toContainText('PUBLIC WORKS DEPARTMENT');
-    await expect(values).toContainText('Riverton Water Authority');
+  await walkthroughStep('open-transform-cluster', async () => {
+    await page.getByTestId('ribbon-tab-transform').click();
+    await expect(page.getByTestId('ribbon-action-cluster.values')).toBeVisible();
   });
-  await walkthroughStep('open-transform', async () => {
+  await walkthroughStep('open-cluster-values', async () => {
+    await page.getByTestId('ribbon-action-cluster.values').click();
+    await expect(page.getByTestId('cluster-review-form')).toBeVisible();
+  });
+  await walkthroughStep('configure-cluster', async () => {
+    await page.getByTestId('walkthrough-fill-for-me').click();
+    await expect(page.getByTestId('cluster-column-select')).toHaveValue('agency');
+    await expect(page.getByTestId('cluster-method-select')).toHaveValue('fingerprint');
+  }, { advancedByFill: true });
+  await walkthroughStep('preview-clusters', async () => {
+    await page.getByTestId('cluster-preview-button').click();
+    await expect(page.getByTestId('cluster-card')).toHaveCount(3, { timeout: 15_000 });
+  });
+  await walkthroughStep('apply-clusters', async () => {
+    await page.getByTestId('cluster-commit-button').click();
+    await expect(page.getByTestId('action-drawer')).toHaveCount(0, { timeout: 15_000 });
+    await expect(page.getByTestId('grid-column-agency_canonical')).toBeVisible({ timeout: 20_000 });
+  });
+
+  await walkthroughStep('open-transform-combine', async () => {
     await page.getByTestId('ribbon-tab-transform').click();
     await expect(page.getByTestId('ribbon-action-resolve.combine')).toBeVisible();
   });
@@ -102,59 +122,23 @@ test('Combine values walkthrough cleans agency names and repairs their counts', 
     }
   };
 
-  await walkthroughStep('choose-agency-column', async () => {
-    await form.getByTestId('resolve-combine-column-select').selectOption('agency');
+  await walkthroughStep('choose-agency-canonical', async () => {
+    await page.getByTestId('walkthrough-fill-for-me').click();
+    await expect(form.getByTestId('resolve-combine-column-select')).toHaveValue('agency_canonical');
     await expect(unassigned.getByTestId('resolve-value-row').first()).toBeVisible();
-  });
-  await walkthroughStep('notice-exact-values', async () => {
-    await expect(form.getByTestId('resolve-combine-exact-note')).toContainText(
-      'including case and spaces',
-    );
-    await expect(form.getByTestId('resolve-value-ws')).toHaveCount(2);
-  });
-  await walkthroughStep('select-public-works', async () => {
-    await selectValues([
-      'Public Works Department',
-      'Public Works Dept.',
-      'PUBLIC WORKS DEPARTMENT',
-      ' Public Works Department',
-      'Public Works Department ',
-    ]);
-  });
-  await walkthroughStep('group-public-works', async () => {
+  }, { advancedByFill: true });
+  await walkthroughStep('group-editorial-variants', async () => {
+    await selectValues(['Public Works Department', 'Public Works Dept.']);
     await form.getByTestId('resolve-combine-new-bucket').click();
-    await expect(form.getByTestId('resolve-combine-bucket')).toHaveCount(1);
-    await expect(form.getByTestId('resolve-group-canonical-input')).toHaveValue(
-      'Public Works Department',
-    );
-  });
-  await walkthroughStep('select-water-authority', async () => {
-    await selectValues(['Water Authority', 'Riverton Water Authority', 'water authority']);
-  });
-  await walkthroughStep('group-water-authority', async () => {
+    await selectValues(['Water Authority', 'Riverton Water Authority']);
     await form.getByTestId('resolve-combine-new-bucket').click();
-    await expect(form.getByTestId('resolve-combine-bucket')).toHaveCount(2);
-  });
-  await walkthroughStep('select-transit-authority', async () => {
-    await selectValues(['Transit Authority', 'Riverton Transit Authority', 'Transit authority']);
-  });
-  await walkthroughStep('group-transit-authority', async () => {
+    await selectValues(['Transit Authority', 'Riverton Transit Authority']);
     await form.getByTestId('resolve-combine-new-bucket').click();
-    await expect(form.getByTestId('resolve-footer-summary')).toHaveText(
-      '11 → 3 groups · 1 kept · 16 rows',
-    );
-  });
-  await walkthroughStep('keep-unmatched-values', async () => {
-    await expect(form.getByTestId('resolve-combine-remainder-policy')).toHaveValue('keep');
+    await expect(form.getByTestId('resolve-combine-bucket')).toHaveCount(3);
   });
   await walkthroughStep('apply-agency-groups', async () => {
     await page.getByTestId('resolve-apply').click();
     await expect(page.getByTestId('action-drawer')).toHaveCount(0, { timeout: 15_000 });
-  });
-  await walkthroughStep('review-clean-column', async () => {
-    const cleanColumn = page.getByTestId('grid-column-agency_clean');
-    await cleanColumn.scrollIntoViewIfNeeded();
-    await expect(cleanColumn).toBeVisible({ timeout: 20_000 });
     await expect
       .poll(async () => {
         const data = await sheetData(page.request, pid, agencyPayments!.id);
@@ -194,6 +178,27 @@ test('Combine values walkthrough cleans agency names and repairs their counts', 
     await expect(values.locator('.friendly-checkbox-row').filter({ hasText: 'Water Authority' })).toContainText('4');
     await expect(values.locator('.friendly-checkbox-row').filter({ hasText: 'Transit Authority' })).toContainText('4');
     await expect(values.locator('.friendly-checkbox-row').filter({ hasText: 'Parks Department' })).toContainText('2');
+  });
+  await walkthroughStep('open-tables-spend', async () => {
+    await page.getByTestId('ribbon-tab-tables').click();
+    await expect(page.getByTestId('ribbon-action-derive.join')).toBeVisible();
+  });
+  await walkthroughStep('open-join-contracts', async () => {
+    await page.getByTestId('ribbon-action-derive.join').click();
+    await expect(page.getByTestId('tabular-join-form')).toBeVisible();
+  });
+  await walkthroughStep('configure-agency-join', async () => {
+    await expect(page.getByTestId('field-join_right_sheet')).toBeEnabled({ timeout: 10_000 });
+    await page.getByTestId('walkthrough-fill-for-me').click();
+    await expect(page.getByTestId('field-sheet_name')).toHaveValue('Agency spend with contracts');
+  }, { advancedByFill: true });
+  await walkthroughStep('run-agency-join', async () => {
+    await expect(page.getByTestId('generated-action-run')).toBeEnabled({ timeout: 10_000 });
+    await page.getByTestId('generated-action-run').click();
+    await expect(page.getByTestId('action-drawer')).toHaveCount(0, { timeout: 15_000 });
+  });
+  await walkthroughStep('review-agency-spend', async () => {
+    await expect(page.getByTestId('grid')).toBeVisible();
   });
 
   expect(completedSteps).toEqual(COMBINE_VALUES_WALKTHROUGH.steps.map((step) => step.id));

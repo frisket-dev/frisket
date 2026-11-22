@@ -188,7 +188,11 @@ test('local-model walkthrough connects a named endpoint, succeeds simply, and ex
   const endpointIdsToDelete: string[] = [];
   try {
     const completedSteps: string[] = [];
-    const walkthroughStep = async (id: string, body: () => Promise<void>) => {
+    const walkthroughStep = async (
+      id: string,
+      body: () => Promise<void>,
+      options: { advancedByFill?: boolean } = {},
+    ) => {
       const step = LOCAL_MODEL_LAB_WALKTHROUGH.steps.find((candidate) => candidate.id === id);
       if (!step) throw new Error(`Unknown local-model walkthrough step: ${id}`);
       expect(step).toBe(LOCAL_MODEL_LAB_WALKTHROUGH.steps[completedSteps.length]);
@@ -225,7 +229,7 @@ test('local-model walkthrough connects a named endpoint, succeeds simply, and ex
           path: testInfo.outputPath(`${String(completedSteps.length + 1).padStart(2, '0')}-${id}.png`),
         });
         await body();
-        if (step.advance === 'next-button') {
+        if (step.advance === 'next-button' && !options.advancedByFill) {
           await card.getByRole('button', {
             name: completedSteps.length === LOCAL_MODEL_LAB_WALKTHROUGH.steps.length - 1
               ? 'Finish'
@@ -273,23 +277,6 @@ test('local-model walkthrough connects a named endpoint, succeeds simply, and ex
     await walkthroughStep('inspect-easy-notices', async () => {
       await expect(page.getByTestId('grid-column-easy_notice')).toBeVisible();
       await expect(page.getByTestId('grid-column-expected_notice_type')).toBeVisible();
-    });
-    await walkthroughStep('open-local-analyze', async () => {
-      await page.getByTestId('ribbon-tab-analyze').click();
-      await expect(page.getByTestId('ribbon-action-map.classify')).toBeVisible();
-    });
-    await walkthroughStep('open-local-classify', async () => {
-      await page.getByTestId('ribbon-action-map.classify').click();
-      await expect(page.getByTestId('generated-action-form')).toBeVisible();
-    });
-    await walkthroughStep('choose-easy-source-preview', async () => {
-      const source = authoredFormTarget(page, 'choose-easy-source-preview');
-      for (const remove of await source.getByRole('button', { name: /^Remove / }).all()) {
-        await remove.click();
-      }
-      await source.click();
-      await page.getByPlaceholder('Filter columns').fill('easy_notice');
-      await page.getByRole('option', { name: /easy_notice/ }).click();
     });
     await walkthroughStep('open-local-account-menu', async () => {
       await page.getByTestId('chrome-account').click();
@@ -364,25 +351,10 @@ test('local-model walkthrough connects a named endpoint, succeeds simply, and ex
       await page.getByTestId('ribbon-action-map.classify').click();
       await expect(page.getByTestId('generated-action-form')).toBeVisible();
     });
-    await walkthroughStep('choose-easy-source', async () => {
-      const source = authoredFormTarget(page, 'choose-easy-source');
-      for (const remove of await source.getByRole('button', { name: /^Remove / }).all()) {
-        await remove.click();
-      }
-      await source.click();
-      await page.getByPlaceholder('Filter columns').fill('easy_notice');
-      await page.getByRole('option', { name: /easy_notice/ }).click();
-    });
-    await walkthroughStep('choose-local-llm', async () => {
-      await expect(authoredFormTarget(page, 'choose-local-llm')
-        .locator('.engine-selector__trigger')).toBeVisible();
-    });
-    await walkthroughStep('set-easy-labels', async () => {
-      await page.getByLabel('Field 1 labels').fill('meeting, inspection, contract');
-    });
-    await walkthroughStep('name-local-label', async () => {
-      await authoredFormTarget(page, 'name-local-label').fill('small_model_label');
-    });
+    await walkthroughStep('configure-easy-classify', async () => {
+      await page.getByTestId('walkthrough-fill-for-me').click();
+      await expect(page.getByLabel('Field 1 labels')).toHaveValue('meeting, inspection, contract');
+    }, { advancedByFill: true });
     await walkthroughStep('choose-small-model', async () => {
       const trigger = authoredFormTarget(page, 'choose-small-model')
         .locator('.engine-selector__trigger');
@@ -426,23 +398,10 @@ test('local-model walkthrough connects a named endpoint, succeeds simply, and ex
       await page.getByTestId('ribbon-action-map.ask').click();
       await expect(page.getByTestId('generated-action-form')).toBeVisible();
     });
-    await walkthroughStep('choose-hard-source', async () => {
-      const source = authoredFormTarget(page, 'choose-hard-source');
-      for (const remove of await source.getByRole('button', { name: /^Remove / }).all()) {
-        await remove.click();
-      }
-      await source.click();
-      await page.getByPlaceholder('Filter columns').fill('challenge_text');
-      await page.getByRole('option', { name: /challenge_text/ }).click();
-    });
-    await walkthroughStep('enter-hard-question', async () => {
-      await authoredFormTarget(page, 'enter-hard-question').fill(
-        'Apply every rule in the text. Return the single requested ID or result, followed by one sentence explaining it.',
-      );
-    });
-    await walkthroughStep('name-hard-answer', async () => {
-      await authoredFormTarget(page, 'name-hard-answer').fill('small_model_answer');
-    });
+    await walkthroughStep('configure-hard-ask', async () => {
+      await page.getByTestId('walkthrough-fill-for-me').click();
+      await expect(page.getByTestId('field-output-answer')).toHaveValue('small_model_answer');
+    }, { advancedByFill: true });
     await walkthroughStep('confirm-hard-model', async () => {
       const trigger = authoredFormTarget(page, 'confirm-hard-model')
         .locator('.engine-selector__trigger');

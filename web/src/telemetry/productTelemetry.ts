@@ -67,7 +67,7 @@ let appOpenedSent = false;
 // UI context at event time, not attribution of a later job result to its origin.
 let walkthroughContext: { projectId: string; walkthrough: string; walkthroughState: 'active' | 'paused' } | null = null;
 const WALKTHROUGH_IDS = new Set([
-  'regex-extract', 'lawsuit-documents', 'council-audio', 'civic-ai-triage',
+  'project-ask', 'regex-extract', 'lawsuit-documents', 'council-audio', 'civic-ai-triage',
   'rss-import', 'combine-values', 'multilingual-names', 'local-model-lab', 'open-weight-model-lab',
 ]);
 export function telemetryWalkthrough(id: string): string {

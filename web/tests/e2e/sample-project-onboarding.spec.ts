@@ -58,16 +58,17 @@ test('sample-project button seeds raw Dispatches and Contracts sheets', async ({
   const filings = sheets.find((s) => s.name === 'Court filings');
   const meetings = sheets.find((s) => s.name === 'Council meetings');
   const audio = sheets.find((s) => s.name === 'Council audio');
-  const multilingual = sheets.find((s) => s.name === 'Multilingual names');
+  const foreignRegistry = sheets.find((s) => s.name === 'Foreign registry');
   const agencyPayments = sheets.find((s) => s.name === 'Agency payments');
   const smallModelLab = sheets.find((s) => s.name === 'Small model lab');
+  expect(sheets).toHaveLength(8);
   expect(dispatches?.rows).toBeGreaterThan(0);
   expect(contracts?.rows).toBeGreaterThan(0);
   expect(docket?.rows).toBe(6);
   expect(filings?.rows).toBe(6);
-  expect(meetings?.rows).toBe(2);
+  expect(meetings).toBeUndefined();
   expect(audio?.rows).toBe(2);
-  expect(multilingual?.rows).toBe(10);
+  expect(foreignRegistry?.rows).toBe(12);
   expect(agencyPayments?.rows).toBe(16);
   expect(smallModelLab?.rows).toBe(6);
 
@@ -94,7 +95,7 @@ test('sample-project button seeds raw Dispatches and Contracts sheets', async ({
   expect(chooserBox).toBeTruthy();
   expect(viewport).toBeTruthy();
   expect(Math.abs(chooserBox!.x + chooserBox!.width / 2 - viewport!.width / 2)).toBeLessThan(2);
-  await expect(page.locator('[data-testid^="walkthrough-choice-"]')).toHaveCount(8);
+  await expect(page.locator('[data-testid^="walkthrough-choice-"]')).toHaveCount(9);
   await page.getByRole('button', { name: 'Close walkthrough chooser' }).click();
 });
 
@@ -131,8 +132,9 @@ test('repeat clicks reuse the existing sample project instead of duplicating it'
   expect(sheetsAfterFirst.filter((s) => s.name === 'Contracts')).toHaveLength(1);
   expect(sheetsAfterFirst.filter((s) => s.name === 'Court docket')).toHaveLength(1);
   expect(sheetsAfterFirst.filter((s) => s.name === 'Court filings')).toHaveLength(1);
-  expect(sheetsAfterFirst.filter((s) => s.name === 'Council meetings')).toHaveLength(1);
+  expect(sheetsAfterFirst.filter((s) => s.name === 'Council meetings')).toHaveLength(0);
   expect(sheetsAfterFirst.filter((s) => s.name === 'Council audio')).toHaveLength(1);
+  expect(sheetsAfterFirst.filter((s) => s.name === 'Foreign registry')).toHaveLength(1);
   expect(sheetsAfterFirst.filter((s) => s.name === 'Agency payments')).toHaveLength(1);
   expect(sheetsAfterFirst.filter((s) => s.name === 'Small model lab')).toHaveLength(1);
   const rowsAfterFirst = dispatchesAfterFirst[0].rows;
@@ -168,8 +170,9 @@ test('repeat clicks reuse the existing sample project instead of duplicating it'
   expect(sheetsAfterSecond.filter((s) => s.name === 'Contracts')).toHaveLength(1);
   expect(sheetsAfterSecond.filter((s) => s.name === 'Court docket')).toHaveLength(1);
   expect(sheetsAfterSecond.filter((s) => s.name === 'Court filings')).toHaveLength(1);
-  expect(sheetsAfterSecond.filter((s) => s.name === 'Council meetings')).toHaveLength(1);
+  expect(sheetsAfterSecond.filter((s) => s.name === 'Council meetings')).toHaveLength(0);
   expect(sheetsAfterSecond.filter((s) => s.name === 'Council audio')).toHaveLength(1);
+  expect(sheetsAfterSecond.filter((s) => s.name === 'Foreign registry')).toHaveLength(1);
   expect(sheetsAfterSecond.filter((s) => s.name === 'Agency payments')).toHaveLength(1);
   expect(sheetsAfterSecond.filter((s) => s.name === 'Small model lab')).toHaveLength(1);
   expect(dispatchesAfterSecond[0].id).toBe(dispatchesAfterFirst[0].id);

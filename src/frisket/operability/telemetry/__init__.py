@@ -143,6 +143,7 @@ _PROPERTY_VALUES: dict[str, frozenset[str]] = {
     "walkthroughState": frozenset({"active", "paused", "none"}),
     "walkthrough": frozenset(
         {
+            "project-ask",
             "regex-extract",
             "lawsuit-documents",
             "council-audio",
