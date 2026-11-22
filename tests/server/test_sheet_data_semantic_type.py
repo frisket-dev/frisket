@@ -5,20 +5,10 @@ map.ner), so this poke sets it directly on the live Project the app already
 holds (``app.state.workspace``) and asserts the HTTP payload reflects it."""
 
 from __future__ import annotations
-from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 
 from fastapi.testclient import TestClient
 
-from frisket.ai.llm import ModelRouter
-from frisket.server.app import create_app
 from frisket.engine.store.transactions import write_transaction
-
-
-def _client(tmp_path) -> TestClient:
-    router = ModelRouter(
-        model_call_policy=LOCAL_PURCHASE_POLICY, cache=None, cache_mode="off"
-    )
-    return TestClient(create_app(tmp_path / "ws", router=router))
 
 
 def _import(client: TestClient, pid: str, csv: str) -> int:
@@ -34,8 +24,8 @@ def _cols(client: TestClient, pid: str, sheet_id: int) -> dict[str, dict]:
     return {c["name"]: c for c in data["columns"]}
 
 
-def test_data_endpoint_carries_semantic_type_for_a_marked_column(tmp_path):
-    client = _client(tmp_path)
+def test_data_endpoint_carries_semantic_type_for_a_marked_column(off_client):
+    client = off_client
     pid = client.post("/api/projects", json={"name": "T"}).json()["id"]
     sheet_id = _import(client, pid, "name,mentions\nAda,x\nGrace,y\n")
 

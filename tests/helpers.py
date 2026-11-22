@@ -593,6 +593,15 @@ def replay_router() -> ModelRouter:
     )
 
 
+def off_router() -> ModelRouter:
+    """A local-tier router with response caching disabled."""
+    return ModelRouter(
+        model_call_policy=LOCAL_PURCHASE_POLICY,
+        cache=None,
+        cache_mode="off",
+    )
+
+
 @dataclass
 class CliResult:
     """subprocess.CompletedProcess-shaped result, so existing `_cli()`

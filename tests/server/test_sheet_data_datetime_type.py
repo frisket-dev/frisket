@@ -1,23 +1,10 @@
 from __future__ import annotations
-from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
-
-from fastapi.testclient import TestClient
-
-from frisket.ai.llm import ModelRouter
-from frisket.server.app import create_app
 
 
 def test_sheet_data_preserves_logical_datetime_metadata_and_exact_value(
-    tmp_path,
+    off_client,
 ) -> None:
-    client = TestClient(
-        create_app(
-            tmp_path / "workspace",
-            router=ModelRouter(
-                model_call_policy=LOCAL_PURCHASE_POLICY, cache=None, cache_mode="off"
-            ),
-        )
-    )
+    client = off_client
     project_id = client.post("/api/projects", json={"name": "Dates"}).json()["id"]
     project = client.app.state.workspace.get(project_id)
     sheet_id = project.add_sheet("Dates")

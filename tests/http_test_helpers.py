@@ -9,7 +9,21 @@ from typing import Any
 
 from fastapi.testclient import TestClient
 
+from frisket.ai.llm import ModelRouter
 from frisket.engine.jobs import Worker
+from frisket.engine.jobs.runs import register_project_run_handler
+from frisket.engine.jobs.worker import HandlerRegistry
+from frisket.engine.store.media_blobs import (
+    media_cell,
+    owned_media_metadata_document,
+)
+from frisket.execution.pricing_policy import (
+    EstimateFacts,
+    RatedEstimate,
+    install_pricing_policy,
+)
+from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
+from frisket.sdk.ops import transcribe_engines
 
 ACTION_SCHEMA_VERSION = "frisket.action.v2"
 
@@ -921,3 +935,158 @@ def post_join_semantic_as_v1_action(
             idempotency_key=idempotency_key,
         ),
     )
+
+
+class AboveLimitPricingPolicy:
+    """A deployment tariff that makes routed audio-consent pins billable."""
+
+    policy_id = "test.r70.above-limit.v1"
+
+    def rate(self, facts: EstimateFacts) -> RatedEstimate:
+        return RatedEstimate(
+            billed_cost=2_000_001,
+            provider_cost=facts.provider_cost,
+            lane="cost_plus",
+            policy_id=self.policy_id,
+        )
+
+
+def install_audio_consent_gateway_env(monkeypatch: Any) -> None:
+    """Configure a claim-bearing models-gateway environment with billable pricing."""
+    monkeypatch.setenv("FRISKET_MODELS_URL", "http://models.test")
+    monkeypatch.setenv("FRISKET_MODELS_TOKEN", "secret")
+    install_pricing_policy(AboveLimitPricingPolicy())
+
+
+def stub_audio_transcription_engine(monkeypatch: Any) -> list[str]:
+    """Stub the transcription engine boundary while keeping execution routing real."""
+    calls: list[str] = []
+
+    async def fake_run_engine(
+        engine, path, spec, ctx, *, should_cancel=None, transport=None, media=None
+    ):
+        calls.append(engine)
+        return transcribe_engines.TranscriptionEngineResult(
+            output={
+                "text": "stubbed transcript",
+                "segments": [],
+                "language": None,
+                "cost": 0.0,
+            },
+            model_calls=(),
+        )
+
+    monkeypatch.setattr(transcribe_engines, "run_transcription_engine", fake_run_engine)
+    return calls
+
+
+def seed_audio_project(
+    client: TestClient, *, name: str = "behavioral pin"
+) -> tuple[str, Any, int]:
+    pid = client.post("/api/projects", json={"name": name}).json()["id"]
+    project = client.app.state.workspace.get(pid)
+    sheet_id = project.add_sheet("S")
+    col = project.add_column(sheet_id, "media", type="audio")
+    blob = project.add_blob(
+        b"RIFFxxxxWAVEfmt ",
+        filename="a.wav",
+        mime="audio/wav",
+        metadata=owned_media_metadata_document(
+            probe={"duration_seconds": 2.0, "kind": "audio"}
+        ),
+    )
+    project.add_rows(
+        sheet_id,
+        [{"media": media_cell(blob, mime="audio/wav", filename="a.wav")}],
+        {"media": col},
+    )
+    drain_queue(client, worker_id="r70-setup")
+    return pid, project, sheet_id
+
+
+def add_audio_row(
+    project: Any, sheet_id: int, *, duration_seconds: float = 2.0
+) -> None:
+    col = next(c for c in project.columns(sheet_id) if c["name"] == "media")
+    name = f"b{duration_seconds}.wav"
+    blob = project.add_blob(
+        b"RIFFyyyyWAVEfmt " + str(duration_seconds).encode(),
+        filename=name,
+        mime="audio/wav",
+        metadata=owned_media_metadata_document(
+            probe={"duration_seconds": duration_seconds, "kind": "audio"}
+        ),
+    )
+    project.add_rows(
+        sheet_id,
+        [{"media": media_cell(blob, mime="audio/wav", filename=name)}],
+        {"media": col["id"]},
+    )
+
+
+def transcribe_action(sheet_id: int, *, key: str) -> dict[str, Any]:
+    return {
+        "action_id": "media.transcribe",
+        "scope": {"kind": "sheet_rows", "sheet_id": sheet_id},
+        "output_names": {"text": "transcript", "segments": "transcript_segments"},
+        "params": {
+            "source": "media",
+            "engine": "moss",
+        },
+        "idempotency_key": key,
+    }
+
+
+def launch_consented_audio_run(
+    client: TestClient, pid: str, project: Any, sheet_id: int, *, key: str
+) -> tuple[int, str]:
+    """Post an unconfirmed transcribe action, echo the exact 402 hash, and queue it."""
+    action = transcribe_action(sheet_id, key=key)
+    gated = client.post(
+        f"/api/projects/{pid}/actions/v1/run",
+        json=action,
+    )
+    assert gated.status_code == 402, gated.text
+    body = gated.json()
+    assert body["status"] == "needs_confirmation"
+    details = body["errors"][0]["details"]
+    assert {claim["field"] for claim in details["claims"]} == {"egress_class"}, details[
+        "claims"
+    ]
+    set_hash = details["promise_set_hash"]
+    assert set_hash
+
+    action["confirmation"] = set_hash
+    queued = client.post(
+        f"/api/projects/{pid}/actions/v1/run",
+        json=action,
+    )
+    assert queued.status_code == 200, queued.text
+    launched = queued.json()
+    assert launched["status"] == "queued"
+    receipt_id = launched["receipt_id"]
+    assert receipt_id
+    run_id = int(
+        project.db.execute("SELECT id FROM runs ORDER BY id DESC LIMIT 1").fetchone()[
+            "id"
+        ]
+    )
+    return run_id, receipt_id
+
+
+def drain_one_project_run_job(client: TestClient, *, worker_id: str) -> bool:
+    """Drain one queued ``project.run`` job through the real worker handler."""
+    registry = HandlerRegistry()
+    register_project_run_handler(
+        registry,
+        workspace_root=client.app.state.workspace.root,
+        router=ModelRouter(model_call_policy=LOCAL_PURCHASE_POLICY),
+    )
+    worker = Worker(client.app.state.workspace.queue, registry, worker_id=worker_id)
+    return worker.run_once()
+
+
+def run_row(project: Any, run_id: int) -> Any:
+    return project.db.execute(
+        "SELECT status, params FROM runs WHERE id=?", (run_id,)
+    ).fetchone()
