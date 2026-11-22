@@ -203,7 +203,29 @@
     transition: none;
   }
 }
-.grid-host > div { height: 100%; }
+.grid-host > .grid-viewport { height: 100%; }
+
+/* Floating AI column-group popover: size strictly to content and extend a
+   short upward hit bridge so slow downward pointer movement from the group
+   header into the popover never drops hover (unclipped by child overflow). */
+.native-column-group-menu-popover {
+  position: fixed;
+  z-index: 82;
+  height: auto;
+}
+.native-column-group-menu-popover::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: -6px;
+  height: 6px;
+}
+.native-column-group-menu-popover > .grid-header-menu,
+.native-column-group-menu-popover > .action-run-entry-card {
+  position: relative;
+  height: auto;
+}
 /* Glide's internal scroller chains horizontal overscroll to the page — stop it. */
 .grid-host .dvn-scroller { overscroll-behavior: none; }
 

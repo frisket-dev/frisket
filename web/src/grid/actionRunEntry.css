@@ -2,6 +2,7 @@
   position: fixed;
   z-index: 82;
   width: min(370px, calc(100vw - 16px));
+  height: auto;
   padding: 0;
   color: var(--text);
   background: var(--bg);
