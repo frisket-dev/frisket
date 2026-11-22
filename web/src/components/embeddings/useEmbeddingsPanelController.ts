@@ -1,10 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { FormEvent } from 'react';
-import {
-  ConfirmationRequiredError,
-  type EmbeddingIndexSummary,
-  type EmbeddingProvider,
-  type SheetMeta,
+import type {
+  EmbeddingIndexSummary,
+  EmbeddingProvider,
+  SheetMeta,
 } from '../../api/open';
 import type { CostConfirmationRequester } from '../../api/backfillWithConfirmation';
 import type { EmbeddingApiPort } from '../../api/ports';
@@ -14,6 +13,7 @@ import {
 } from './createForm';
 import { EMBEDDING_TEXT_MODALITY } from './constants';
 import { errorMessage } from '../../hooks/errorMessage';
+import { useCostConfirmationRetry } from '../../hooks/useCostConfirmationRetry';
 
 const TERMINAL_JOB_STATUSES = new Set(['done', 'failed', 'cancelled']);
 
@@ -155,6 +155,8 @@ export function useEmbeddingsPanelController({
     (!remoteSelected || form.allowRemote) &&
     (!autoRefreshOn || (form.confirmRemote && maxCostValue > 0));
 
+  const runWithCostConfirmation = useCostConfirmationRetry(requestCostConfirmation);
+
   // Curated creates are metadata-only (space + index rows); custom remote
   // creates may run a confirmed dimension-discovery probe. The actual
   // (possibly long) embedding work is the refresh that follows. Both the
@@ -169,32 +171,15 @@ export function useEmbeddingsPanelController({
       const generation = scopeGeneration.current;
       setBusyId(indexId);
       try {
-        let confirmation: string | undefined;
-        let launch: { jobId: number | null; status: string };
-        for (;;) {
-          try {
-            launch = confirmation === undefined
-              ? await apiPort.refreshEmbeddingIndex(indexId, mode)
-              : await apiPort.refreshEmbeddingIndex(indexId, mode, { confirmation });
-            break;
-          } catch (caught) {
-            if (
-              !(caught instanceof ConfirmationRequiredError)
-              || !caught.estimate.promise_set_hash
-              || !requestCostConfirmation
-            ) {
-              throw caught;
-            }
-            if (!isCurrentScope(generation)) return;
-            const confirmed = await requestCostConfirmation(
-              caught.estimate,
-              caught.message,
-            );
-            if (!confirmed || !isCurrentScope(generation)) return;
-            confirmation = caught.estimate.promise_set_hash;
-          }
-        }
-        if (!isCurrentScope(generation)) return;
+        const outcome = await runWithCostConfirmation(
+          (confirmation) =>
+            confirmation === undefined
+              ? apiPort.refreshEmbeddingIndex(indexId, mode)
+              : apiPort.refreshEmbeddingIndex(indexId, mode, { confirmation }),
+          { shouldContinue: () => isCurrentScope(generation) },
+        );
+        if (outcome.status !== 'completed' || !isCurrentScope(generation)) return;
+        const launch = outcome.value;
         setError(null);
         if (launch.jobId != null && !TERMINAL_JOB_STATUSES.has(launch.status)) {
           await pollEmbeddingJobUntilTerminal(apiPort, launch.jobId, {
@@ -212,7 +197,7 @@ export function useEmbeddingsPanelController({
         }
       }
     },
-    [apiPort, isCurrentScope, load, requestCostConfirmation],
+    [apiPort, isCurrentScope, load, runWithCostConfirmation],
   );
 
   const submitCreate = useCallback(
@@ -232,32 +217,15 @@ export function useEmbeddingsPanelController({
           allowRemoteAutomaticRefresh: autoRefreshOn,
           maxCostUsdPerRefresh: autoRefreshOn ? maxCostValue : null,
         };
-        let confirmation: string | undefined;
-        let indexId: string;
-        for (;;) {
-          try {
-            indexId = confirmation === undefined
-              ? await apiPort.createEmbeddingIndex(input)
-              : await apiPort.createEmbeddingIndex(input, { confirmation });
-            break;
-          } catch (caught) {
-            if (
-              !(caught instanceof ConfirmationRequiredError)
-              || !caught.estimate.promise_set_hash
-              || !requestCostConfirmation
-            ) {
-              throw caught;
-            }
-            if (!isCurrentScope(generation)) return;
-            const confirmed = await requestCostConfirmation(
-              caught.estimate,
-              caught.message,
-            );
-            if (!confirmed || !isCurrentScope(generation)) return;
-            confirmation = caught.estimate.promise_set_hash;
-          }
-        }
-        if (!isCurrentScope(generation)) return;
+        const outcome = await runWithCostConfirmation(
+          (confirmation) =>
+            confirmation === undefined
+              ? apiPort.createEmbeddingIndex(input)
+              : apiPort.createEmbeddingIndex(input, { confirmation }),
+          { shouldContinue: () => isCurrentScope(generation) },
+        );
+        if (outcome.status !== 'completed' || !isCurrentScope(generation)) return;
+        const indexId = outcome.value;
         setError(null);
         setAdding(false);
         await load();
@@ -285,8 +253,8 @@ export function useEmbeddingsPanelController({
       apiPort,
       isCurrentScope,
       load,
-      requestCostConfirmation,
       runRefresh,
+      runWithCostConfirmation,
     ],
   );
 
