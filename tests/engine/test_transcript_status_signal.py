@@ -9,7 +9,9 @@ from typing import Any
 
 import pytest
 
+from frisket.ai.llm import ModelRouter
 from frisket.engine.executor import run_action_spec
+from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 from frisket.engine.store.media_blobs import media_cell
 from frisket.server.services.sheet_grid import _sheet_data_payload
 from frisket.engine.store import Project
@@ -322,6 +324,7 @@ def test_multi_transcribe_newest_run_wins_over_an_older_full_success(
         )
         | {"replace_existing": True},
         project_id=PROJECT_ID,
+        router=ModelRouter(model_call_policy=LOCAL_PURCHASE_POLICY, cache_mode="fresh"),
     )
     assert second.status == "partial"
     assert second.run_id != first.run_id
