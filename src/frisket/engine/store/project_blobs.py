@@ -29,6 +29,7 @@ from .blob_backend import (
     sha256_blob_path,
     validate_blob_digest,
 )
+from .extraction_cache_store import delete_extraction_cache_for_blobs
 from .value_codec import decode_stored_value
 
 
@@ -532,6 +533,7 @@ def reclaim_local_blobs(project: Any, *, dry_run: bool = True) -> dict[str, Any]
         # Files may predate metadata-only GC; reachability must not depend on
         # whether a blobs row still exists for their digest. No project DB
         # transaction is held while walking the tree or unlinking bytes.
+        unlinked_hashes: list[str] = []
         if root.exists():
             with os.scandir(root) as shards:
                 for shard in shards:
@@ -560,6 +562,7 @@ def reclaim_local_blobs(project: Any, *, dry_run: bool = True) -> dict[str, Any]
                             counts["bytes_reclaimable"] += size
                             if not dry_run:
                                 Path(entry.path).unlink(missing_ok=True)
+                                unlinked_hashes.append(entry.name)
                                 changed = True
                                 counts["blobs_removed"] += 1
                                 counts["bytes_freed"] += size
@@ -567,6 +570,7 @@ def reclaim_local_blobs(project: Any, *, dry_run: bool = True) -> dict[str, Any]
                         _fsync_directory(Path(shard.path))
 
         if not dry_run:
+            pruned_hashes: list[str] = list(unlinked_hashes)
             with db:
                 db.execute(
                     "DELETE FROM blob_derivations WHERE NOT EXISTS "
@@ -599,6 +603,9 @@ def reclaim_local_blobs(project: Any, *, dry_run: bool = True) -> dict[str, Any]
                             "DELETE FROM blobs WHERE hash=?",
                             [(digest,) for digest in missing],
                         )
+                    pruned_hashes.extend(missing)
+            if pruned_hashes:
+                delete_extraction_cache_for_blobs(project, pruned_hashes)
     finally:
         if db.in_transaction:
             db.rollback()
@@ -631,6 +638,8 @@ def gc_blobs(project: Any, dry_run: bool = False) -> dict[str, Any]:
             db.execute(
                 "DELETE FROM blobs WHERE NOT EXISTS (SELECT 1 FROM temp.gc_live_blob_hashes live WHERE live.hash=blobs.hash)"
             )
+    if not dry_run and removed:
+        delete_extraction_cache_for_blobs(project, removed)
     return {
         "blobs_removed": len(removed),
         "bytes_freed": 0,

@@ -499,6 +499,7 @@ class MapRunner:
             composition=_require_execution_composition(self.execution_composition),
             pricing_policy=self.pricing_policy,
             consent_coverage=self.consent_coverage,
+            cache_mode=getattr(self.router, "cache_mode", "replay"),
         )
 
     def exact_replay_available(
