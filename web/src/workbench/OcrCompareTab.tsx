@@ -381,11 +381,11 @@ export function OcrCompareTab({ target = null, active = true, onSessionChange }:
       const loaded = await Promise.all(
         candidates.map(async (media, index) => {
           try {
-            const blob = await readBlobResource(media.url, { signal });
+            const { bytes, mime: responseMime } = await readBlobResource(media.url, { signal });
             if (signal.aborted) return null;
-            const mime = media.mime || blob.type || '';
+            const mime = media.mime || responseMime || '';
             const filename = ocrFilenameForMedia(media, mime, index);
-            const file = new File([blob], filename, { type: mime });
+            const file = new File([bytes], filename, { type: mime });
             return classifyOcrFile(file) ? file : null;
           } catch {
             return null;

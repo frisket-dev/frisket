@@ -171,7 +171,7 @@ describe('OcrCompareTab upload comparison', () => {
       () => new Promise((resolve) => { resolveSheet = resolve; }),
     );
     const fetchSpy = vi.spyOn(globalThis, 'fetch').mockImplementation(async () => (
-      new Response(new Blob(['%PDF-1.4'], { type: 'application/pdf' }), {
+      new Response('%PDF-1.4', {
         status: 200,
         headers: { 'Content-Type': 'application/pdf' },
       })
@@ -231,7 +231,7 @@ describe('OcrCompareTab upload comparison', () => {
         columns: [scanCol],
       });
     vi.spyOn(globalThis, 'fetch').mockImplementation(async () => (
-      new Response(new Blob(['%PDF-1.4'], { type: 'application/pdf' }), {
+      new Response('%PDF-1.4', {
         status: 200,
         headers: { 'Content-Type': 'application/pdf' },
       })
