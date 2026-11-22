@@ -1393,14 +1393,14 @@ def test_undo_redo_sheet_b_cached_run_preserves_sheet_a_and_cache(
     assert "Page text 1" in project.get_values(sheet_a, col_a, row_ids=[row_a])[row_a]
     assert "Page text 1" in project.get_values(sheet_b, col_b, row_ids=[row_b])[row_b]
 
-    # Undo Sheet B's run via the standard operation.undo action.
+    # Undo Sheet B's run via the standard change.undo action.
     undone = run_action_spec(
         project,
         {
-            "action_id": "operation.undo",
+            "action_id": "change.undo",
             "scope": {"kind": "project"},
-            "params": {"expected_op_id": second.op_ids[0]},
-            "idempotency_key": "undo-sheet-b-op",
+            "params": {"expected_change_id": second.change_ids[0]},
+            "idempotency_key": "undo-sheet-b-change",
         },
         project_id="undo-redo-cache",
         router=router,
@@ -1418,10 +1418,10 @@ def test_undo_redo_sheet_b_cached_run_preserves_sheet_a_and_cache(
     redone = run_action_spec(
         project,
         {
-            "action_id": "operation.redo",
+            "action_id": "change.redo",
             "scope": {"kind": "project"},
-            "params": {"expected_op_id": second.op_ids[0]},
-            "idempotency_key": "redo-sheet-b-op",
+            "params": {"expected_change_id": second.change_ids[0]},
+            "idempotency_key": "redo-sheet-b-change",
         },
         project_id="undo-redo-cache",
         router=router,
