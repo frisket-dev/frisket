@@ -36,7 +36,7 @@ var PLUGIN_LEGAL_PLACEMENTS = {
       "mode": "tab"
     },
     {
-      "host": "sourceDetail",
+      "host": "feedDetail",
       "mode": "tab"
     },
     {
@@ -66,13 +66,13 @@ var WORKBENCH_SLOT_BY_HOST = {
   "columnInspector": "detail",
   "commandPalette": "launcher",
   "entityDetail": "detail",
+  "feedDetail": "detail",
   "leftSidebar": "scope",
   "mainView": "work.primary",
   "modalOrPeek": "interruption",
   "rightInspector": "inspection",
   "rowDetail": "detail",
-  "rowInspector": "detail",
-  "sourceDetail": "detail"
+  "rowInspector": "detail"
 };
 var DATA_REQUIREMENT_KINDS = [
   "activeProject",
@@ -81,7 +81,7 @@ var DATA_REQUIREMENT_KINDS = [
   "activeColumn",
   "activeCell",
   "activeEvidence",
-  "activeSource",
+  "activeFeed",
   "activeEntity",
   "activeProjection",
   "selectedRows",
@@ -161,7 +161,7 @@ var needs = {
   activeColumn: () => ({ kind: "activeColumn" }),
   activeCell: () => ({ kind: "activeCell" }),
   activeEvidence: () => ({ kind: "activeEvidence" }),
-  activeSource: () => ({ kind: "activeSource" }),
+  activeFeed: () => ({ kind: "activeFeed" }),
   activeEntity: () => ({ kind: "activeEntity" }),
   activeProjection: () => ({ kind: "activeProjection" }),
   selectedRows: (min) => min === void 0 ? { kind: "selectedRows" } : { kind: "selectedRows", min },
