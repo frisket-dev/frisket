@@ -792,11 +792,13 @@ def test_cloud_ocr_recovery_retires_key_before_intentional_third_run(
             "blocks": "ocr_text_blocks_third",
         },
     }
+    fresh_router = _NullRouter()
+    fresh_router.cache_mode = "fresh"
     third = run_action_spec(
         project,
         third_action,
         project_id="cloud-ocr-anchor",
-        router=router,
+        router=fresh_router,
         deps=deps,
     )
 
