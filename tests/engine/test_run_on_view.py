@@ -834,7 +834,7 @@ def test_backfill_new_rows_in_view_repeated_backfills_and_deleted_view(
         assert bf1_est.status_code == 200, bf1_est.text
         assert bf1_est.json()["estimate"]["rows"] == 1
 
-        # ADR-0002 check on backfill: challenge -> confirm succeeds for ONLY row_match_1.
+        # Consent-hash check on backfill: challenge -> confirm succeeds for ONLY row_match_1.
         bf1_challenge = client.post(
             f"/api/projects/{pid}/actions/v1/run", json=bf1_action
         )
