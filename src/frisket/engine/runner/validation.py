@@ -917,6 +917,7 @@ def estimate_run(
     resume_run_id: int | None = None,
     scope_row_ids: list[int] | None = None,
     consent_coverage: ConsentCoverage | None = None,
+    cache_mode: str | None = None,
 ) -> dict:
     """Pre-run estimate for the cost gate. Token math is crude but stable.
 
@@ -958,6 +959,7 @@ def estimate_run(
         resume_run_id=resume_run_id,
         scope_row_ids=scope_row_ids,
         consent_coverage=consent_coverage,
+        cache_mode=cache_mode,
     ).presentation
 
 
@@ -972,6 +974,7 @@ def _estimate_run(
     resume_run_id: int | None = None,
     scope_row_ids: list[int] | None = None,
     consent_coverage: ConsentCoverage | None = None,
+    cache_mode: str | None = None,
 ) -> _EstimateRunResult:
     action_program = program if program is not None else action_program_for_spec(spec)
     rows = (
@@ -1040,6 +1043,7 @@ def _estimate_run(
                 composition=composition,
                 persistence="ephemeral",
                 scope_row_ids=rows,
+                cache_mode=cache_mode,
             )
         if isinstance(resolution, Refusal):
             # An unavailable route has no executable quote. Do not discard its
@@ -1320,6 +1324,7 @@ def validate_spec(
     unrouted_confirmation_hash: str | None = None
     unrouted_confirmation_estimate: dict[str, Any] | None = None
     resume_confirmation: ResumeClaimConfirmation | None = None
+    cache_mode = getattr(router, "cache_mode", "replay")
     if resume_run_id is None:
         outcome = resolve_for_action(
             project,
@@ -1328,6 +1333,7 @@ def validate_spec(
             composition=composition,
             persistence=persistence,
             scope_row_ids=row_ids,
+            cache_mode=cache_mode,
         )
         if isinstance(outcome, Refusal):
             resolution_refusal = outcome
@@ -1367,6 +1373,7 @@ def validate_spec(
             composition=composition,
             pricing_policy=pricing_policy,
             consent_coverage=consent_coverage,
+            cache_mode=cache_mode,
             resolution=(
                 resolution_refusal
                 if resolution_refusal is not None
@@ -1518,6 +1525,7 @@ def validate_spec(
             composition=composition,
             persistence=persistence,
             scope_row_ids=row_ids,
+            cache_mode=cache_mode,
         )
         backfill_result = _estimate_run(
             project,
@@ -1528,6 +1536,7 @@ def validate_spec(
             resolution=resume_outcome,
             resume_run_id=resume_run_id,
             consent_coverage=consent_coverage,
+            cache_mode=cache_mode,
         )
         backfill_est = backfill_result.presentation
         if isinstance(resume_outcome, ResolvedExecution):

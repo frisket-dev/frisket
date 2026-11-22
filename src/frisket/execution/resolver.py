@@ -263,6 +263,8 @@ class ResolvedExecution:
     cost_basis: "CostBasis"
     offering: "CommercialOffering | None" = None
     presentation: "CommercialPresentation | None" = None
+    cached_rows: int | None = None
+    live_rows: int | None = None
 
 
 def preview_resolution_in_scope(extras: Any) -> Resolution | None:

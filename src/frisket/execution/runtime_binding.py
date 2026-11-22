@@ -301,6 +301,34 @@ def _route_cost_source(
     return "pricing_data" if observed_cost is not None else "unknown"
 
 
+def _is_cache_hit_call(call: Mapping[str, Any]) -> bool:
+    return (
+        str(call.get("credential_source") or "") == "cache"
+        and isinstance(call.get("cache"), Mapping)
+        and call["cache"].get("hit") is True
+    )
+
+
+def _apply_cache_hit_fields(
+    route: Any,
+    snapshot: Mapping[str, Any],
+    target_id: str,
+    transport: str,
+    bound: dict[str, Any],
+) -> None:
+    if transport in {"frisket.cloud.media.v1", "frisket.cloud.llm.v1"}:
+        payer = snapshot.get("cloud_payer")
+        if not isinstance(payer, Mapping):
+            raise ValueError(f"route {route.id} Cloud snapshot has no payer")
+        bound["provider"] = payer.get("provider")
+    else:
+        bound["provider"] = _provider_for_target(target_id, route.operator)
+    bound["cost_source"] = "cache_hit"
+    bound["provider_cost_usd"] = 0.0
+    bound["provider_reported_cost_usd"] = 0.0
+    bound["duration_ms"] = None
+
+
 def bind_fact_to_route(
     route: Any,
     call: Mapping[str, Any],
@@ -333,39 +361,38 @@ def bind_fact_to_route(
             f"route {route.id} snapshot carries unknown transport {transport!r}"
         )
     bound = dict(call)
-    if transport in ZERO_TARIFF_TRANSPORTS:
-        # No separate credential is observable on these paths; the route's
-        # PINNED source is the dispatch fact (§0.3).
-        actual_credential = route.credential_source
+    if _is_cache_hit_call(bound):
+        actual_credential = "cache"
+        _apply_cache_hit_fields(route, snapshot, target_id, transport, bound)
     else:
-        # The adapter's own observed provenance (router-reported source) —
-        # ACTUAL wins on the fact (§0 truth
-        # invariant); divergence from the route pin is recorded by the
-        # observation point below, never silently normalized away.
-        actual_credential = str(bound.get("credential_source") or "none")
-    if transport in {"frisket.cloud.media.v1", "frisket.cloud.llm.v1"}:
-        payer = snapshot.get("cloud_payer")
-        if not isinstance(payer, Mapping):
-            raise ValueError(f"route {route.id} Cloud snapshot has no payer")
-        expected_provider = payer.get("provider")
-        if bound.get("provider") != expected_provider:
-            raise ValueError(
-                f"route {route.id} Cloud fact provider differs from its payer"
-            )
-        # cloud_execution_accounting validated these observed fields against
-        # the server receipt and admitted payer. Preserve that evidence rather
-        # than replacing the provider with the target operator ("frisket") or
-        # reclassifying an unknown provider cost as a fabricated tariff.
-        bound["provider"] = expected_provider
-        bound["cost_source"] = str(bound.get("cost_source") or "unknown")
-    else:
-        bound["provider"] = _provider_for_target(target_id, route.operator)
-        bound["cost_source"] = _route_cost_source(
-            route.cost_posture,
-            transport,
-            bound.get("provider_cost_usd"),
-            declared=call.get("cost_source"),
+        actual_credential = (
+            route.credential_source
+            if transport in ZERO_TARIFF_TRANSPORTS
+            else str(bound.get("credential_source") or "none")
         )
+        if transport in {"frisket.cloud.media.v1", "frisket.cloud.llm.v1"}:
+            payer = snapshot.get("cloud_payer")
+            if not isinstance(payer, Mapping):
+                raise ValueError(f"route {route.id} Cloud snapshot has no payer")
+            expected_provider = payer.get("provider")
+            if bound.get("provider") != expected_provider:
+                raise ValueError(
+                    f"route {route.id} Cloud fact provider differs from its payer"
+                )
+            # cloud_execution_accounting validated these observed fields against
+            # the server receipt and admitted payer. Preserve that evidence rather
+            # than replacing the provider with the target operator ("frisket") or
+            # reclassifying an unknown provider cost as a fabricated tariff.
+            bound["provider"] = expected_provider
+            bound["cost_source"] = str(bound.get("cost_source") or "unknown")
+        else:
+            bound["provider"] = _provider_for_target(target_id, route.operator)
+            bound["cost_source"] = _route_cost_source(
+                route.cost_posture,
+                transport,
+                bound.get("provider_cost_usd"),
+                declared=call.get("cost_source"),
+            )
     bound["provider_kind"] = kind
     bound["credential_source"] = actual_credential
     observed: dict[str, Any] = {

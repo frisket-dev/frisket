@@ -103,6 +103,12 @@ from frisket.execution.provider import (
     ExecutionTargetProvider,
     TargetConfigurationError,
 )
+from frisket.engine.store.extraction_cache import (
+    ExtractionTarget,
+    cache_db_path,
+    cache_reads_enabled,
+    probe_extraction_cache_rows,
+)
 from frisket.execution.resolver import (
     Persistence,
     Refusal,
@@ -249,22 +255,35 @@ def authored_options(
 
 
 def _transcribe_row_quantities_seconds(
-    project: Any, spec: Mapping[str, Any], program: Any
+    project: Any,
+    spec: Mapping[str, Any],
+    program: Any,
+    *,
+    scope_row_ids: Sequence[int] | None = None,
+    cached_row_ids: frozenset[int] = frozenset(),
 ) -> dict[int, float] | None:
     """Selected audio seconds keyed by exact row, or ``None`` if unknown.
 
     The aggregate quote is derived from this allocation, not vice versa.
-    Empty media cells retain an explicit zero allocation so the authorized
-    scope and the row-quote scope cannot silently diverge.
+    Empty media cells and exact-key cache hits retain an explicit zero
+    allocation so the authorized scope and the row-quote scope cannot
+    silently diverge.
     """
     from frisket.engine.runner.row_inputs import row_values
     from frisket.engine.runner.validation import target_rows
     from frisket.sdk.ops.transcribe_engines import total_audio_seconds
 
-    row_ids = target_rows(project, dict(spec))
+    row_ids = (
+        [int(row_id) for row_id in scope_row_ids]
+        if scope_row_ids is not None
+        else target_rows(project, dict(spec))
+    )
     col_map = {c["name"]: c["id"] for c in project.columns(spec["sheet_id"])}
     quantities: dict[int, float] = {}
     for row_id in row_ids:
+        if int(row_id) in cached_row_ids:
+            quantities[int(row_id)] = 0.0
+            continue
         values = row_values(
             project, program, dict(spec), col_map, row_id, for_model=False
         )
@@ -300,7 +319,12 @@ def _document_quantity_pages(
 
 
 def _document_row_quantities_pages(
-    project: Any, spec: Mapping[str, Any], program: Any
+    project: Any,
+    spec: Mapping[str, Any],
+    program: Any,
+    *,
+    scope_row_ids: Sequence[int] | None = None,
+    cached_row_ids: frozenset[int] = frozenset(),
 ) -> dict[int, int] | None:
     """Selected page count keyed by row, or ``None`` when any is unknown."""
 
@@ -308,11 +332,18 @@ def _document_row_quantities_pages(
     from frisket.engine.runner.validation import target_rows
     from frisket.engine.store.media_blobs import MediaBlobStore
 
-    row_ids = target_rows(project, dict(spec))
+    row_ids = (
+        [int(row_id) for row_id in scope_row_ids]
+        if scope_row_ids is not None
+        else target_rows(project, dict(spec))
+    )
     col_map = {c["name"]: c["id"] for c in project.columns(spec["sheet_id"])}
     blobs = MediaBlobStore(project)
     quantities: dict[int, int] = {}
     for row_id in row_ids:
+        if int(row_id) in cached_row_ids:
+            quantities[int(row_id)] = 0
+            continue
         values = row_values(
             project, program, dict(spec), col_map, row_id, for_model=False
         )
@@ -366,12 +397,31 @@ def _document_row_quantities_pages(
     return quantities
 
 
+@dataclass(frozen=True)
+class _ScopedCostInput:
+    spec: Mapping[str, Any]
+    program: Any
+    row_ids: Sequence[int] | None = None
+    cached_row_ids: frozenset[int] = frozenset()
+
+
 def _ocr_cost_basis(
     project: Any,
     spec: Mapping[str, Any],
     program: Any,
     resolution: Resolution,
     composition: ExecutionComposition,
+) -> tuple[CostBasis, int | None]:
+    return _ocr_cost_basis_for_scope(
+        project, resolution, composition, _ScopedCostInput(spec=spec, program=program)
+    )
+
+
+def _ocr_cost_basis_for_scope(
+    project: Any,
+    resolution: Resolution,
+    composition: ExecutionComposition,
+    scoped: _ScopedCostInput,
 ) -> tuple[CostBasis, int | None]:
     """(cost basis, pages), rated through THE price book — the OCR sibling of
     :func:`_transcribe_cost_basis`, same shape, different unit.
@@ -400,7 +450,13 @@ def _ocr_cost_basis(
         is None
     ):
         return OperatorBorneZeroCost(), None
-    row_pages = _document_row_quantities_pages(project, spec, program)
+    row_pages = _document_row_quantities_pages(
+        project,
+        scoped.spec,
+        scoped.program,
+        scope_row_ids=scoped.row_ids,
+        cached_row_ids=scoped.cached_row_ids,
+    )
     pages = None if row_pages is None else sum(row_pages.values())
     basis = estimate_ocr(
         target_id=target_id,
@@ -419,6 +475,17 @@ def _transcribe_cost_basis(
     program: Any,
     resolution: Resolution,
     composition: ExecutionComposition,
+) -> tuple[CostBasis, float | None]:
+    return _transcribe_cost_basis_for_scope(
+        project, resolution, composition, _ScopedCostInput(spec=spec, program=program)
+    )
+
+
+def _transcribe_cost_basis_for_scope(
+    project: Any,
+    resolution: Resolution,
+    composition: ExecutionComposition,
+    scoped: _ScopedCostInput,
 ) -> tuple[CostBasis, float | None]:
     """(cost basis, audio seconds), rated through THE price book.
 
@@ -451,7 +518,13 @@ def _transcribe_cost_basis(
         is None
     ):
         return OperatorBorneZeroCost(), None
-    row_seconds = _transcribe_row_quantities_seconds(project, spec, program)
+    row_seconds = _transcribe_row_quantities_seconds(
+        project,
+        scoped.spec,
+        scoped.program,
+        scope_row_ids=scoped.row_ids,
+        cached_row_ids=scoped.cached_row_ids,
+    )
     seconds = None if row_seconds is None else sum(row_seconds.values())
     basis = estimate_transcription(
         target_id=target_id,
@@ -906,6 +979,7 @@ def resolve_for_action(
     persistence: Persistence = "durable",
     scope_row_ids: Sequence[int] | None = None,
     bounded_scratch_input: BoundedScratchInput | None = None,
+    cache_mode: str | None = None,
 ) -> ResolvedExecution | Refusal | None:
     """Resolve one action invocation through the execution seam.
 
@@ -1067,6 +1141,18 @@ def resolve_for_action(
             estimate_absent=True,
         )
 
+    if scope_row_ids is None and bounded_scratch_input is not None:
+        resolved_scope_row_ids: Sequence[int] = ()
+    elif scope_row_ids is None:
+        from frisket.engine.runner.validation import target_rows
+
+        resolved_scope_row_ids = target_rows(project, dict(spec))
+    else:
+        resolved_scope_row_ids = scope_row_ids
+
+    cached_row_ids: frozenset[int] = frozenset()
+    cached_rows_count: int | None = None
+    live_rows_count: int | None = None
     if capability == CAPABILITY_LLM:
         assert rendered_llm is not None
         cost_basis, quantity = _llm_cost_basis(
@@ -1074,7 +1160,52 @@ def resolve_for_action(
         )
     elif bounded_scratch_input is None:
         assert estimator is not None
-        cost_basis, quantity = estimator(project, spec, program, outcome, composition)
+        if capability in {CAPABILITY_OCR, CAPABILITY_TRANSCRIBE}:
+            sidecar = cache_db_path(project)
+            if (
+                cache_reads_enabled(cache_mode)
+                and sidecar is not None
+                and sidecar.exists()
+                and not sidecar.is_symlink()
+            ):
+                target = ExtractionTarget(
+                    capability=capability,
+                    engine=outcome.facts.engine,
+                    transport=outcome.support.transport,
+                )
+                cached_row_ids, live_row_ids = probe_extraction_cache_rows(
+                    project,
+                    target,
+                    spec=spec,
+                    program=program,
+                    row_ids=resolved_scope_row_ids,
+                )
+                cached_rows_count = len(cached_row_ids)
+                live_rows_count = len(live_row_ids)
+            else:
+                cached_rows_count = 0
+                live_rows_count = len(resolved_scope_row_ids)
+            scoped_input = _ScopedCostInput(
+                spec=spec,
+                program=program,
+                row_ids=resolved_scope_row_ids,
+                cached_row_ids=cached_row_ids,
+            )
+            scoped_estimator = (
+                _ocr_cost_basis_for_scope
+                if capability == CAPABILITY_OCR
+                else _transcribe_cost_basis_for_scope
+            )
+            cost_basis, quantity = scoped_estimator(
+                project,
+                outcome,
+                composition,
+                scoped_input,
+            )
+        else:
+            cost_basis, quantity = estimator(
+                project, spec, program, outcome, composition
+            )
     else:
         quantity = bounded_scratch_input.quantity
         funding = funding_for_cost_posture(outcome.facts.cost_posture)
@@ -1141,24 +1272,21 @@ def resolve_for_action(
     # The resolved route facts go straight to the compiler — the former
     # hand re-projection into a 5-field ``ResolvedRouteFacts`` twin is gone
     # with the type.
-    if scope_row_ids is None and bounded_scratch_input is not None:
-        scope_row_ids = ()
-    elif scope_row_ids is None:
-        from frisket.engine.runner.validation import target_rows
-
-        scope_row_ids = target_rows(project, dict(spec))
     from frisket.execution.scope_identity import canonical_work_scope_binding
 
     work_scope = (
         dict(bounded_scratch_input.work_scope)
         if bounded_scratch_input is not None
-        else canonical_work_scope_binding(project, program, spec, scope_row_ids)
+        else canonical_work_scope_binding(
+            project, program, spec, resolved_scope_row_ids
+        )
     )
     promise_set = compile_route_promises(
         outcome.facts,
         cost_basis,
         options=options,
         work_scope=work_scope,
+        cached_row_ids=sorted(cached_row_ids) if cached_row_ids else None,
     )
     return ResolvedExecution(
         resolution=outcome,
@@ -1171,6 +1299,8 @@ def resolve_for_action(
             capability=capability,
             engine=outcome.facts.engine,
         ),
+        cached_rows=cached_rows_count,
+        live_rows=live_rows_count,
     )
 
 

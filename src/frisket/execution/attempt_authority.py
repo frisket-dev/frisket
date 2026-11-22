@@ -64,7 +64,13 @@ from frisket.execution.runtime_binding import (
     ExecutionRouteVerificationFailed,
     RouteBindingUnavailable,
 )
+from frisket.engine.store.extraction_cache import (
+    ExtractionTarget,
+    admitted_cached_row_ids_from_promises,
+    verify_consented_extraction_cache,
+)
 from frisket.execution.resolver import CandidateBinding
+from frisket.execution.targets import CAPABILITY_OCR, CAPABILITY_TRANSCRIBE
 
 
 class DependentChoiceRefusal(RuntimeError):
@@ -1189,6 +1195,38 @@ def admit_routed(
             f"({'; '.join(consent_refusals)}); review and confirm the "
             "current terms and work scope before resuming",
         )
+
+    capability_name = str(snapshot["capability"])
+    consented_cached_ids = admitted_cached_row_ids_from_promises(promises)
+    if consented_cached_ids and capability_name in {
+        CAPABILITY_OCR,
+        CAPABILITY_TRANSCRIBE,
+    }:
+        scoped_cached = (
+            sorted(consented_cached_ids & set(scope))
+            if scope is not None
+            else sorted(consented_cached_ids)
+        )
+        if scoped_cached:
+            target = ExtractionTarget(
+                capability=capability_name,
+                engine=route.engine,
+                transport=str(snapshot["transport"]),
+            )
+            if not verify_consented_extraction_cache(
+                project,
+                target,
+                spec=spec,
+                program=program,
+                cached_row_ids=scoped_cached,
+            ):
+                raise ActionProgramInvocationHalt(
+                    "promise_violation",
+                    "cached extraction entries required by this attempt's "
+                    "consented estimate are no longer available in "
+                    "project.cache.db; re-estimate and confirm before "
+                    "calling a paid extraction engine",
+                )
 
     from frisket.execution.scope_identity import AdmittedWorkScopeSnapshot
 

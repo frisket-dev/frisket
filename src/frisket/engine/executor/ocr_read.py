@@ -14,10 +14,10 @@ from frisket.actions.media_options import OcrOptions
 from frisket.actions.media_types import OcrText, RecognizedDocument
 from frisket.actions.types import ColumnRef, Outcome, RowError
 from frisket.execution.resolver import preview_resolution_in_scope
-from frisket.ai.models.metadata import model_calls_cost_actual
+from frisket.ai.models.metadata import ModelCallMeta, model_calls_cost_actual
 from frisket.ai.models.usage_counts import model_call_token_counts
 from frisket.ai.models.accounting import merge_accounting_meta
-from frisket.ai.llm.types import attach_wire_calls
+from frisket.ai.llm.types import attach_wire_calls, provider_from_model_id
 from frisket.ops import ocr_engines as engines
 from frisket.engine.executor.blob_outputs import RowBlobOutput, RowBlobPlan
 from frisket.engine._workers.pdf_render_worker import (
@@ -37,6 +37,19 @@ from frisket.engine.pdf_page_source import (
 )
 from frisket.engine.executor.visual_cuts_read import _settle
 from frisket.engine.store.artifact_timeline import canonical_json_hash
+from frisket.engine.store.extraction_cache import (
+    EXTRACTION_CACHE_SOURCE,
+    BlobExtractionCache,
+    ExtractionTarget,
+    admitted_cached_row_ids,
+    admitted_has_paid_cost_promise,
+    build_extraction_cache_key,
+    cache_reads_enabled,
+    cache_writes_enabled,
+    effective_cache_mode,
+    page_selector_for,
+    validate_ocr_cache_payload,
+)
 from frisket.engine.store.media_blobs import (
     MediaBlobStore,
     owned_media_metadata_document,
@@ -99,6 +112,73 @@ def _page_warnings(pages, *, first_page):
             "additional page warnings omitted."
         )
     return tuple(warnings)
+
+
+def _ocr_transport_for_context(engine: str, ctx) -> str:
+    admission = routed_admission_in_scope(ctx.extras)
+    if admission is not None:
+        transport = admission.route.target_snapshot.get("transport")
+        if isinstance(transport, str) and transport:
+            return transport
+    preview = preview_resolution_in_scope(ctx.extras)
+    if preview is not None and preview.support.transport:
+        return preview.support.transport
+    if engine in engines.LOCAL_ENGINES:
+        return "local"
+    if engine in engines.SIDECAR_ENGINES:
+        return "sidecar.ocr"
+    if engine == engines.DATALAB_ENGINE:
+        return "datalab.convert"
+    if engine.startswith("opendocrouter/"):
+        return "opendocrouter.parse"
+    return "remote"
+
+
+def _ocr_cache_hit_model_call(engine: str, *, transport: str, admission) -> dict:
+    if engine in engines.LOCAL_ENGINES and transport != "frisket.cloud.media.v1":
+        provider, provider_kind, model_ids = "local", "local_process", [engine]
+    elif engine in engines.SIDECAR_ENGINES and transport != "frisket.cloud.media.v1":
+        provider, provider_kind, model_ids = (
+            "frisket-sidecar",
+            "local_http",
+            [engine],
+        )
+    elif engine == engines.DATALAB_ENGINE:
+        provider, provider_kind, model_ids = "datalab", "platform_api", [engine]
+    else:
+        provider = provider_from_model_id(engine)
+        _, _, model = engine.partition("/")
+        provider_kind = "platform_api"
+        model_ids = [model or engine]
+    call = ModelCallMeta.cache_hit(
+        capability=CAPABILITY_OCR,
+        engine=engine,
+        provider=provider,
+        provider_kind=provider_kind,
+        model_ids=model_ids,
+        units={"pages": 0},
+        cache={"hit": True, "source": EXTRACTION_CACHE_SOURCE},
+    ).as_dict()
+    if admission is not None:
+        call = bind_fact_to_route(admission.route, call)
+    return call
+
+
+def _refresh_cached_page_images(
+    cached_images: dict, source: dict, *, preview: bool
+) -> dict:
+    if preview:
+        return {}
+    refreshed = {}
+    for page_key, raw_entry in cached_images.items():
+        entry = copy.deepcopy(raw_entry)
+        if isinstance(entry, dict) and entry.get("source_blob"):
+            entry["blob_hash"] = source["blob_hash"]
+            entry["mime"] = source["mime"]
+            entry["filename"] = source["filename"]
+            entry["size"] = source["size"]
+        refreshed[str(page_key)] = entry
+    return refreshed
 
 
 class AdmittedOcrReader:
@@ -344,40 +424,42 @@ class _BoundOcrReader:
         options = owner._options
         usage = {"calls": 0, "in": 0, "out": 0, "cost": 0.0, "duration_ms": 0}
         pages = []
+        admission = routed_admission_in_scope(ctx.extras)
+        transport = _ocr_transport_for_context(engine, ctx)
+        cache_mode = effective_cache_mode(ctx)
+        selected_page = source.get("page")
+        cache_key = build_extraction_cache_key(
+            ExtractionTarget(
+                capability=CAPABILITY_OCR, engine=engine, transport=transport
+            ),
+            blob_hash=source["blob_hash"],
+            normalized_options=options,
+            page_selector=page_selector_for(selected_page),
+        )
+        extraction_cache = BlobExtractionCache.for_project(owner._project)
+        cached_payload = None
+        if extraction_cache is not None and cache_reads_enabled(cache_mode):
+            with extraction_cache:
+                cached_payload = validate_ocr_cache_payload(
+                    extraction_cache.get(cache_key),
+                    selected_page=selected_page,
+                )
         with owner._project.materialize_blob(source["blob_hash"]) as raw_path:
             original_path = Path(raw_path)
             with tempfile.TemporaryDirectory(prefix="frisket-ocr-") as td:
                 scratch = Path(td)
                 is_pdf = owner._engines._is_pdf(original_path, source)
-                selected_page = source.get("page")
                 if selected_page is not None and not is_pdf:
                     raise RowError(
                         "invalid_media_cell", "OCR page selector requires a PDF source"
                     )
                 path = original_path
                 page_count = None
-                if is_pdf:
-                    from frisket.ops.ocr_engines_cloud import (
-                        cloud_pdf_input_supported,
-                    )
-
-                    cloud_pdf = self._cloud_media_route() and cloud_pdf_input_supported(
-                        ctx, engine
-                    )
-                    if self._cloud_media_route() and not cloud_pdf:
-                        raise ActionProgramInvocationHalt(
-                            "promise_violation",
-                            "Cloud OCR does not support PDF input; reconnect or upgrade Frisket Cloud",
-                        )
-                    probe = MediaBlobStore(owner._project).probe_metadata(
-                        source["blob_hash"]
-                    )
-                    page_count = probe.get("pages")
-                    if type(page_count) is not int or page_count <= 0:
-                        page_count = owner._engines._pdf_page_count(
-                            original_path, source["blob_hash"]
-                        )
-                    if selected_page is not None:
+                page_images = {}
+                warnings = ()
+                if cached_payload is not None:
+                    page_count = cached_payload["page_count"]
+                    if selected_page is not None and options["searchable_pdf"]:
                         try:
                             path = materialize_pdf_page(
                                 original_path,
@@ -387,145 +469,248 @@ class _BoundOcrReader:
                         except PdfPageSourceError as exc:
                             raise RowError("invalid_media_cell", str(exc)) from exc
                     limits = ctx.execution_limits
-                    if limits is not None and limits.max_pdf_pages is not None:
+                    if (
+                        is_pdf
+                        and limits is not None
+                        and limits.max_pdf_pages is not None
+                    ):
                         enforce_pdf_page_limit(
                             limits.max_pdf_pages,
                             1 if selected_page is not None else page_count,
                         )
-                    if self._incremental_engine(engine) and (
-                        type(page_count) is not int or page_count <= 0
+                    source["page_count"] = page_count
+                    pages = copy.deepcopy(cached_payload["pages"])
+                    page_images = _refresh_cached_page_images(
+                        cached_payload["page_images"],
+                        source,
+                        preview=owner._files.preview,
+                    )
+                    warnings = tuple(cached_payload["warnings"])
+                    calls = [
+                        _ocr_cache_hit_model_call(
+                            engine, transport=transport, admission=admission
+                        )
+                    ]
+                    owner.accounting_by_row[self._row_id] = copy.deepcopy(
+                        {
+                            **model_call_token_counts(calls),
+                            "cost": model_calls_cost_actual(calls),
+                            "model_calls": calls,
+                        }
+                    )
+                else:
+                    if (
+                        admission is not None
+                        and admitted_has_paid_cost_promise(admission)
+                        and self._row_id in admitted_cached_row_ids(admission)
                     ):
-                        # A bounded first chunk can still open PDFs that the
-                        # inexpensive metadata probe cannot inspect.
-                        with tempfile.TemporaryDirectory(
-                            prefix="count-", dir=scratch
-                        ) as count_dir:
+                        raise ActionProgramInvocationHalt(
+                            "promise_violation",
+                            "cached OCR extraction entry is no longer available "
+                            "for a row authorized at $0 from cache; re-estimate "
+                            "and confirm before calling a paid OCR engine",
+                        )
+                    if is_pdf:
+                        from frisket.ops.ocr_engines_cloud import (
+                            cloud_pdf_input_supported,
+                        )
+
+                        cloud_pdf = (
+                            self._cloud_media_route()
+                            and cloud_pdf_input_supported(ctx, engine)
+                        )
+                        if self._cloud_media_route() and not cloud_pdf:
+                            raise ActionProgramInvocationHalt(
+                                "promise_violation",
+                                "Cloud OCR does not support PDF input; reconnect or upgrade Frisket Cloud",
+                            )
+                        probe = MediaBlobStore(owner._project).probe_metadata(
+                            source["blob_hash"]
+                        )
+                        page_count = probe.get("pages")
+                        if type(page_count) is not int or page_count <= 0:
+                            page_count = owner._engines._pdf_page_count(
+                                original_path, source["blob_hash"]
+                            )
+                        if selected_page is not None:
                             try:
-                                rendered = await render_pdf_pages(
+                                path = materialize_pdf_page(
                                     original_path,
-                                    Path(count_dir),
-                                    dpi=options["dpi"],
-                                    pages=[1],
-                                    timeout_seconds=600,
-                                    should_cancel=owner._cancelled,
-                                    max_edge=engines.RAPIDOCR_MAX_IMAGE_EDGE
-                                    if engine == engines.LIGHT_ENGINE
-                                    else None,
+                                    page=selected_page,
+                                    destination=scratch / "selected-page.pdf",
                                 )
-                            except PdfRenderCancelled as exc:
-                                raise engines.OcrCancelled("OCR cancelled") from exc
-                            except PdfRenderEnvironmentError as exc:
-                                raise ActionProgramInvocationHalt(
-                                    "local_session_failed",
-                                    "The PDF rendering environment failed; repair local storage or runtime before resuming.",
-                                ) from exc
-                            page_count = rendered.page_count
-                incremental = is_pdf and self._incremental_engine(engine)
-                page_images = {}
-                warnings = ()
-                returned = False
-                failure = None
-                try:
-                    if is_pdf and cloud_pdf:
-                        if type(page_count) is not int or page_count <= 0:
-                            raise RowError(
-                                "invalid_media_cell", "PDF page count could not be read"
+                            except PdfPageSourceError as exc:
+                                raise RowError("invalid_media_cell", str(exc)) from exc
+                        limits = ctx.execution_limits
+                        if limits is not None and limits.max_pdf_pages is not None:
+                            enforce_pdf_page_limit(
+                                limits.max_pdf_pages,
+                                1 if selected_page is not None else page_count,
                             )
-                        source["page_count"] = page_count
-                        pages, page_images, warnings = await self._recognize_cloud_pdf(
-                            source,
-                            path,
-                            engine,
-                            usage,
-                            page_count=1 if selected_page is not None else page_count,
-                            first_page=selected_page or 1,
-                        )
-                    elif incremental:
-                        if type(page_count) is not int or page_count <= 0:
-                            raise RowError(
-                                "invalid_media_cell", "PDF page count could not be read"
+                        if self._incremental_engine(engine) and (
+                            type(page_count) is not int or page_count <= 0
+                        ):
+                            # A bounded first chunk can still open PDFs that the
+                            # inexpensive metadata probe cannot inspect.
+                            with tempfile.TemporaryDirectory(
+                                prefix="count-", dir=scratch
+                            ) as count_dir:
+                                try:
+                                    rendered = await render_pdf_pages(
+                                        original_path,
+                                        Path(count_dir),
+                                        dpi=options["dpi"],
+                                        pages=[1],
+                                        timeout_seconds=600,
+                                        should_cancel=owner._cancelled,
+                                        max_edge=engines.RAPIDOCR_MAX_IMAGE_EDGE
+                                        if engine == engines.LIGHT_ENGINE
+                                        else None,
+                                    )
+                                except PdfRenderCancelled as exc:
+                                    raise engines.OcrCancelled("OCR cancelled") from exc
+                                except PdfRenderEnvironmentError as exc:
+                                    raise ActionProgramInvocationHalt(
+                                        "local_session_failed",
+                                        "The PDF rendering environment failed; repair local storage or runtime before resuming.",
+                                    ) from exc
+                                page_count = rendered.page_count
+                    incremental = is_pdf and self._incremental_engine(engine)
+                    returned = False
+                    failure = None
+                    try:
+                        if is_pdf and cloud_pdf:
+                            if type(page_count) is not int or page_count <= 0:
+                                raise RowError(
+                                    "invalid_media_cell",
+                                    "PDF page count could not be read",
+                                )
+                            source["page_count"] = page_count
+                            (
+                                pages,
+                                page_images,
+                                warnings,
+                            ) = await self._recognize_cloud_pdf(
+                                source,
+                                path,
+                                engine,
+                                usage,
+                                page_count=(
+                                    1 if selected_page is not None else page_count
+                                ),
+                                first_page=selected_page or 1,
                             )
-                        source["page_count"] = page_count
-                        recognize_pdf = (
-                            self._recognize_indra_pdf
-                            if engine == engines.INDRA_OCR_ENGINE
-                            else self._recognize_pdf_pages
-                        )
-                        pages, page_images, warnings = await recognize_pdf(
-                            source,
-                            path,
-                            engine,
-                            scratch,
-                            usage,
-                            page_count=1 if selected_page is not None else page_count,
-                            first_page=selected_page or 1,
-                        )
-                    else:
-                        local_image = not is_pdf and self._incremental_engine(engine)
-                        if local_image:
-                            owner._check_open()
-                            self._report_page_progress(0, 1)
-                        page_paths = await owner._engines._page_images(
-                            path, source, options, scratch, engine=engine
-                        )
-                        if type(page_count) is not int or page_count <= 0:
-                            page_count = len(page_paths)
-                        source["page_count"] = page_count
-                        usage["input_pages"] = len(page_paths)
-                        pages = await owner._engines.run_engine_on_pages(
-                            engine,
-                            page_paths,
-                            ctx,
-                            usage=usage,
-                            language=options.get("language"),
-                            keep_text_position=options.get("keep_text_position"),
-                            scratch=scratch,
-                        )
-                        page_images = self._page_images(
-                            source,
-                            path,
-                            page_paths,
-                            scratch,
-                            first_page=selected_page or 1,
-                        )
-                        if local_image:
-                            owner._check_open()
-                            self._report_page_progress(1, 1)
-                    returned = True
-                except BaseException as exc:
-                    failure = exc
-                    raise
-                finally:
-                    if usage.get("model_calls") or usage["calls"] or returned:
-                        calls = usage.get("model_calls") or [
-                            owner._engines._model_call_for(
-                                engine, path, pages, usage, ctx=ctx
-                            ).as_dict()
-                        ]
-                        admission = routed_admission_in_scope(ctx.extras)
-                        if admission is not None:
-                            calls = [
-                                bind_fact_to_route(admission.route, call)
-                                for call in calls
+                        elif incremental:
+                            if type(page_count) is not int or page_count <= 0:
+                                raise RowError(
+                                    "invalid_media_cell",
+                                    "PDF page count could not be read",
+                                )
+                            source["page_count"] = page_count
+                            recognize_pdf = (
+                                self._recognize_indra_pdf
+                                if engine == engines.INDRA_OCR_ENGINE
+                                else self._recognize_pdf_pages
+                            )
+                            pages, page_images, warnings = await recognize_pdf(
+                                source,
+                                path,
+                                engine,
+                                scratch,
+                                usage,
+                                page_count=(
+                                    1 if selected_page is not None else page_count
+                                ),
+                                first_page=selected_page or 1,
+                            )
+                        else:
+                            local_image = not is_pdf and self._incremental_engine(
+                                engine
+                            )
+                            if local_image:
+                                owner._check_open()
+                                self._report_page_progress(0, 1)
+                            page_paths = await owner._engines._page_images(
+                                path, source, options, scratch, engine=engine
+                            )
+                            if type(page_count) is not int or page_count <= 0:
+                                page_count = len(page_paths)
+                            source["page_count"] = page_count
+                            usage["input_pages"] = len(page_paths)
+                            pages = await owner._engines.run_engine_on_pages(
+                                engine,
+                                page_paths,
+                                ctx,
+                                usage=usage,
+                                language=options.get("language"),
+                                keep_text_position=options.get("keep_text_position"),
+                                scratch=scratch,
+                            )
+                            page_images = self._page_images(
+                                source,
+                                path,
+                                page_paths,
+                                scratch,
+                                first_page=selected_page or 1,
+                            )
+                            if local_image:
+                                owner._check_open()
+                                self._report_page_progress(1, 1)
+                        returned = True
+                    except BaseException as exc:
+                        failure = exc
+                        raise
+                    finally:
+                        if usage.get("model_calls") or usage["calls"] or returned:
+                            calls = usage.get("model_calls") or [
+                                owner._engines._model_call_for(
+                                    engine, path, pages, usage, ctx=ctx
+                                ).as_dict()
                             ]
-                        owner.accounting_by_row[self._row_id] = copy.deepcopy(
-                            {
-                                **model_call_token_counts(calls),
-                                "cost": model_calls_cost_actual(calls),
-                                "model_calls": calls,
-                            }
-                        )
-                        # The invocation owns stable OCR facts now. Do not let
-                        # the row error handler mint them again as LLM facts.
-                        if failure is not None and usage.get("_wire_calls"):
-                            recorded = {id(call) for call in usage["_wire_calls"]}
-                            attach_wire_calls(
-                                failure,
-                                [
-                                    call
-                                    for call in getattr(failure, "wire_calls", ())
-                                    if id(call) not in recorded
-                                ],
+                            if admission is not None:
+                                calls = [
+                                    bind_fact_to_route(admission.route, call)
+                                    for call in calls
+                                ]
+                            owner.accounting_by_row[self._row_id] = copy.deepcopy(
+                                {
+                                    **model_call_token_counts(calls),
+                                    "cost": model_calls_cost_actual(calls),
+                                    "model_calls": calls,
+                                }
+                            )
+                            # The invocation owns stable OCR facts now. Do not let
+                            # the row error handler mint them again as LLM facts.
+                            if failure is not None and usage.get("_wire_calls"):
+                                recorded = {id(call) for call in usage["_wire_calls"]}
+                                attach_wire_calls(
+                                    failure,
+                                    [
+                                        call
+                                        for call in getattr(failure, "wire_calls", ())
+                                        if id(call) not in recorded
+                                    ],
+                                )
+                    if (
+                        returned
+                        and extraction_cache is not None
+                        and cache_writes_enabled(cache_mode)
+                        and not owner._files.preview
+                        and pages
+                        and not any(page.get("error") for page in pages)
+                        and type(source.get("page_count")) is int
+                        and source["page_count"] > 0
+                        and (selected_page is None or len(pages) == 1)
+                    ):
+                        with extraction_cache:
+                            extraction_cache.put(
+                                cache_key,
+                                {
+                                    "pages": copy.deepcopy(pages),
+                                    "page_images": copy.deepcopy(page_images),
+                                    "warnings": list(warnings),
+                                    "page_count": int(source["page_count"]),
+                                },
                             )
                 if selected_page is not None and len(pages) != 1:
                     raise RuntimeError("page-scoped OCR must return exactly one page")
