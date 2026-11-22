@@ -5,8 +5,9 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   CompactSelection,
   type DataEditorProps,
-  type GroupHeaderClickedEventArgs,
   type GridMouseEventArgs,
+  type GridMouseGroupHeaderEventArgs,
+  type GroupHeaderClickedEventArgs,
 } from '@glideapps/glide-data-grid';
 import type { ActionCatalogEntry, SheetMeta } from '../../src/api/types';
 import { createProjectApi } from '../../src/api/real';
@@ -274,7 +275,7 @@ describe('group-header provenance entry', () => {
   function groupHoverEvent(
     group: string,
     bounds: { x: number; y: number; width: number; height: number },
-  ): GridMouseEventArgs {
+  ): GridMouseGroupHeaderEventArgs {
     return {
       kind: 'group-header',
       group,
@@ -290,7 +291,17 @@ describe('group-header provenance entry', () => {
       scrollEdge: [0, 0],
       localEventX: 1,
       localEventY: 1,
-    } as GridMouseEventArgs;
+    };
+  }
+
+  function groupHeaderClickEvent(
+    group: string,
+    bounds: { x: number; y: number; width: number; height: number },
+  ): GroupHeaderClickedEventArgs {
+    return {
+      ...groupHoverEvent(group, bounds),
+      preventDefault: vi.fn(),
+    };
   }
 
   function headerLeaveEvent(
@@ -312,7 +323,7 @@ describe('group-header provenance entry', () => {
       scrollEdge: [0, 0],
       localEventX: 1,
       localEventY: 1,
-    } as GridMouseEventArgs;
+    };
   }
 
   it('renders only the Confidence checkbox when a group has confidence columns only', async () => {
@@ -343,7 +354,7 @@ describe('group-header provenance entry', () => {
     expect(screen.queryByTestId('native-column-group-show-justification')).not.toBeInTheDocument();
     expect(screen.queryByTestId('native-column-group-view-run-details')).not.toBeInTheDocument();
 
-    const activate = { bounds, preventDefault: vi.fn() } as unknown as GroupHeaderClickedEventArgs;
+    const activate = groupHeaderClickEvent(group, bounds);
     await act(async () => editor.props!.onGroupHeaderClicked?.(0, activate));
     await waitFor(() => expect(screen.getByTestId('action-run-entry-card')).toBeInTheDocument());
     expect(screen.getByTestId('native-column-group-show-confidence')).toBeInTheDocument();
@@ -377,7 +388,7 @@ describe('group-header provenance entry', () => {
     expect(screen.queryByTestId('native-column-group-show-confidence')).not.toBeInTheDocument();
     expect(screen.getByTestId('native-column-group-show-justification')).toBeInTheDocument();
 
-    const activate = { bounds, preventDefault: vi.fn() } as unknown as GroupHeaderClickedEventArgs;
+    const activate = groupHeaderClickEvent(group, bounds);
     await act(async () => editor.props!.onGroupHeaderClicked?.(0, activate));
     await waitFor(() => expect(screen.getByTestId('action-run-entry-card')).toBeInTheDocument());
     expect(screen.queryByTestId('native-column-group-show-confidence')).not.toBeInTheDocument();
