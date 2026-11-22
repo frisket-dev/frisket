@@ -43,9 +43,41 @@ function childCommand(command) {
   return { env, args };
 }
 
+const STDERR_TAIL_LIMIT = 50;
+
 function sleep(ms) {
   return new Promise((resolve) => {
     setTimeout(resolve, ms);
+  });
+}
+
+function isLikelyOom(code, signal) {
+  return signal === 'SIGKILL' || code === 137;
+}
+
+function formatUnexpectedExit({ name, when, code, signal, stderrLines }) {
+  const details = [`code=${code ?? 'null'}`];
+  if (signal) details.push(`signal=${signal}`);
+  const oomHint = isLikelyOom(code, signal)
+    ? ' — likely OOM kill (SIGKILL / exit 137)'
+    : '';
+  const header =
+    `[e2e-server] ${safeDiagnosticText(name, 80)} ${when} ` +
+    `(${details.join(', ')})${oomHint}`;
+  if (!stderrLines || stderrLines.length === 0) {
+    return `${header}\n[e2e-server] (no stderr captured)`;
+  }
+  const tail = stderrLines.map((line) => `  | ${line}`).join('\n');
+  return (
+    `${header}\n` +
+    `[e2e-server] Last ${stderrLines.length} stderr line(s):\n` +
+    `${tail}`
+  );
+}
+
+function writeStderrAndFlush(text) {
+  return new Promise((resolve) => {
+    process.stderr.write(`${text}\n`, () => resolve());
   });
 }
 
@@ -54,8 +86,30 @@ async function main() {
   const childSpec = childCommand(args.command);
   const child = spawn(childSpec.args[0], childSpec.args.slice(1), {
     env: childSpec.env,
-    stdio: 'inherit',
+    stdio: ['inherit', 'inherit', 'pipe'],
   });
+  const stderrTail = [];
+  let stderrPending = '';
+  if (child.stderr) {
+    child.stderr.on('data', (chunk) => {
+      process.stderr.write(chunk);
+      const text = typeof chunk === 'string' ? chunk : chunk.toString('utf8');
+      stderrPending += text;
+      const lines = stderrPending.split(/\r?\n/);
+      stderrPending = lines.pop() ?? '';
+      for (const line of lines) {
+        stderrTail.push(line);
+        if (stderrTail.length > STDERR_TAIL_LIMIT) {
+          stderrTail.shift();
+        }
+      }
+    });
+  }
+  const recentStderrLines = () => {
+    const lines = stderrPending ? [...stderrTail, stderrPending] : [...stderrTail];
+    return lines.slice(-STDERR_TAIL_LIMIT);
+  };
+
   let childExited = false;
   let childExitCode = null;
   let childExitSignal = null;
@@ -66,6 +120,11 @@ async function main() {
       childExitCode = code;
       childExitSignal = signal;
       childExited = true;
+      resolve({ code, signal });
+    });
+  });
+  const childClosed = new Promise((resolve) => {
+    child.once('close', (code, signal) => {
       resolve({ code, signal });
     });
   });
@@ -96,10 +155,15 @@ async function main() {
     let lastError = '';
     while (Date.now() - started < args.timeoutMs) {
       if (childExited) {
+        await Promise.race([childClosed, sleep(250)]);
         throw new Error(
-          `${safeDiagnosticText(args.name, 80)} exited before readiness (code ${childExitCode ?? 'null'}${
-            childExitSignal ? `, signal ${childExitSignal}` : ''
-          })`,
+          formatUnexpectedExit({
+            name: args.name,
+            when: 'exited before readiness',
+            code: childExitCode,
+            signal: childExitSignal,
+            stderrLines: recentStderrLines(),
+          }),
         );
       }
       try {
@@ -143,6 +207,18 @@ async function main() {
     return;
   }
   const childResult = await childDone;
+  if (!forwardedSignal) {
+    await Promise.race([childClosed, sleep(250)]);
+    await writeStderrAndFlush(
+      formatUnexpectedExit({
+        name: args.name,
+        when: 'exited unexpectedly before teardown',
+        code: childResult.code,
+        signal: childResult.signal,
+        stderrLines: recentStderrLines(),
+      }),
+    );
+  }
   if (childResult.signal) {
     process.kill(process.pid, childResult.signal);
     return;
