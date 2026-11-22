@@ -123,8 +123,9 @@ def _rewrite_keys_recursive(value: Any, key_map: dict[str, str]) -> tuple[Any, b
     changed = False
     out: dict[str, Any] = {}
     for key, item in value.items():
-        new_key = key_map.get(key, key)
-        if new_key != key:
+        key_str = str(key)
+        new_key = key_map.get(key_str, key_str)
+        if new_key != key_str:
             changed = True
         rewritten, item_changed = _rewrite_keys_recursive(item, key_map)
         changed = changed or item_changed
