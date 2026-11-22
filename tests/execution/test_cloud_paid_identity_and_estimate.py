@@ -239,3 +239,134 @@ def test_llm_estimate_helper_includes_tools_in_the_canonical_wire_payload():
     assert cloud_llm_estimated_spend_micro(
         with_tools, price
     ) > cloud_llm_estimated_spend_micro(plain, price)
+
+
+def test_cloud_llm_estimate_uses_realistic_output_tokens_not_32k_ceiling():
+    price = CloudTokenPrice(
+        kind="tokens",
+        input_micro_per_million_tokens=3_600_000,
+        output_micro_per_million_tokens=18_000_000,
+    )
+
+    class Provider:
+        @staticmethod
+        def cloud_token_price(_target_id, _capability, _engine):
+            return price
+
+    resolution = SimpleNamespace(
+        target=SimpleNamespace(id="frisket-cloud:41"),
+        facts=SimpleNamespace(engine=_payer().engine, cloud_payer=_payer()),
+    )
+    plain_schema = {
+        "type": "object",
+        "properties": {"plaintiff": {"anyOf": [{"type": "string"}, {"type": "null"}]}},
+    }
+    grounded_schema = {
+        "type": "object",
+        "properties": {
+            "plaintiff": {
+                "type": "object",
+                "properties": {
+                    "value": {"anyOf": [{"type": "string"}, {"type": "null"}]},
+                    "evidence": {
+                        "anyOf": [
+                            {"type": "array", "items": {"type": "object"}},
+                            {"type": "null"},
+                        ]
+                    },
+                },
+            }
+        },
+    }
+    body = "Complaint filed in Superior Court. Plaintiff: Acme Corp. " * 40
+    plain_rows = {
+        row_id: SimpleNamespace(
+            messages=[{"role": "user", "content": body}],
+            schema=plain_schema,
+            max_tokens=32_768,
+        )
+        for row_id in range(1, 7)
+    }
+    spec = {
+        "action_kind": "map.extract",
+        "fields": [{"name": "plaintiff", "type": "text"}],
+    }
+
+    basis, total_micro = _llm_cost_basis(
+        SimpleNamespace(provider=Provider()),
+        resolution,
+        plain_rows,
+        program=SimpleNamespace(),
+        spec=spec,
+    )
+    assert total_micro is not None
+    estimated_usd = float(basis.estimated_quantity)
+    assert estimated_usd == total_micro / 1_000_000
+    assert 0.02 <= estimated_usd <= 0.05
+
+    grounded_rows = {
+        row_id: SimpleNamespace(
+            messages=[{"role": "user", "content": body}],
+            schema=grounded_schema,
+            max_tokens=32_768,
+        )
+        for row_id in range(1, 7)
+    }
+    grounded_basis, grounded_micro = _llm_cost_basis(
+        SimpleNamespace(provider=Provider()),
+        resolution,
+        grounded_rows,
+        program=SimpleNamespace(),
+        spec=spec,
+    )
+    assert grounded_micro is not None
+    assert grounded_micro > total_micro
+    assert float(grounded_basis.estimated_quantity) < 0.08
+
+    sources_basis, sources_micro = _llm_cost_basis(
+        SimpleNamespace(provider=Provider()),
+        resolution,
+        plain_rows,
+        program=SimpleNamespace(),
+        spec={**spec, "include_sources": True},
+    )
+    assert sources_micro is not None
+    assert sources_micro > total_micro
+    assert float(sources_basis.estimated_quantity) < 0.08
+
+    small_cap_call = SimpleNamespace(
+        messages=[{"role": "user", "content": "short"}],
+        schema=plain_schema,
+        max_tokens=16,
+    )
+    _, small_cap_micro = _llm_cost_basis(
+        SimpleNamespace(provider=Provider()),
+        resolution,
+        {1: small_cap_call},
+        program=SimpleNamespace(),
+        spec=spec,
+    )
+    expected_small_cap = cloud_llm_estimated_spend_micro(
+        CloudLLMRequest(
+            model=_payer().engine,
+            messages=small_cap_call.messages,
+            schema=small_cap_call.schema,
+            max_tokens=16,
+            temperature=0,
+        ),
+        price,
+    )
+    assert small_cap_micro == expected_small_cap
+
+    # Reservation formula still prices the full wire max_tokens unchanged.
+    wire_reservation_micro = cloud_llm_estimated_spend_micro(
+        CloudLLMRequest(
+            model=_payer().engine,
+            messages=plain_rows[1].messages,
+            schema=plain_rows[1].schema,
+            max_tokens=32_768,
+            temperature=0,
+        ),
+        price,
+    )
+    assert wire_reservation_micro * 6 > 3_500_000

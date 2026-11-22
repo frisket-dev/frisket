@@ -824,12 +824,67 @@ def _llm_options(rendered: Mapping[int, Any], program: Any) -> dict[str, Any]:
     }
 
 
+def _estimated_llm_output_tokens(
+    call: Any,
+    *,
+    spec: Mapping[str, Any] | None = None,
+) -> int:
+    """Estimate realistic output tokens for one rendered LLM call.
+
+    Uses the same per-field baseline as BYOK (150 + 50/field) plus a modest
+    allowance when grounded citations, justifications, or reasoning are
+    requested, bounded by the call's wire ``max_tokens``.
+    """
+    fields: Any = spec.get("fields") if isinstance(spec, Mapping) else None
+    schema: Any = getattr(call, "schema", None)
+    raw_props: Any = schema.get("properties") if isinstance(schema, Mapping) else None
+    props: Mapping[str, Any] | None = (
+        raw_props if isinstance(raw_props, Mapping) else None
+    )
+    if isinstance(fields, (list, tuple)) and fields:
+        field_count = len(fields)
+    elif props:
+        field_count = len(props)
+    else:
+        field_count = 1
+
+    est_out = 150 + 50 * max(1, field_count)
+
+    wants_explanation = False
+    if isinstance(spec, Mapping):
+        grounding: Any = spec.get("grounding")
+        wants_explanation = (
+            bool(spec.get("include_sources"))
+            or bool(spec.get("include_justification"))
+            or bool(spec.get("include_reasoning"))
+            or (isinstance(grounding, Mapping) and bool(grounding.get("enabled")))
+        )
+    if not wants_explanation and props:
+        for prop_name, prop_schema in props.items():
+            if isinstance(prop_name, str) and prop_name.endswith(
+                ("_justification", "_reasoning")
+            ):
+                wants_explanation = True
+                break
+            if isinstance(prop_schema, Mapping):
+                nested_props: Any = prop_schema.get("properties")
+                if isinstance(nested_props, Mapping) and "evidence" in nested_props:
+                    wants_explanation = True
+                    break
+
+    if wants_explanation:
+        est_out += 100 * max(1, field_count)
+
+    return max(1, min(int(call.max_tokens), est_out))
+
+
 def _llm_cost_basis(
     composition: ExecutionComposition,
     resolution: Resolution,
     rendered: Mapping[int, Any],
     *,
     program: Any,
+    spec: Mapping[str, Any] | None = None,
 ) -> tuple[CostBasis, int | None]:
     from frisket.cloud_execution import cloud_llm_estimated_spend_micro
     from frisket.contracts.http.cloud_connection import (
@@ -846,10 +901,12 @@ def _llm_cost_basis(
     if not isinstance(price, CloudTokenPrice):
         raise ValueError("Cloud LLM route has no authoritative token price")
 
-    # Quote the initial request, including structured-output schema overhead.
-    # Validation may issue repair requests, so this is an estimate, never a
-    # spend bound: the Cloud basis below retains ceiling_mode="none" and
-    # all-metered settlement. Agent tool rounds remain unknown quantity.
+    # Quote the initial request with realistic estimated output tokens rather
+    # than the wire max_tokens ceiling, while keeping structured-output schema
+    # overhead in the input token estimate. Validation may issue repair
+    # requests, so this is an estimate, never a spend bound: the Cloud basis
+    # below retains ceiling_mode="none" and all-metered settlement. Agent tool
+    # rounds remain unknown quantity.
     from frisket.ai.llm.pdf_estimates import estimate_input_tokens
 
     estimable_first_call = not hasattr(program, "run_agent") and all(
@@ -858,12 +915,13 @@ def _llm_cost_basis(
     row_micro: dict[int, int] = {}
     if estimable_first_call:
         for row_id, call in rendered.items():
+            estimated_out = _estimated_llm_output_tokens(call, spec=spec)
             row_micro[int(row_id)] = cloud_llm_estimated_spend_micro(
                 CloudLLMRequest(
                     model=resolution.facts.engine,
                     messages=call.messages,
                     schema=call.schema,
-                    max_tokens=call.max_tokens,
+                    max_tokens=estimated_out,
                     temperature=0,
                 ),
                 price,
@@ -1159,7 +1217,7 @@ def resolve_for_action(
     if capability == CAPABILITY_LLM:
         assert rendered_llm is not None
         cost_basis, quantity = _llm_cost_basis(
-            composition, outcome, rendered_llm, program=program
+            composition, outcome, rendered_llm, program=program, spec=spec
         )
     elif bounded_scratch_input is None:
         assert estimator is not None
