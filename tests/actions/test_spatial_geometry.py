@@ -170,7 +170,9 @@ def test_multipolygon_feature_wrapper_json_string_and_3d_coords() -> None:
     assert point_in_shape(2.0, 2.0, MULTIPOLYGON) is True
     assert point_in_shape(11.0, 15.0, MULTIPOLYGON) is True
     assert point_in_shape(7.0, 7.0, MULTIPOLYGON) is False
-    assert point_in_shape(15.0, 15.0, MULTIPOLYGON) is False  # inside second poly's hole
+    assert (
+        point_in_shape(15.0, 15.0, MULTIPOLYGON) is False
+    )  # inside second poly's hole
 
     # GeoJSON Feature wrapper
     feature = {
@@ -234,7 +236,10 @@ def test_multipolygon_feature_wrapper_json_string_and_3d_coords() -> None:
         },
         {"type": "MultiPolygon", "coordinates": []},
         {"type": "Feature", "geometry": None},
-        {"type": "GeometryCollection", "geometries": [{"type": "Point", "coordinates": [5.0, 5.0]}]},
+        {
+            "type": "GeometryCollection",
+            "geometries": [{"type": "Point", "coordinates": [5.0, 5.0]}],
+        },
     ],
 )
 def test_malformed_and_non_polygon_shapes_return_false(bad_shape: Any) -> None:
@@ -294,3 +299,49 @@ def test_prepared_shape_bbox_prefilter_accuracy() -> None:
             assert hit == [(gx, gy)]
             matches += len(hit)
     assert matches == 25
+
+
+def test_huge_integer_coordinates_never_raise_overflow_error() -> None:
+    huge = 10**400
+    assert parse_geo_point('{"lat": ' + "9" * 400 + ', "lon": 0}') is None
+    assert parse_geo_point({"lat": huge, "lon": 0}) is None
+    assert parse_geo_point({"lat": 0, "lon": -huge}) is None
+
+    huge_poly = {
+        "type": "Polygon",
+        "coordinates": [[[0, 0], [huge, 0], [huge, huge], [0, huge], [0, 0]]],
+    }
+    assert prepare_shape(huge_poly) is None
+    assert point_in_shape(0.0, 0.0, huge_poly) is False
+
+    prepared = prepare_shape(SQUARE)
+    assert prepared is not None
+    assert point_in_prepared_shape(huge, 5.0, prepared) is False
+    assert point_in_shape(5.0, -huge, SQUARE) is False
+
+
+@pytest.mark.parametrize(
+    "collinear_ring",
+    [
+        [[0.0, 0.0], [5.0, 0.0], [10.0, 0.0], [0.0, 0.0]],
+        [[0.0, 0.0], [2.0, 2.0], [4.0, 4.0], [0.0, 0.0]],
+        [[0.0, 0.0], [0.1, 0.2], [0.3, 0.6], [0.0, 0.0]],
+    ],
+)
+def test_zero_area_collinear_rings_are_rejected(
+    collinear_ring: list[list[float]],
+) -> None:
+    shape = {"type": "Polygon", "coordinates": [collinear_ring]}
+    assert prepare_shape(shape) is None
+    assert point_in_shape(collinear_ring[1][0], collinear_ring[1][1], shape) is False
+
+
+def test_extreme_float_coordinates_do_not_overflow_segment_or_ray_math() -> None:
+    big = 1e200
+    big_square = {
+        "type": "Polygon",
+        "coordinates": [[[0.0, 0.0], [big, 0.0], [big, big], [0.0, big], [0.0, 0.0]]],
+    }
+    assert point_in_shape(big * 0.5, big * 0.5, big_square) is True
+    assert point_in_shape(big * 0.5, 0.0, big_square) is True
+    assert point_in_shape(-big * 0.5, big * 0.5, big_square) is False

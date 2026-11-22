@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import heapq
 from collections.abc import Iterator, Mapping
 from contextlib import closing
 from dataclasses import dataclass
@@ -53,6 +54,7 @@ from frisket.engine.store.consumed_source_pages import iter_consumed_source_page
 from frisket.engine.store.consumed_sources import capture_fingerprint
 
 PreparedShapeEntry = tuple[int, PreparedShape, float, float, float, float]
+_TOP_FANOUT_LIMIT = 10
 
 
 @dataclass(frozen=True, slots=True)
@@ -88,8 +90,8 @@ class _SideReadRequest:
 
 
 @dataclass(frozen=True, slots=True)
-class _MatchSummary:
-    pairs: list[tuple[int, int | None, str]]
+class _MatchCounts:
+    estimated_rows: int
     top_fanout: list[dict[str, int]]
     stats: dict[str, int]
 
@@ -199,7 +201,9 @@ def _read_side_values(
         project,
         request.sheet["sheet_id"],
         request.col_ids,
-        row_ids=request.sheet["row_ids"] if request.scope_intent == "selected" else None,
+        row_ids=request.sheet["row_ids"]
+        if request.scope_intent == "selected"
+        else None,
         captures=captures,
     )
     with closing(pages):
@@ -306,33 +310,55 @@ def _compile_shapes(
     return prepared_shapes, invalid_rows
 
 
-def _match_one_point(
+def _iter_point_matches(
     lon: float,
     lat: float,
     prepared_shapes: list[PreparedShapeEntry],
     match: SpatialJoinMatch,
-) -> list[int]:
-    matched: list[int] = []
+) -> Iterator[int]:
     for right_row_id, prepared, min_x, min_y, max_x, max_y in prepared_shapes:
         if lon < min_x or lon > max_x or lat < min_y or lat > max_y:
             continue
         if point_in_prepared_shape(lon, lat, prepared):
-            matched.append(right_row_id)
+            yield right_row_id
             if match == "first":
-                break
-    return matched
+                return
 
 
-def _match_points(
+def _count_one_point(
+    lon: float,
+    lat: float,
+    prepared_shapes: list[PreparedShapeEntry],
+    match: SpatialJoinMatch,
+) -> int:
+    hits = 0
+    for _ in _iter_point_matches(lon, lat, prepared_shapes, match):
+        hits += 1
+    return hits
+
+
+def _record_top_fanout(
+    heap: list[tuple[int, int]], left_row_id: int, match_len: int
+) -> None:
+    if match_len <= 1:
+        return
+    entry = (match_len, -left_row_id)
+    if len(heap) < _TOP_FANOUT_LIMIT:
+        heapq.heappush(heap, entry)
+    elif entry > heap[0]:
+        heapq.heapreplace(heap, entry)
+
+
+def _count_matches(
     left_row_ids: list[int],
     point_values: Mapping[int, Any],
     prepared_shapes: list[PreparedShapeEntry],
     *,
     validated: _ValidatedSpatialSpec,
     invalid_right_rows: int,
-) -> _MatchSummary:
-    pairs: list[tuple[int, int | None, str]] = []
-    fanout_counts: list[tuple[int, int]] = []
+) -> _MatchCounts:
+    """O(1)-memory counting pass computing exact cardinality and top-10 fanout."""
+    top_heap: list[tuple[int, int]] = []
     both_count = 0
     left_only_count = 0
     null_left_rows = 0
@@ -344,28 +370,22 @@ def _match_points(
         point = parse_geo_point(point_values.get(left_row_id))
         if point is None:
             null_left_rows += 1
-            matched: list[int] = []
+            hits = 0
         else:
-            matched = _match_one_point(
+            hits = _count_one_point(
                 point[0], point[1], prepared_shapes, validated.match
             )
-
-        if matched:
+        if hits > 0:
             matched_left_rows += 1
-            match_len = len(matched)
-            both_count += match_len
-            max_fanout = max(max_fanout, match_len)
-            if match_len > 1:
-                fanout_counts.append((left_row_id, match_len))
-            for right_row_id in matched:
-                pairs.append((left_row_id, right_row_id, "both"))
+            both_count += hits
+            max_fanout = max(max_fanout, hits)
+            _record_top_fanout(top_heap, left_row_id, hits)
         elif validated.how == "left":
             left_only_count += 1
-            pairs.append((left_row_id, None, "left_only"))
 
-    fanout_counts.sort(key=lambda item: (-item[1], item[0]))
     top_fanout = [
-        {"left_row_id": rid, "matches": count} for rid, count in fanout_counts[:10]
+        {"left_row_id": -neg_rid, "matches": count}
+        for count, neg_rid in sorted(top_heap, key=lambda item: (-item[0], -item[1]))
     ]
     stats = {
         "both": both_count,
@@ -377,7 +397,32 @@ def _match_points(
         "null_left_rows": null_left_rows,
         "invalid_right_rows": invalid_right_rows,
     }
-    return _MatchSummary(pairs=pairs, top_fanout=top_fanout, stats=stats)
+    return _MatchCounts(
+        estimated_rows=both_count + left_only_count,
+        top_fanout=top_fanout,
+        stats=stats,
+    )
+
+
+def _stream_matched_pairs(
+    left_row_ids: list[int],
+    point_values: Mapping[int, Any],
+    prepared_shapes: list[PreparedShapeEntry],
+    validated: _ValidatedSpatialSpec,
+) -> Iterator[tuple[int, int | None, str]]:
+    """Lazily yield matched ``(left_id, right_id, merge_label)`` pairs."""
+    for left_row_id_raw in left_row_ids:
+        left_row_id = int(left_row_id_raw)
+        point = parse_geo_point(point_values.get(left_row_id))
+        matched_any = False
+        if point is not None:
+            for right_row_id in _iter_point_matches(
+                point[0], point[1], prepared_shapes, validated.match
+            ):
+                matched_any = True
+                yield (left_row_id, right_row_id, "both")
+        if not matched_any and validated.how == "left":
+            yield (left_row_id, None, "left_only")
 
 
 def _materialize_row_values(
@@ -448,38 +493,36 @@ class AdmittedSpatialJoinReader:
         self.parent_sheet_id = scope.sheet_id
         self.sources: WeakSet[RowSource] = WeakSet()
         self.source_roles: WeakKeyDictionary[RowSource, str] = WeakKeyDictionary()
-        self._tokens: WeakKeyDictionary[RowSource, tuple[int, str]] = (
+        self._pair_links: WeakKeyDictionary[RowSource, RowSource | None] = (
             WeakKeyDictionary()
         )
         self.facts: list[dict[str, Any]] = []
         self.consumed_captures: list[dict[str, Any]] = []
-        self._plans: list[tuple[int, set[tuple[int, int | None]]]] = []
 
-    def _mint_token(
-        self, plan_id: int, right_sheet_id: int, side: str, row_id: int | None
-    ) -> RowSource | None:
-        if row_id is None:
-            return None
-        source = RowSource(
-            sheet_id=self.scope.sheet_id if side == "left" else right_sheet_id,
-            row_id=row_id,
-        )
-        self.sources.add(source)
-        self.source_roles[source] = f"join_{side}"
-        self._tokens[source] = (plan_id, side)
-        return source
+    def _mint_pair_tokens(
+        self, right_sheet_id: int, left_id: int, right_id: int | None
+    ) -> tuple[RowSource, RowSource | None]:
+        left_token = RowSource(sheet_id=self.scope.sheet_id, row_id=left_id)
+        self.sources.add(left_token)
+        self.source_roles[left_token] = "join_left"
+        right_token: RowSource | None = None
+        if right_id is not None:
+            right_token = RowSource(sheet_id=right_sheet_id, row_id=right_id)
+            self.sources.add(right_token)
+            self.source_roles[right_token] = "join_right"
+        self._pair_links[left_token] = right_token
+        return left_token, right_token
 
     def _enforce_fanout_cap(
         self,
         fact: Mapping[str, Any],
-        summary: _MatchSummary,
+        counts: _MatchCounts,
         max_output_rows: int,
     ) -> None:
-        estimated_rows = len(summary.pairs)
         details = {
-            "estimated_rows": estimated_rows,
+            "estimated_rows": counts.estimated_rows,
             "max_output_rows": max_output_rows,
-            "top_fanout_points": summary.top_fanout,
+            "top_fanout_points": counts.top_fanout,
         }
         confirmation_hash = mint_confirmation_hash(
             scope_confirmation(
@@ -488,7 +531,7 @@ class AdmittedSpatialJoinReader:
                 bindings={**details, "input_digest": _digest(fact)},
             )
         )
-        if estimated_rows <= max_output_rows:
+        if counts.estimated_rows <= max_output_rows:
             return
         refusal = refuse_unless_exact_echo(
             confirmed=self.confirmation is not None,
@@ -567,9 +610,10 @@ class AdmittedSpatialJoinReader:
         prepared_shapes, invalid_right = _compile_shapes(
             right_sheet["row_ids"], right_values[int(shape_meta["id"])]
         )
-        summary = _match_points(
+        point_values = left_values[int(point_meta["id"])]
+        counts = _count_matches(
             left_sheet["row_ids"],
-            left_values[int(point_meta["id"])],
+            point_values,
             prepared_shapes,
             validated=validated,
             invalid_right_rows=invalid_right,
@@ -588,31 +632,26 @@ class AdmittedSpatialJoinReader:
             "match": validated.match,
             "indicator": validated.indicator,
             "max_output_rows": validated.max_output_rows,
-            "stats": summary.stats,
+            "stats": counts.stats,
         }
         self.facts.append(fact)
         self.consumed_captures.extend((left_capture, right_capture))
-        plan_id = len(self._plans)
-        self._plans.append(
-            (plan_id, {(left_id, right_id) for left_id, right_id, _ in summary.pairs})
-        )
 
         def rows() -> Iterator[TableRow[DynamicOutput]]:
-            self._enforce_fanout_cap(fact, summary, validated.max_output_rows)
-            right_id_sheet = validated.right_sheet.sheet_id
-            for pair in summary.pairs:
-                left_token = self._mint_token(plan_id, right_id_sheet, "left", pair[0])
-                right_token = self._mint_token(
-                    plan_id, right_id_sheet, "right", pair[1]
+            self._enforce_fanout_cap(fact, counts, validated.max_output_rows)
+            right_sheet_id = validated.right_sheet.sheet_id
+            for pair in _stream_matched_pairs(
+                left_sheet["row_ids"], point_values, prepared_shapes, validated
+            ):
+                left_token, right_token = self._mint_pair_tokens(
+                    right_sheet_id, pair[0], pair[1]
                 )
                 yield TableRow(
                     output=DynamicOutput(
                         _materialize_row_values(output, left_values, right_values, pair)
                     ),
                     sources=tuple(
-                        item
-                        for item in (left_token, right_token)
-                        if item is not None
+                        item for item in (left_token, right_token) if item is not None
                     ),
                     parent=left_token,
                 )
@@ -628,31 +667,15 @@ class AdmittedSpatialJoinReader:
     def validate_lineage(
         self, sources: tuple[RowSource, ...], parent: RowSource | None
     ) -> None:
-        for plan_id, valid_pairs in self._plans:
-            left = next(
-                (
-                    token
-                    for token in sources
-                    if self._tokens.get(token) == (plan_id, "left")
-                ),
-                None,
-            )
-            right = next(
-                (
-                    token
-                    for token in sources
-                    if self._tokens.get(token) == (plan_id, "right")
-                ),
-                None,
+        if parent is not None and parent in self._pair_links:
+            expected_right = self._pair_links[parent]
+            expected_sources = (
+                {parent} if expected_right is None else {parent, expected_right}
             )
             if (
-                left is None
-                or parent is not left
-                or set(sources)
-                != {token for token in (left, right) if token is not None}
+                len(sources) == len(expected_sources)
+                and set(sources) == expected_sources
             ):
-                continue
-            if (left.row_id, right.row_id if right is not None else None) in valid_pairs:
                 return
         raise TableError(
             "invalid_input_ref",

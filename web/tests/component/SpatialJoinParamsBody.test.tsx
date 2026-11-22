@@ -167,4 +167,94 @@ describe('SpatialJoinParamsBody', () => {
     });
     expect(screen.getByTestId('generated-action-run')).toBeDisabled();
   });
+
+  it('rejects a saved draft targeting the same sheet as polygon sheet', async () => {
+    renderSpatialJoinForm({
+      initialDraft: {
+        action_id: 'derive.spatial_join',
+        scope: { kind: 'sheet_rows', sheet_id: 1 },
+        sheet_name: 'BadSameSheet',
+        output_names: {},
+        params: {
+          point_column: 'location',
+          right_sheet: { sheet_id: 1 },
+          shape_column: 'geometry',
+        },
+      },
+    });
+
+    await waitFor(() => {
+      expect(screen.getByTestId('spatial-join-same-sheet')).toHaveTextContent(
+        'Choose a different polygon sheet.',
+      );
+    });
+    expect(screen.getByTestId('field-spatial_join_right_sheet')).toHaveValue('');
+    expect(screen.getByTestId('generated-action-run')).toBeDisabled();
+  });
+
+  it('blocks submission when saved right_columns contains a missing column', async () => {
+    renderSpatialJoinForm({
+      initialDraft: {
+        action_id: 'derive.spatial_join',
+        scope: { kind: 'sheet_rows', sheet_id: 1 },
+        sheet_name: 'StaleRightCols',
+        output_names: {},
+        params: {
+          point_column: 'location',
+          right_sheet: { sheet_id: 3 },
+          shape_column: 'geometry',
+          right_columns: ['district', 'deleted_col'],
+        },
+      },
+    });
+
+    await waitFor(() => {
+      expect(screen.getByTestId('spatial-join-missing-columns')).toHaveTextContent(
+        'deleted_col',
+      );
+    });
+    expect(screen.getByTestId('generated-action-run')).toBeDisabled();
+  });
+
+  it('ignores empty polygon sheet select values instead of setting sheet_id 0', async () => {
+    const view = renderSpatialJoinForm({
+      initialDraft: {
+        action_id: 'derive.spatial_join',
+        scope: { kind: 'sheet_rows', sheet_id: 1 },
+        sheet_name: 'UnavailableSheet',
+        output_names: {},
+        params: {
+          point_column: 'location',
+          right_sheet: { sheet_id: 999 },
+          shape_column: 'geometry',
+        },
+      },
+    });
+
+    await waitFor(() => {
+      expect(screen.getByTestId('field-spatial_join_right_sheet')).toHaveValue('');
+    });
+    fireEvent.change(screen.getByTestId('field-spatial_join_right_sheet'), {
+      target: { value: '' },
+    });
+    expect(screen.getByTestId('generated-action-run')).toBeDisabled();
+
+    // Selecting a valid polygon sheet repairs it cleanly and submits with sheet_id: 3
+    fireEvent.change(screen.getByTestId('field-spatial_join_right_sheet'), {
+      target: { value: '3' },
+    });
+    await waitFor(() => {
+      expect(screen.getByTestId('generated-action-run')).toBeEnabled();
+    });
+    fireEvent.click(screen.getByTestId('generated-action-run'));
+    expect(view.onExecute).toHaveBeenCalledWith(
+      expect.objectContaining({
+        params: expect.objectContaining({
+          right_sheet: { sheet_id: 3 },
+          shape_column: 'geometry',
+        }),
+      }),
+      'run',
+    );
+  });
 });

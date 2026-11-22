@@ -12,9 +12,10 @@ from __future__ import annotations
 import json
 import math
 from dataclasses import dataclass
-from typing import Any, TypeGuard
+from typing import Any
 
 EPSILON: float = 1e-12
+_AREA_EPSILON: float = 1e-15
 _MAX_GEOMETRY_DEPTH: int = 8
 
 Point2D = tuple[float, float]
@@ -46,12 +47,14 @@ class PreparedShape:
     bbox: BBox
 
 
-def _is_finite_number(value: Any) -> TypeGuard[int | float]:
-    return (
-        isinstance(value, (int, float))
-        and not isinstance(value, bool)
-        and math.isfinite(value)
-    )
+def _to_finite_float(value: Any) -> float | None:
+    if not isinstance(value, (int, float)) or isinstance(value, bool):
+        return None
+    try:
+        number = float(value)
+    except OverflowError:
+        return None
+    return number if math.isfinite(number) else None
 
 
 def parse_geo_point(value: Any) -> Point2D | None:
@@ -72,12 +75,10 @@ def parse_geo_point(value: Any) -> Point2D | None:
             return None
     if not isinstance(parsed, dict):
         return None
-    lat = parsed.get("lat")
-    lon = parsed.get("lon")
-    if not _is_finite_number(lat) or not _is_finite_number(lon):
+    lat_f = _to_finite_float(parsed.get("lat"))
+    lon_f = _to_finite_float(parsed.get("lon"))
+    if lat_f is None or lon_f is None:
         return None
-    lat_f = float(lat)
-    lon_f = float(lon)
     if not (-90.0 <= lat_f <= 90.0 and -180.0 <= lon_f <= 180.0):
         return None
     return (lon_f, lat_f)
@@ -86,16 +87,35 @@ def parse_geo_point(value: Any) -> Point2D | None:
 def _parse_position(pos: Any) -> Point2D | None:
     if not isinstance(pos, (list, tuple)) or len(pos) < 2:
         return None
-    lon_raw, lat_raw = pos[0], pos[1]
-    if not _is_finite_number(lon_raw) or not _is_finite_number(lat_raw):
+    lon_f = _to_finite_float(pos[0])
+    lat_f = _to_finite_float(pos[1])
+    if lon_f is None or lat_f is None:
         return None
-    return (float(lon_raw), float(lat_raw))
+    return (lon_f, lat_f)
 
 
 def _ring_bbox(vertices: list[Point2D]) -> BBox:
     lons = [pt[0] for pt in vertices]
     lats = [pt[1] for pt in vertices]
     return (min(lons), min(lats), max(lons), max(lats))
+
+
+def _has_nonzero_area(vertices: list[Point2D], bbox: BBox) -> bool:
+    span_x = bbox[2] - bbox[0]
+    span_y = bbox[3] - bbox[1]
+    scale = span_x if span_x >= span_y else span_y
+    if not math.isfinite(scale) or scale <= 0.0:
+        return False
+    x0, y0 = vertices[0]
+    total = 0.0
+    j = len(vertices) - 1
+    for i, (xi, yi) in enumerate(vertices):
+        xj, yj = vertices[j]
+        total += ((xj - x0) / scale) * ((yi - y0) / scale) - ((xi - x0) / scale) * (
+            (yj - y0) / scale
+        )
+        j = i
+    return math.isfinite(total) and abs(total) > _AREA_EPSILON
 
 
 def _parse_ring(raw_ring: Any) -> PreparedRing | None:
@@ -112,7 +132,10 @@ def _parse_ring(raw_ring: Any) -> PreparedRing | None:
         vertices.pop()
     if len(set(vertices)) < 3:
         return None
-    return PreparedRing(vertices=tuple(vertices), bbox=_ring_bbox(vertices))
+    bbox = _ring_bbox(vertices)
+    if not _has_nonzero_area(vertices, bbox):
+        return None
+    return PreparedRing(vertices=tuple(vertices), bbox=bbox)
 
 
 def _parse_polygon_coords(raw_coords: Any) -> PreparedPolygon | None:
@@ -146,9 +169,7 @@ def _extract_multipolygon(raw_polys: Any) -> list[PreparedPolygon] | None:
     return polys
 
 
-def _extract_collection(
-    geometries: Any, *, depth: int
-) -> list[PreparedPolygon] | None:
+def _extract_collection(geometries: Any, *, depth: int) -> list[PreparedPolygon] | None:
     if not isinstance(geometries, (list, tuple)):
         return None
     collected: list[PreparedPolygon] = []
@@ -208,8 +229,7 @@ def prepare_shape(shape: Any) -> PreparedShape | None:
 
 def _point_in_bbox(lon: float, lat: float, bbox: BBox, eps: float) -> bool:
     return (
-        bbox[0] - eps <= lon <= bbox[2] + eps
-        and bbox[1] - eps <= lat <= bbox[3] + eps
+        bbox[0] - eps <= lon <= bbox[2] + eps and bbox[1] - eps <= lat <= bbox[3] + eps
     )
 
 
@@ -233,20 +253,19 @@ def _point_on_segment(
 
     dx = x2 - x1
     dy = y2 - y1
-    seg_len_sq = dx * dx + dy * dy
-    eps_sq = eps * eps
-    if seg_len_sq == 0.0:
-        return (px - x1) * (px - x1) + (py - y1) * (py - y1) <= eps_sq
+    if not (math.isfinite(dx) and math.isfinite(dy)):
+        return False
+    seg_len = math.hypot(dx, dy)
+    if seg_len == 0.0:
+        return math.hypot(px - x1, py - y1) <= eps
 
-    t = ((px - x1) * dx + (py - y1) * dy) / seg_len_sq
-    if t < 0.0:
-        t = 0.0
-    elif t > 1.0:
-        t = 1.0
-    proj_x = x1 + t * dx
-    proj_y = y1 + t * dy
-    dist_sq = (px - proj_x) * (px - proj_x) + (py - proj_y) * (py - proj_y)
-    return dist_sq <= eps_sq
+    ux = dx / seg_len
+    uy = dy / seg_len
+    proj = (px - x1) * ux + (py - y1) * uy
+    proj = max(0.0, min(seg_len, proj))
+    nearest_x = x1 + proj * ux
+    nearest_y = y1 + proj * uy
+    return math.hypot(px - nearest_x, py - nearest_y) <= eps
 
 
 def _point_on_ring(point: Point2D, ring: PreparedRing, eps: float) -> bool:
@@ -270,16 +289,15 @@ def _point_strictly_inside_ring(px: float, py: float, ring: PreparedRing) -> boo
         xi, yi = verts[i]
         xj, yj = verts[j]
         if (yi > py) != (yj > py):
-            x_intersect = xi + (py - yi) * (xj - xi) / (yj - yi)
+            ratio = (py - yi) / (yj - yi)
+            x_intersect = xi + ratio * (xj - xi)
             if px < x_intersect:
                 inside = not inside
         j = i
     return inside
 
 
-def _point_in_polygon(
-    px: float, py: float, poly: PreparedPolygon, eps: float
-) -> bool:
+def _point_in_polygon(px: float, py: float, poly: PreparedPolygon, eps: float) -> bool:
     if not _point_in_bbox(px, py, poly.bbox, eps):
         return False
     point = (px, py)
@@ -305,10 +323,10 @@ def point_in_prepared_shape(
     eps: float = EPSILON,
 ) -> bool:
     """Return True if ``(lon, lat)`` falls inside or on ``prepared``."""
-    if not _is_finite_number(lon) or not _is_finite_number(lat):
+    px = _to_finite_float(lon)
+    py = _to_finite_float(lat)
+    if px is None or py is None:
         return False
-    px = float(lon)
-    py = float(lat)
     if not _point_in_bbox(px, py, prepared.bbox, eps):
         return False
     for poly in prepared.polygons:
@@ -329,9 +347,11 @@ def point_in_shape(
     Returns ``False`` cleanly for null, NaN/Inf, malformed, or non-polygon
     geometries (such as ``Point`` or ``LineString``).
     """
-    if not _is_finite_number(lon) or not _is_finite_number(lat):
+    px = _to_finite_float(lon)
+    py = _to_finite_float(lat)
+    if px is None or py is None:
         return False
     prepared = prepare_shape(shape)
     if prepared is None:
         return False
-    return point_in_prepared_shape(lon, lat, prepared, eps=eps)
+    return point_in_prepared_shape(px, py, prepared, eps=eps)

@@ -34,11 +34,17 @@ function SpatialJoinParamsBodyForSheet({
       return aHasShape - bHasShape;
     });
   }, [sheets, sheet.id]);
-  const right = sheets.find((item) => Number(item.id) === params.right_sheet?.sheet_id);
+  const sameSheetSelected = params.right_sheet?.sheet_id === Number(sheet.id);
+  const right = sortedRightSheets.find((item) => Number(item.id) === params.right_sheet?.sheet_id);
   const shapeColumns = useMemo(
     () => (right?.columns ?? []).filter((column) => column.type === 'geo_shape'),
     [right],
   );
+  const missingRightColumns = useMemo(() => {
+    if (!right || !params.right_columns?.length) return [];
+    const available = new Set(right.columns.map((column) => column.name));
+    return params.right_columns.filter((name) => !available.has(name));
+  }, [right, params.right_columns]);
 
   useEffect(() => {
     if (loading || error) return;
@@ -47,7 +53,7 @@ function SpatialJoinParamsBodyForSheet({
       item.columns.some((column) => column.type === 'geo_shape'),
     ) ?? sortedRightSheets[0];
     const nextRightId = params.right_sheet?.sheet_id ?? (defaultTarget ? Number(defaultTarget.id) : undefined);
-    const resolvedRight = sheets.find((item) => Number(item.id) === nextRightId);
+    const resolvedRight = sortedRightSheets.find((item) => Number(item.id) === nextRightId);
     const resolvedShapes = (resolvedRight?.columns ?? []).filter((column) => column.type === 'geo_shape');
     const nextShape = params.shape_column || (
       params.right_sheet?.sheet_id == null ? (resolvedShapes[0]?.name ?? '') : ''
@@ -65,7 +71,7 @@ function SpatialJoinParamsBodyForSheet({
         ...(nextShape ? { shape_column: nextShape } : {}),
       });
     }
-  }, [loading, error, params, setParams, sheets, pointColumns, sortedRightSheets]);
+  }, [loading, error, params, setParams, pointColumns, sortedRightSheets]);
 
   const pointValid = Boolean(
     params.point_column && pointColumns.some((column) => column.name === params.point_column),
@@ -80,13 +86,17 @@ function SpatialJoinParamsBodyForSheet({
         ? 'This sheet has no geo_point column.'
         : !pointValid
           ? 'Choose a geo_point column.'
-          : !right
-            ? 'Choose a polygon sheet.'
-            : shapeColumns.length === 0
-              ? 'Selected sheet has no geo_shape column.'
-              : !shapeValid
-                ? 'Choose a geo_shape polygon column.'
-                : null);
+          : sameSheetSelected
+            ? 'Choose a different polygon sheet.'
+            : !right
+              ? 'Choose a polygon sheet.'
+              : shapeColumns.length === 0
+                ? 'Selected sheet has no geo_shape column.'
+                : !shapeValid
+                  ? 'Choose a geo_shape polygon column.'
+                  : missingRightColumns.length > 0
+                    ? `Selected polygon columns missing: ${missingRightColumns.join(', ')}.`
+                    : null);
 
   useEditorProblem(setEditorProblem, problem);
 
@@ -102,6 +112,16 @@ function SpatialJoinParamsBodyForSheet({
       </Button>
       {loading && <p className="form-hint" role="status">Loading sheets…</p>}
       {error && <p className="panel-error" role="alert">{error}</p>}
+      {sameSheetSelected && (
+        <p className="panel-error" role="alert" data-testid="spatial-join-same-sheet">
+          Choose a different polygon sheet.
+        </p>
+      )}
+      {missingRightColumns.length > 0 && (
+        <p className="panel-error" role="alert" data-testid="spatial-join-missing-columns">
+          Selected polygon columns missing: {missingRightColumns.join(', ')}.
+        </p>
+      )}
       <fieldset className="resolve-drawer-body-fields" disabled={blocked}>
         <p className="form-hint">
           Points from <strong>{left.name}</strong> are matched against polygons in the target sheet.
@@ -141,7 +161,11 @@ function SpatialJoinParamsBodyForSheet({
               ...(!right
                 ? [{
                   value: '',
-                  label: params.right_sheet?.sheet_id != null ? 'Saved sheet unavailable' : 'Choose a polygon sheet',
+                  label: sameSheetSelected
+                    ? 'Choose a different polygon sheet'
+                    : params.right_sheet?.sheet_id != null
+                      ? 'Saved sheet unavailable'
+                      : 'Choose a polygon sheet',
                 }]
                 : []),
               ...sortedRightSheets.map((item) => {
@@ -154,9 +178,11 @@ function SpatialJoinParamsBodyForSheet({
             ]}
             onValueChange={(id) => {
               const numericId = Number(id);
+              if (!id || !Number.isFinite(numericId) || numericId <= 0) return;
               if (numericId === params.right_sheet?.sheet_id) return;
-              const nextSheet = sheets.find((item) => Number(item.id) === numericId);
-              const firstShape = nextSheet?.columns.find((column) => column.type === 'geo_shape')?.name ?? '';
+              const nextSheet = sortedRightSheets.find((item) => Number(item.id) === numericId);
+              if (!nextSheet) return;
+              const firstShape = nextSheet.columns.find((column) => column.type === 'geo_shape')?.name ?? '';
               setParams({
                 ...params,
                 right_sheet: { sheet_id: numericId },

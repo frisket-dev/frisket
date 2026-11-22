@@ -743,17 +743,23 @@ def _drive_derive_spatial_join(
     project = Project.create(tmp_path / "spatial_join.frisket", name="spatial_join")
     try:
         left_id = project.add_sheet("Points")
-        left_cols = {"location": project.add_column(left_id, "location", type="geo_point")}
+        left_cols = {
+            "location": project.add_column(left_id, "location", type="geo_point")
+        }
         project.add_rows(
             left_id,
             [{"location": {"lat": 1.0, "lon": 1.0}} for _ in range(3)],
             left_cols,
         )
         right_id = project.add_sheet("Zones")
-        right_cols = {"geometry": project.add_column(right_id, "geometry", type="geo_shape")}
+        right_cols = {
+            "geometry": project.add_column(right_id, "geometry", type="geo_shape")
+        }
         square = {
             "type": "Polygon",
-            "coordinates": [[[0.0, 0.0], [2.0, 0.0], [2.0, 2.0], [0.0, 2.0], [0.0, 0.0]]],
+            "coordinates": [
+                [[0.0, 0.0], [2.0, 0.0], [2.0, 2.0], [0.0, 2.0], [0.0, 0.0]]
+            ],
         }
         project.add_rows(
             right_id,

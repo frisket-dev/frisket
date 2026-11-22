@@ -7,10 +7,12 @@ import json
 from pathlib import Path
 from typing import Any
 
+import pytest
 from fastapi.testclient import TestClient
 
 from frisket.actions.registry import ACTION_REGISTRY
 from frisket.engine.executor import run_action_spec
+from frisket.engine.executor import spatial_join_read
 from frisket.engine.store import Project
 from frisket.engine.store.sheet_lifecycle import dependent_sheets
 from frisket.features.graph.sheet_graph import sheet_materialized_kind
@@ -195,8 +197,7 @@ def test_left_all_join_with_collisions_indicator_and_lineage(project: Project) -
         "_merge",
     ]
     summary = [
-        (r["name"], r["name_right"], r["zone_code"], r["_merge"])
-        for r in table["rows"]
+        (r["name"], r["name_right"], r["zone_code"], r["_merge"]) for r in table["rows"]
     ]
     assert summary == [
         ("InNorthOnly", "North District", "N1", "both"),
@@ -286,7 +287,13 @@ def test_collision_suffix_avoids_existing_right_suffixed_left_column(
     )
     assert res.status == "completed", res.errors
     table = _materialized_table(project, _sheet_id_by_name(project, "CollisionSafe"))
-    assert table["column_names"] == ["name", "name_right", "loc", "name_right_2", "geom"]
+    assert table["column_names"] == [
+        "name",
+        "name_right",
+        "loc",
+        "name_right_2",
+        "geom",
+    ]
     assert table["rows"][0]["name"] == "P1"
     assert table["rows"][0]["name_right"] == "existing"
     assert table["rows"][0]["name_right_2"] == "North"
@@ -303,10 +310,16 @@ def test_fanout_guard_refuses_until_confirmation_token_echoed(
         left_cols,
     )
     right_id = project.add_sheet("Polys")
-    right_cols = {"geometry": project.add_column(right_id, "geometry", type="geo_shape")}
+    right_cols = {
+        "geometry": project.add_column(right_id, "geometry", type="geo_shape")
+    }
     project.add_rows(
         right_id,
-        [{"geometry": POLY_NORTH}, {"geometry": POLY_OVERLAP}, {"geometry": POLY_NORTH}],
+        [
+            {"geometry": POLY_NORTH},
+            {"geometry": POLY_OVERLAP},
+            {"geometry": POLY_NORTH},
+        ],
         right_cols,
     )
     project.db.commit()
@@ -333,6 +346,55 @@ def test_fanout_guard_refuses_until_confirmation_token_echoed(
     assert done.status == "completed", done.errors
     child_id = _sheet_id_by_name(project, "FanoutResult")
     assert len(project.visible_row_ids(child_id)) == 9
+
+
+def test_fanout_refusal_does_not_stream_pairs_and_bounds_top_fanout_heap(
+    project: Project, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    left_id = project.add_sheet("ManyPts")
+    left_cols = {"location": project.add_column(left_id, "location", type="geo_point")}
+    project.add_rows(
+        left_id,
+        [{"location": {"lat": 5.0, "lon": 7.0}} for _ in range(15)],
+        left_cols,
+    )
+    right_id = project.add_sheet("ManyPolys")
+    right_cols = {
+        "geometry": project.add_column(right_id, "geometry", type="geo_shape")
+    }
+    project.add_rows(
+        right_id,
+        [
+            {"geometry": POLY_NORTH},
+            {"geometry": POLY_OVERLAP},
+            {"geometry": POLY_NORTH},
+        ],
+        right_cols,
+    )
+    project.db.commit()
+
+    def _forbid_streaming(*_args: Any, **_kwargs: Any) -> Any:
+        raise AssertionError("pair streaming must not run before fanout admission")
+
+    monkeypatch.setattr(spatial_join_read, "_stream_matched_pairs", _forbid_streaming)
+
+    # 15 points x 3 overlapping polygons = 45 rows > cap 10
+    gated = run_action_spec(
+        project,
+        _spatial_action(
+            left_sheet_id=left_id,
+            right_sheet_id=right_id,
+            max_output_rows=10,
+            target_sheet_name="NeverMaterialized",
+        ),
+        project_id=PROJECT_ID,
+    )
+    assert gated.status == "needs_confirmation"
+    assert gated.errors[0].code == "join_fanout_requires_confirmation"
+    details = gated.errors[0].details or {}
+    assert details["estimated_rows"] == 45
+    assert len(details["top_fanout_points"]) == 10
+    assert all(entry["matches"] == 3 for entry in details["top_fanout_points"])
 
 
 def test_invalid_column_types_and_same_sheet_rejected(project: Project) -> None:
@@ -481,7 +543,10 @@ def test_http_validate_and_execute_spatial_join_end_to_end(tmp_path: Path) -> No
         assert body["status"] == "completed", body
         child_id = _sheet_id_by_name(proj, "HttpSpatialJoin")
         table = _materialized_table(proj, child_id)
-        assert [(r["name"], r["name_right"], r["zone_code"], r["_merge"]) for r in table["rows"]] == [
+        assert [
+            (r["name"], r["name_right"], r["zone_code"], r["_merge"])
+            for r in table["rows"]
+        ] == [
             ("InNorthOnly", "North District", "N1", "both"),
             ("InOverlap", "North District", "N1", "both"),
         ]
