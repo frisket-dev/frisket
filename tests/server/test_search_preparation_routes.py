@@ -588,12 +588,21 @@ _IDLE_INDEXING = {
 }
 
 
-def test_semantic_preparation_no_encoder_can_run_is_not_reported_as_indexing(
-    tmp_path, client, monkeypatch
-):
+def _client_without_a_local_encoder(tmp_path, monkeypatch, semantic_preparation):
     monkeypatch.setenv("FRISKET_MODEL_RUNTIME_DIR", str(tmp_path / "model-runtime"))
     monkeypatch.setenv("HF_HUB_CACHE", str(tmp_path / "model-cache"))
     monkeypatch.setattr(preparation_module, "_requirements", lambda: ())
+    client = make_client(
+        tmp_path, search_index_semantic_preparation=semantic_preparation
+    )
+    assert not client.app.state.workspace.embedding_runtime.available()
+    return client
+
+
+def test_semantic_preparation_no_encoder_can_run_is_not_reported_as_indexing(
+    tmp_path, monkeypatch
+):
+    client = _client_without_a_local_encoder(tmp_path, monkeypatch, "embedding_runtime")
     workspace = client.app.state.workspace
     assert not workspace.embedding_runtime.available()
     project_id = _semantic_preparation_left_pending(client)
@@ -603,12 +612,9 @@ def test_semantic_preparation_no_encoder_can_run_is_not_reported_as_indexing(
 
 
 def test_worker_composed_without_an_encoder_leaves_no_perpetual_indexing(
-    tmp_path, client, monkeypatch
+    tmp_path, monkeypatch
 ):
-
-    monkeypatch.setenv("FRISKET_MODEL_RUNTIME_DIR", str(tmp_path / "model-runtime"))
-    monkeypatch.setenv("HF_HUB_CACHE", str(tmp_path / "model-cache"))
-    monkeypatch.setattr(preparation_module, "_requirements", lambda: ())
+    client = _client_without_a_local_encoder(tmp_path, monkeypatch, "never")
     workspace = client.app.state.workspace
     project_id = _semantic_preparation_left_pending(client)
     project = workspace.get(project_id)
@@ -632,12 +638,53 @@ def test_worker_composed_without_an_encoder_leaves_no_perpetual_indexing(
     assert client.get(status_url).json()["indexing"] == _IDLE_INDEXING
 
 
+def test_external_worker_semantic_preparation_stays_pending_without_a_local_encoder(
+    tmp_path, monkeypatch
+):
+    client = _client_without_a_local_encoder(tmp_path, monkeypatch, "unknown")
+    project_id = _semantic_preparation_left_pending(client)
+    status_url = f"/api/projects/{project_id}/search-preparation"
+
+    assert client.get(status_url).json()["indexing"] == {
+        **_IDLE_INDEXING,
+        "status": "pending",
+        "sheet_names": ["capitals"],
+    }
+
+
+def test_external_worker_failed_semantic_preparation_stays_visible(
+    tmp_path, monkeypatch
+):
+    client = _client_without_a_local_encoder(tmp_path, monkeypatch, "unknown")
+    workspace = client.app.state.workspace
+    project_id = _semantic_preparation_left_pending(client)
+    project = workspace.get(project_id)
+    job_id = project._frisket_schedule_search_index()
+    assert job_id is not None
+    claimed = workspace.queue.claim("index-test")
+    assert claimed is not None and claimed.id == job_id
+    assert workspace.queue.fail(claimed.id, "index-test", "index failed", retry=False)
+    status_url = f"/api/projects/{project_id}/search-preparation"
+
+    assert client.get(status_url).json()["indexing"] == {
+        **_IDLE_INDEXING,
+        "status": "failed",
+        "job_id": job_id,
+        "error": "queue_job_failed: index failed",
+        "sheet_names": ["capitals"],
+    }
+
+
 def test_lost_semantic_preparation_enqueue_is_recovered_by_the_next_search(
     tmp_path, monkeypatch
 ):
 
     monkeypatch.setattr(preparation_module, "_requirements", lambda: ())
-    client = make_client(tmp_path, embedding_runtime=_available_embedding_runtime())
+    client = make_client(
+        tmp_path,
+        embedding_runtime=_available_embedding_runtime(),
+        search_index_semantic_preparation="embedding_runtime",
+    )
     workspace = client.app.state.workspace
     project_id = _semantic_preparation_left_pending(client)
     status_url = f"/api/projects/{project_id}/search-preparation"
