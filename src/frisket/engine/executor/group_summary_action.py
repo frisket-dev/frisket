@@ -31,6 +31,8 @@ from frisket.engine.executor import group_summary_runtime as runtime
 from frisket.engine.store.receipts import ReceiptStore
 from frisket.engine.store.transactions import roll_back_failed_work
 from frisket.execution.attempt import StaleAttemptWriter
+from frisket.project_service_access import check_model_call
+from frisket.service_access import ServiceNotAllowed
 
 
 class GroupSummaryRefused(ValueError):
@@ -248,8 +250,16 @@ def run_typed_group_summary_action(
             project, router, ExecutionCompositionContext.direct()
         )
     if not model_call_cannot_go_live(router):
+        try:
+            check_model_call(
+                project,
+                prepared.operation.model,
+                destination=router.destination_for_model(prepared.operation.model),
+            )
+        except ServiceNotAllowed as exc:
+            return ActionCtx(project_id, action.kind).fail(exc.code, str(exc))
         if (
-            project.remote_services_refused()
+            project.effective_network_policy() == "off"
             and provider_from_model_id(prepared.operation.model) != "ollama"
         ):
             return ActionCtx(project_id, action.kind).fail(
