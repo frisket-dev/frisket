@@ -34,7 +34,7 @@ def test_search_refuses_unadmitted_calls_before_provider(monkeypatch, mode):
     ctx = _context(preview=mode == "preview")
     if mode != "preview":
         ctx.project = SimpleNamespace(
-            effective_network_policy=lambda: "off" if mode == "network_off" else "on"
+            remote_services_refused=lambda: mode == "network_off"
         )
 
     async def run():

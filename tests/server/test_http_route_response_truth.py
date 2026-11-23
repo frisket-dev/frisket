@@ -42,7 +42,7 @@ EXPECTED_ROUTE_TRUTH = {
         {401, 403, 404, 409, 500},
     ),
     "list_projects": ("GET", "/api/projects", ProjectList, {401, 500}),
-    "create_project": ("POST", "/api/projects", Project, {401, 422, 500}),
+    "create_project": ("POST", "/api/projects", Project, {400, 401, 422, 500}),
     "get_project": (
         "GET",
         "/api/projects/{pid}",
@@ -201,7 +201,9 @@ def test_action_catalogs_and_validation_owned_422_stay_distinct(
         assert routes[name].responses[422] == {"model": HttpError}
 
     with TestClient(app) as client:
-        malformed_body = client.post("/api/projects", json={})
+        malformed_body = client.post(
+            "/api/projects", json={"allowed_services": "everything"}
+        )
         malformed_path = client.get(
             "/api/projects/project-missing/actions/jobs/not-an-integer"
         )
