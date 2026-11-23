@@ -869,6 +869,7 @@ class SelectorChoiceService:
                             "field": None,
                         }
                 target, destination = _model_target(provider)
+                model_destination = router.destination_for_model(model["id"])
                 route_capable = not local_http
                 outcome, selected_route = _resolve_route_choice(
                     composition,
@@ -894,6 +895,7 @@ class SelectorChoiceService:
                     credential_label=own_credential_label,
                     credential_source=own_credential_source,
                     services_refusal=_services_refusal(project),
+                    model_destination=model_destination,
                     preserve_unbound_catalog=local_http,
                 )
                 cloud_setup = cloud.setup()
@@ -923,6 +925,7 @@ class SelectorChoiceService:
                         can_mutate=capabilities.may_author_actions,
                         cloud_unknown=cloud_setup is not None,
                         services_refusal=_services_refusal(project),
+                        model_destination=model_destination,
                         own_blocker=blocker if status == "unavailable" else None,
                     )
                     if route_capable
@@ -1563,6 +1566,7 @@ class SelectorChoiceService:
                     can_mutate=capabilities.may_author_actions,
                     cloud_unknown=cloud.setup() is not None,
                     services_refusal=_services_refusal(project),
+                    model_destination=None,
                 )
                 if route_capable and execution_capability is not None
                 else None

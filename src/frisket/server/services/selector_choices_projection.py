@@ -26,47 +26,100 @@ from frisket.execution.resolver import (
 from frisket.execution.targets import CAPABILITY_LLM, ExecutionTarget
 from frisket.ops.integrations.opus_mt import resolve_pair_codes
 from frisket.server.provider_config import PROVIDER_LABELS
-from frisket.service_access import ALLOWED_SERVICES_LABELS, SERVICE_NOT_ALLOWED
+from frisket.project_service_access import (
+    SelectedRoute,
+    check_route,
+    project_service_access,
+)
+from frisket.service_access import (
+    ALLOWED_SERVICES_LABELS,
+    SERVICE_NOT_ALLOWED,
+    ServiceAccess,
+    ServiceNotAllowed,
+)
 
 _GROUP_STATUS_ORDER = {"ready": 0, "working": 1, "needs_setup": 2, "unavailable": 3}
 
 
 @dataclass(frozen=True)
 class ServicesRefusal:
-    """Why a project's settings refuse remote services: a stable code the web
-    filters on and a message naming the setting."""
+    """Why a project's settings refuse some services: a stable code the web
+    filters on, a message naming the setting, and the decision itself.
+
+    Under Allowed services the decision is ``check_route``, the one Run's
+    gate makes, so a selector entry is ready exactly when Run would send it.
+    """
 
     code: str
     message: str
+    network_off: bool
+    project: Any = None
+    access: ServiceAccess | None = None
 
     def blocker(self) -> dict[str, Any]:
         return {"code": self.code, "message": self.message, "field": None}
 
+    def forbids(
+        self,
+        route: SelectedRoute | None,
+        *,
+        model_destination: str | None = None,
+    ) -> bool:
+        if self.access is not None:
+            try:
+                check_route(
+                    self.project,
+                    self.access,
+                    route,
+                    model_destination=model_destination,
+                )
+            except ServiceNotAllowed:
+                return True
+        return (
+            self.network_off
+            and route is not None
+            and route.egress_class not in {"none", "operator_lan"}
+        )
+
 
 def _services_refusal(project: Any) -> ServicesRefusal | None:
-    setting = project.allowed_services()
-    if setting != "all_services":
+    network_off = project.effective_network_policy() == "off"
+    access = project_service_access(project)
+    if not access.allows_all_services:
         return ServicesRefusal(
             SERVICE_NOT_ALLOWED,
             f"This project's Allowed services setting is "
-            f"{ALLOWED_SERVICES_LABELS[setting]}; it does not allow this service.",
+            f"{ALLOWED_SERVICES_LABELS[access.allowed_services]}; it does not "
+            "allow this service.",
+            network_off,
+            project,
+            access,
         )
-    if project.effective_network_policy() == "off":
+    if network_off:
         return ServicesRefusal(
-            "project_network_off", "This project's network setting is off."
+            "project_network_off", "This project's network setting is off.", True
         )
     return None
 
 
+def _target_route(target: ExecutionTarget | None) -> SelectedRoute | None:
+    return None if target is None else SelectedRoute(target.id, target.egress_class)
+
+
+# A Frisket Cloud route option whose exact target is not known yet.
+_FRISKET_CLOUD_ROUTE = SelectedRoute("frisket-cloud", "frisket_shared")
+
+
 def _network_policy_forbids_target(
-    services_refusal: ServicesRefusal | None, target: ExecutionTarget | None
+    services_refusal: ServicesRefusal | None,
+    target: ExecutionTarget | None,
+    *,
+    model_destination: str | None = None,
 ) -> bool:
     """Apply the project's service settings to the exact selected venue."""
 
-    return (
-        services_refusal is not None
-        and target is not None
-        and target.egress_class not in {"none", "operator_lan"}
+    return services_refusal is not None and services_refusal.forbids(
+        _target_route(target), model_destination=model_destination
     )
 
 
@@ -191,7 +244,13 @@ def _default_action_model(
         _recommendation_composition(composition).provider_for_resolution(),
         composition.facts,
         options=options,
-        allowed_egress_classes={"none", "operator_lan"} if services_refusal else None,
+        # Allowed services already decided each choice's status above; the
+        # network setting alone still filters by egress class.
+        allowed_egress_classes=(
+            {"none", "operator_lan"}
+            if services_refusal is not None and services_refusal.access is None
+            else None
+        ),
         directly_runnable_engines=directly_runnable,
     )
     if preferred is not None or services_refusal:
@@ -453,6 +512,7 @@ def _route_option(
     route: ModelRoute,
     cloud_unknown: bool,
     services_refusal: ServicesRefusal | None,
+    model_destination: str | None,
     cloud_eligible: bool = True,
     unsupported_cloud_provider: str | None = None,
 ) -> tuple[dict[str, Any], ExecutionTarget | None]:
@@ -486,8 +546,11 @@ def _route_option(
         else None
     )
     label = "Frisket Cloud" if route == "cloud" else _own_route_label(target)
-    if services_refusal is not None and (
-        route == "cloud" or _network_policy_forbids_target(services_refusal, target)
+    if services_refusal is not None and services_refusal.forbids(
+        (_target_route(target) or _FRISKET_CLOUD_ROUTE)
+        if route == "cloud"
+        else _target_route(target),
+        model_destination=None if route == "cloud" else model_destination,
     ):
         return {
             "id": route,
@@ -577,6 +640,7 @@ def _route_selection(
     can_mutate: bool,
     cloud_unknown: bool,
     services_refusal: ServicesRefusal | None,
+    model_destination: str | None,
     own_blocker: Mapping[str, Any] | None = None,
 ) -> dict[str, Any] | None:
     model_id = canonical_model_route_id(engine, capability)
@@ -590,6 +654,7 @@ def _route_selection(
         route="own",
         cloud_unknown=cloud_unknown,
         services_refusal=services_refusal,
+        model_destination=model_destination,
     )
     if own_blocker is not None and own["disabled_reason"] is None:
         own = {
@@ -612,6 +677,7 @@ def _route_selection(
         route="cloud",
         cloud_unknown=cloud_unknown,
         services_refusal=services_refusal,
+        model_destination=model_destination,
         cloud_eligible=(
             cloud_route_eligible(engine, capability)
             or _has_exact_cloud_route(
@@ -863,6 +929,7 @@ def _execution_presentation(
     balance_url: str | None = None,
     settings_url: str | None = None,
     services_refusal: ServicesRefusal | None = None,
+    model_destination: str | None = None,
     preserve_unbound_catalog: bool = False,
 ) -> _ExecutionPresentation:
     """Project one selected route without choosing or probing another payer."""
@@ -895,8 +962,8 @@ def _execution_presentation(
             credential_source=credential_source,
         )
 
-    if services_refusal is not None and _network_policy_forbids_target(
-        services_refusal, target
+    if services_refusal is not None and services_refusal.forbids(
+        _target_route(target), model_destination=model_destination
     ):
         return _ExecutionPresentation(
             target,
