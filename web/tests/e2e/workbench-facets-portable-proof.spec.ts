@@ -82,6 +82,8 @@ test('FriendlyFiltersPanel renders and operates in the sheet Filter sidebar', as
 
   // Checking a value filters the open grid; the facet-specific chip clears it.
   const closedLate = facets.getByTestId('facet-check-status-closed-late');
+  // Measure where the pointer will be: the sidebar scrolls the box into view first.
+  await closedLate.scrollIntoViewIfNeeded();
   const targetBeforeFilter = await closedLate.boundingBox();
   expect(targetBeforeFilter).not.toBeNull();
   await closedLate.check();

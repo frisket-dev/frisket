@@ -22,6 +22,7 @@ import type {
   ViewSelection,
 } from '../../src/api/types';
 import type { GeneratedActionParams } from '../../src/generated/actionTypes';
+import { ROW_HEIGHT } from '../../src/grid/rowHeights';
 import { testPython } from '../support/testPython';
 import { requireSeededProject } from './seedProjects';
 
@@ -620,7 +621,6 @@ export async function clickRunButton(
 
 const MARKER_WIDTH = 40; // glide row-number column
 const HEADER_HEIGHT = 34;
-const ROW_HEIGHT = 34; // "Default" — fresh contexts have no persisted pref
 
 const colWidth = (c: WireColumn): number => (c.type === 'text' ? 240 : 140);
 
