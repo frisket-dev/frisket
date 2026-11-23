@@ -5,6 +5,7 @@ import {
   listApprovedEndpoints,
   replaceApprovedEndpoints,
   type ApprovedEndpoint,
+  type ApprovedEndpointList,
   type ApprovedEndpointsScope,
 } from '../api/approvedEndpoints';
 import { Button } from '../components/Button';
@@ -22,27 +23,30 @@ function endpointKey(endpoint: ApprovedEndpoint): string {
  *  allows, added explicitly. Team organization members read the list; only
  *  organization owners replace it, which the server decides. */
 export function ApprovedEndpointsSettings({ scope }: { scope: ApprovedEndpointsScope }) {
-  const list = useLoader<ApprovedEndpoint[]>(() => listApprovedEndpoints(scope), [scope]);
+  const list = useLoader<ApprovedEndpointList>(() => listApprovedEndpoints(scope), [scope]);
   const [host, setHost] = useState('');
   const [port, setPort] = useState('');
   const [label, setLabel] = useState('');
   const [busy, setBusy] = useState(false);
-  const [readOnly, setReadOnly] = useState(false);
+  const [refused, setRefused] = useState(false);
   const [mutationError, setMutationError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
-  const endpoints = list.data ?? [];
+  const endpoints = list.data?.endpoints ?? [];
+  // The server says whether this reader may change the list; a refusal after
+  // loading (a role changed meanwhile) also ends editing.
+  const readOnly = list.data !== null && (!list.data.editable || refused);
 
   const replace = async (next: ApprovedEndpoint[], done: string) => {
     setBusy(true);
     setMutationError(null);
     setNotice(null);
     try {
-      list.setData(await replaceApprovedEndpoints(scope, next));
+      list.setData({ endpoints: await replaceApprovedEndpoints(scope, next), editable: true });
       setNotice(done);
       return true;
     } catch (caught) {
       if (caught instanceof ApiError && caught.status === 403) {
-        setReadOnly(true);
+        setRefused(true);
       } else {
         setMutationError(errorMessage(caught));
       }
@@ -103,7 +107,7 @@ export function ApprovedEndpointsSettings({ scope }: { scope: ApprovedEndpointsS
         ])}
         empty="No approved endpoints"
       />
-      {!readOnly && (
+      {list.data !== null && !readOnly && (
         <form className="form-inline" onSubmit={(event) => void add(event)} data-testid="approved-endpoint-add-form">
           <FormField label="Host">
             <TextInput

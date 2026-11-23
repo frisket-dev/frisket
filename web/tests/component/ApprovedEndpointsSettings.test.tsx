@@ -3,11 +3,11 @@
 import '@testing-library/jest-dom/vitest';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { ApprovedEndpoint, ApprovedEndpointsScope } from '../../src/api/approvedEndpoints';
+import type { ApprovedEndpoint, ApprovedEndpointList, ApprovedEndpointsScope } from '../../src/api/approvedEndpoints';
 import { ApiError } from '../../src/api/contractErrors';
 
 const { listApprovedEndpoints, replaceApprovedEndpoints } = vi.hoisted(() => ({
-  listApprovedEndpoints: vi.fn<(scope: ApprovedEndpointsScope) => Promise<ApprovedEndpoint[]>>(),
+  listApprovedEndpoints: vi.fn<(scope: ApprovedEndpointsScope) => Promise<ApprovedEndpointList>>(),
   replaceApprovedEndpoints: vi.fn<(scope: ApprovedEndpointsScope, endpoints: ApprovedEndpoint[]) => Promise<ApprovedEndpoint[]>>(),
 }));
 
@@ -22,7 +22,7 @@ const gpu: ApprovedEndpoint = { host: 'gpu.newsroom.example', port: 8000, label:
 describe('Approved endpoints editor', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    listApprovedEndpoints.mockResolvedValue([gpu]);
+    listApprovedEndpoints.mockResolvedValue({ endpoints: [gpu], editable: true });
     replaceApprovedEndpoints.mockImplementation(async (_scope, endpoints) => endpoints);
   });
 
@@ -62,6 +62,16 @@ describe('Approved endpoints editor', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Remove gpu.newsroom.example' }));
     await waitFor(() => expect(replaceApprovedEndpoints).toHaveBeenCalledWith('organization', []));
     expect(await screen.findByText('No approved endpoints')).toBeInTheDocument();
+  });
+
+  it('starts read-only for a reader who may not change the list', async () => {
+    listApprovedEndpoints.mockResolvedValue({ endpoints: [gpu], editable: false });
+    render(<ApprovedEndpointsSettings scope="organization" />);
+    expect(await screen.findByText('gpu.newsroom.example')).toBeInTheDocument();
+    expect(screen.getByText('Only organization owners can change approved endpoints.')).toBeInTheDocument();
+    expect(screen.queryByTestId('approved-endpoint-add-form')).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Remove gpu.newsroom.example' })).toBeNull();
+    expect(replaceApprovedEndpoints).not.toHaveBeenCalled();
   });
 
   it('becomes read-only when the organization refuses the change', async () => {

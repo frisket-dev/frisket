@@ -4378,6 +4378,17 @@ export type HttpApiTokenRevokeResponse = ({
   "revoked": (boolean);
 });
 
+type HttpApprovedEndpointList_ApprovedEndpoint = ({
+  "host": (string);
+  "label"?: (string);
+  "port"?: (((number)) | ((null)));
+});
+
+export type HttpApprovedEndpointList = ({
+  "editable": (boolean);
+  "endpoints"?: (Array<(HttpApprovedEndpointList_ApprovedEndpoint)>);
+});
+
 type HttpApprovedEndpoints_ApprovedEndpoint = ({
   "host": (string);
   "label"?: (string);
@@ -16035,7 +16046,7 @@ export type HttpContractOperationMap = {
     readonly query: HttpInline_d746974fa9afd5e9;
     readonly request: undefined;
     readonly responses: {
-      readonly "200": HttpApprovedEndpoints;
+      readonly "200": HttpApprovedEndpointList;
       readonly "401": HttpError;
       readonly "403": HttpError;
       readonly "409": HttpError;
@@ -18511,7 +18522,7 @@ export type HttpContractOperationMap = {
     readonly query: HttpInline_d746974fa9afd5e9;
     readonly request: undefined;
     readonly responses: {
-      readonly "200": HttpApprovedEndpoints;
+      readonly "200": HttpApprovedEndpointList;
       readonly "401": HttpError;
       readonly "403": HttpError;
       readonly "409": HttpError;

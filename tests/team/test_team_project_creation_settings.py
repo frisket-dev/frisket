@@ -185,6 +185,8 @@ def test_organization_owner_manages_approved_endpoints_members_read(
     listed = member.get("/api/organization/approved-endpoints")
     assert listed.status_code == 200, listed.text
     assert listed.json()["endpoints"][0]["host"] == "llm.newsroom.example.test"
+    assert listed.json()["editable"] is False
+    assert owner.get("/api/organization/approved-endpoints").json()["editable"] is True
     assert (tmp_path / "data" / ".frisket" / "approved_endpoints.json").exists()
 
 

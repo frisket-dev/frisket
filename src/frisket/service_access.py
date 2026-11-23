@@ -141,6 +141,12 @@ class ApprovedEndpoints(BaseModel):
     )
 
 
+class ApprovedEndpointList(ApprovedEndpoints):
+    """The list as a reader sees it, with whether that reader may replace it."""
+
+    editable: bool
+
+
 class InvalidApprovedEndpointsError(ValueError):
     """The stored approved endpoints list cannot be read without data loss."""
 
@@ -269,6 +275,7 @@ __all__ = [
     "ALLOWED_SERVICES_VALUES",
     "AllowedServices",
     "ApprovedEndpoint",
+    "ApprovedEndpointList",
     "ApprovedEndpoints",
     "DEFAULT_ALLOWED_SERVICES",
     "DestinationClass",

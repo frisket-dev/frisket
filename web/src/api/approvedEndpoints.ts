@@ -1,4 +1,4 @@
-import type { HttpApprovedEndpoints } from '../generated/openHttpContracts';
+import type { HttpApprovedEndpointList, HttpApprovedEndpoints } from '../generated/openHttpContracts';
 import { httpContract, type RequestOptions } from './httpContract';
 
 export type ApprovedEndpoint = NonNullable<HttpApprovedEndpoints['endpoints']>[number];
@@ -7,17 +7,27 @@ export type ApprovedEndpoint = NonNullable<HttpApprovedEndpoints['endpoints']>[n
  *  readable by members and replaceable by organization owners. */
 export type ApprovedEndpointsScope = 'workspace' | 'organization';
 
+/** The list as this reader sees it, and whether this reader may change it. */
+export interface ApprovedEndpointList {
+  endpoints: ApprovedEndpoint[];
+  editable: boolean;
+}
+
 function endpointsOf(wire: HttpApprovedEndpoints): ApprovedEndpoint[] {
   return wire.endpoints ?? [];
+}
+
+function listOf(wire: HttpApprovedEndpointList): ApprovedEndpointList {
+  return { endpoints: wire.endpoints ?? [], editable: wire.editable };
 }
 
 export function listApprovedEndpoints(
   scope: ApprovedEndpointsScope,
   options: RequestOptions = {},
-): Promise<ApprovedEndpoint[]> {
+): Promise<ApprovedEndpointList> {
   return scope === 'organization'
-    ? httpContract('outer.list_organization_approved_endpoints.get', { signal: options.signal }, endpointsOf)
-    : httpContract('tenant.list_approved_endpoints.get', { signal: options.signal }, endpointsOf);
+    ? httpContract('outer.list_organization_approved_endpoints.get', { signal: options.signal }, listOf)
+    : httpContract('tenant.list_approved_endpoints.get', { signal: options.signal }, listOf);
 }
 
 export function replaceApprovedEndpoints(
