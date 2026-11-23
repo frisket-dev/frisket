@@ -7,6 +7,9 @@ import {
   isFacetColumn,
   limitNote,
   searchOf,
+  isSearchOnly,
+  FACET_DISTINCT_LIMIT,
+  withoutRelevanceOrder,
   searchScopeColumnsOf,
   selectionWithoutFacet,
   sheetCountLabel,
@@ -65,13 +68,17 @@ describe('row filter chips', () => {
     expect(chips[1].target).toEqual({ kind: 'facet', column: 'filename' });
   });
 
-  it('keeps row scope, similarity and score order as chips', () => {
+  it('keeps row scope and similarity as chips; a relevance order is not shown', () => {
     const chips = deriveRowFilterChips(state({
       selection: selection({ similarity: { index_id: 1 }, order: [{ score: 'similarity', dir: 'desc' }] }),
       scopeRowIds: [4, 5],
     }));
-    expect(chips.map((chip) => chip.key)).toEqual(['rows', 'similarity', 'sort']);
-    expect(chips[2].value).toBe('similarity score');
+    expect(chips.map((chip) => chip.key)).toEqual(['rows', 'similarity']);
+  });
+
+  it('drops relevance order from a selection brought to the sheet', () => {
+    const ranked = selection({ search: { text: 'x' }, order: [{ score: 'search', dir: 'desc' }, { column_id: 3, dir: 'asc' }] });
+    expect(withoutRelevanceOrder(ranked).order).toEqual([{ column_id: 3, dir: 'asc' }]);
   });
 });
 
@@ -175,6 +182,17 @@ describe('facet logic', () => {
     expect(isFacetColumn(column('label', 'text', { ai: { actionName: 'Classify', prompt: '', model: 'm', costSoFar: 0, versions: [] } }))).toBe(true);
     expect(facetColumnsOf([column('size', 'number'), column('kind', 'category')]).map((item) => item.name))
       .toEqual(['kind', 'size']);
+  });
+});
+
+describe('facet cap', () => {
+  it('leaves columns above the distinct-value cap, or with cells too long to list, to search', () => {
+    const text = column('body', 'text');
+    expect(isSearchOnly(text, { distinct: FACET_DISTINCT_LIMIT, omittedRows: 0 })).toBe(false);
+    expect(isSearchOnly(text, { distinct: FACET_DISTINCT_LIMIT + 1, omittedRows: 0 })).toBe(true);
+    expect(isSearchOnly(text, { distinct: 3, omittedRows: 2 })).toBe(true);
+    expect(isSearchOnly(column('size', 'number'), { distinct: 10_000, omittedRows: 0 })).toBe(false);
+    expect(FACET_DISTINCT_LIMIT).toBe(50);
   });
 });
 

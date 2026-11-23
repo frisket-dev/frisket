@@ -233,10 +233,10 @@ describe('Filter sidebar Rows section', () => {
     expect(props.onOrder).toHaveBeenLastCalledWith(null);
   });
 
-  it('offers search score while a search is active', () => {
-    const { props } = renderRows({ selection: baseSelection({ search: { text: 'x' } }) });
-    fireEvent.change(screen.getByTestId('sheet-filter-sort'), { target: { value: 'score:search' } });
-    expect(props.onOrder).toHaveBeenLastCalledWith({ score: 'search' });
+  it('offers no relevance order: a search filters rows, it does not rank them', () => {
+    renderRows({ selection: baseSelection({ search: { text: 'x' }, similarity: { index_id: 1 } }) });
+    const values = Array.from(screen.getByTestId('sheet-filter-sort').querySelectorAll('option')).map((option) => option.value);
+    expect(values).toEqual(['', 'column:status', 'column:body', 'column:size']);
   });
 
   it('switches to First when the row count is focused, and back to All rows', () => {

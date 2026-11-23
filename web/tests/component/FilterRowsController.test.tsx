@@ -111,16 +111,22 @@ it('a delayed search keeps a limit set while it was pending', () => {
   expect(selection?.limit).toBe(5);
 });
 
-it('a delayed search keeps a score order chosen while it was pending', () => {
+it('a search filters in row order: committing it drops any relevance order', () => {
   mount();
+  act(() => { stores.gridView.setSelection({ ...selection!, order: [{ score: 'search', dir: 'desc' }] }); });
   type('budget');
   act(() => { vi.advanceTimersByTime(500); });
-  type('budgets');
-  fireEvent.change(screen.getByTestId('sheet-filter-sort'), { target: { value: 'score:search' } });
-  expect(selection?.order).toEqual([{ score: 'search', dir: 'desc' }]);
+  expect(selection?.search).toEqual({ text: 'budget' });
+  expect(selection?.order).toEqual([]);
+});
+
+it('a delayed search keeps a column sort chosen while it was pending', () => {
+  mount();
+  type('budget');
+  act(() => { grid.applyRowOrder({ column: 'size', dir: 'desc' }); });
   act(() => { vi.advanceTimersByTime(500); });
-  expect(selection?.search).toEqual({ text: 'budgets' });
-  expect(selection?.order).toEqual([{ score: 'search', dir: 'desc' }]);
+  expect(selection?.search).toEqual({ text: 'budget' });
+  expect(selection?.order).toEqual([{ column_id: 13, dir: 'desc' }]);
 });
 
 it('editing the search of a View keeps its other contains conditions', () => {

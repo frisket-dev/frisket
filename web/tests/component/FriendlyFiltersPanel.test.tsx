@@ -319,6 +319,14 @@ describe('FriendlyFiltersPanel', () => {
     expect(within(mentions).getByTestId('facet-header-mentions')).toHaveAttribute('aria-expanded', 'true');
   });
 
+  it('shows no card for a search-only column', async () => {
+    mockFacets();
+    render(<FriendlyFiltersPanel sheets={[SHEET]} activeSheetId="7" onApplyFilterSpec={() => {}}
+      hiddenFacetColumns={new Set(['region'])} />);
+    expect(await screen.findByTestId('friendly-facet-status')).toBeVisible();
+    expect(screen.queryByTestId('friendly-facet-region')).toBeNull();
+  });
+
   it('ORs checked values within one facet and narrows again when one is unchecked', async () => {
     mockFacets();
     const onApply = vi.fn();
