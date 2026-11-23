@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import pytest
 
+from frisket.ai.llm.endpoint_config import LocalModelEndpointConfig
 from frisket.engine.runner.validation import unestimated_cost
 from frisket.ops.base import ActionProgram
 from frisket.ops.cost_source import (
@@ -224,10 +225,29 @@ def test_estimate_run_llm_branches_stay_in_vocabulary(make_project) -> None:
         openrouter_variant["cost_source"],
     } <= ESTIMATE_COST_SOURCES
 
+    # A model server is free only at a loopback origin; any other server's
+    # unpriced model is unknown, never zero.
+    LocalModelEndpointConfig(
+        endpoint_id="desk",
+        display_name="Desk",
+        origin="http://127.0.0.1:11434",
+        source="local_file",
+    )
+    LocalModelEndpointConfig(
+        endpoint_id="lan-box",
+        display_name="LAN box",
+        origin="http://192.168.1.20:11434",
+        source="local_file",
+    )
     local = estimate_model_spec(project, {**spec, "model": "ollama/@desk/unlisted"})
     assert local["cost"] == 0.0
     assert local["cost_source"] == "free_local"
     assert "pricing_key" not in local
+
+    remote = estimate_model_spec(project, {**spec, "model": "ollama/@lan-box/unlisted"})
+    assert remote["cost"] is None
+    assert remote["cost_source"] == "unknown"
+    assert "pricing_key" not in remote
 
 
 def test_unestimated_cost_stays_in_vocabulary() -> None:

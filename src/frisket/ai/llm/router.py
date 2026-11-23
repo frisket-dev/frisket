@@ -33,7 +33,7 @@ from .chaos import ChaosConfig, ChaosMiddleware
 from frisket.local_model_ids import parse_local_model_id
 
 from .endpoint_config import LocalModelEndpointConfig
-from .pricing import model_cost_source
+from .pricing import model_cost_source, model_server_on_this_machine
 from .types import (
     LLMError,
     LLMRequest,
@@ -1046,10 +1046,11 @@ class ModelRouter:
             observe=observe,
             observe_error=observe_error,
         )
-        provider_cost_usd = 0.0 if provider == "ollama" else provider_cost
+        on_this_machine = model_server_on_this_machine(model)
+        provider_cost_usd = 0.0 if on_this_machine else provider_cost
         cost_source = (
             "free_local"
-            if provider == "ollama"
+            if on_this_machine
             else cost_source
             or ("provider_reported" if provider_cost_usd is not None else "unknown")
         )

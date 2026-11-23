@@ -265,20 +265,15 @@ class AudioSecondRate:
 
 def byok_audio_second_rate(engine_id: str) -> AudioSecondRate:
     """A per-second rate and its provenance from the same lookup."""
-    from frisket.ai.llm.pricing import audio_price
-    from frisket.local_model_ids import parse_local_model_id
+    from frisket.ai.llm.pricing import audio_price, model_server_on_this_machine
 
     per_second = (audio_price(engine_id) or {}).get("per_second")
-    try:
-        parse_local_model_id(engine_id)
-    except ValueError:
-        pricing_key = byok_remote_sku(engine_id)
-        cost_source: Literal["free_local", "pricing_data", "unknown"] = (
-            "pricing_data" if per_second is not None else "unknown"
-        )
-    else:
+    if model_server_on_this_machine(engine_id):
         pricing_key = None
-        cost_source = "free_local"
+        cost_source: Literal["free_local", "pricing_data", "unknown"] = "free_local"
+    else:
+        pricing_key = byok_remote_sku(engine_id)
+        cost_source = "pricing_data" if per_second is not None else "unknown"
     if per_second is None:
         return AudioSecondRate(None, cost_source, pricing_key)
     try:

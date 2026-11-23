@@ -18,8 +18,9 @@ from __future__ import annotations
 
 import os
 import hashlib
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from collections.abc import Mapping
+from types import MappingProxyType
 from typing import Literal
 from urllib.parse import urlparse
 
@@ -28,10 +29,49 @@ from urllib.parse import urlparse
 # still use one uniform authenticated request shape.
 DEFAULT_OLLAMA_BEARER = "ollama"
 
-# Origins that count as "loopback" for the token-bearing-origin HTTPS rule:
-# a token is meaningless to intercept on a connection that never leaves the
-# host.
+# Origins that count as "loopback": a connection to one never leaves this
+# machine, so a token on it cannot be intercepted and a model behind it is
+# this machine's own compute.
 _LOOPBACK_HOSTS = frozenset({"localhost", "127.0.0.1", "::1"})
+
+
+def origin_is_loopback(origin: str) -> bool:
+    """Whether a model server origin is this machine. Only the configured
+    address decides it, never the server's protocol or name."""
+    return (urlparse(origin).hostname or "").lower() in _LOOPBACK_HOSTS
+
+
+@dataclass(frozen=True)
+class ModelServerModel:
+    """One model a person configured on a model server.
+
+    ``entered`` marks a model id typed by hand (the server need not list it);
+    a listed model appears here only to carry the price the person entered.
+    ``price`` is input and output USD per million tokens.
+    """
+
+    name: str
+    entered: bool
+    price: tuple[float, float] | None = None
+
+
+@dataclass(frozen=True)
+class ModelServerTerms:
+    """What pricing needs to know about one configured model server."""
+
+    on_this_machine: bool
+    prices: Mapping[str, tuple[float, float]]
+
+
+# Pricing reads model-server facts by the endpoint id inside a model id, and
+# model ids reach pricing without their endpoint. Every endpoint config
+# records its terms here on construction, so any process that can dispatch to
+# a server can also price it; an id with no recorded terms has no known price.
+_MODEL_SERVER_TERMS: dict[str, ModelServerTerms] = {}
+
+
+def model_server_terms(endpoint_id: str) -> ModelServerTerms | None:
+    return _MODEL_SERVER_TERMS.get(endpoint_id)
 
 
 @dataclass(frozen=True)
@@ -53,6 +93,26 @@ class LocalModelEndpointConfig:
     provisioning_token: str | None = None
     edge_auth: bool = False
     pull_enabled: bool = False
+    models: tuple[ModelServerModel, ...] = field(default=())
+
+    def __post_init__(self) -> None:
+        on_this_machine = self.on_this_machine
+        _MODEL_SERVER_TERMS[self.endpoint_id] = ModelServerTerms(
+            on_this_machine=on_this_machine,
+            prices=MappingProxyType(
+                {}
+                if on_this_machine
+                else {
+                    model.name: model.price
+                    for model in self.models
+                    if model.price is not None
+                }
+            ),
+        )
+
+    @property
+    def on_this_machine(self) -> bool:
+        return origin_is_loopback(self.origin)
 
     def bearer_for_inference(self) -> str:
         """The Authorization bearer the adapter/probes send for inference
@@ -102,11 +162,7 @@ def origin_is_https_or_loopback(origin: str) -> bool:
     rejected as a
     unit. Loopback http (the default local dev shape) is fine -- the token
     never leaves the host."""
-    parsed = urlparse(origin)
-    if parsed.scheme == "https":
-        return True
-    host = (parsed.hostname or "").lower()
-    return host in _LOOPBACK_HOSTS
+    return urlparse(origin).scheme == "https" or origin_is_loopback(origin)
 
 
 # ---------------------------------------------------------------------------

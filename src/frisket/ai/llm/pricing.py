@@ -6,11 +6,11 @@ table and OpenRouter's public model catalog. There is NO fallback price anywhere
 None ("don't know"), estimates surface it as unknown (the cost gate then
 demands explicit confirmation), and actuals never fabricate a number.
 
-Canonical ``ollama/@<endpoint>/<model>`` identities are the deliberate
-exception: Frisket sends no request through its provider credentials, so its
-provider cost is structurally known to be zero. This says nothing about the
-operator's hardware cost; access to operator-owned compute is an authorization
-concern, not a provider-pricing guess.
+Canonical ``ollama/@<endpoint>/<model>`` identities name a model server.
+A server whose configured origin is this machine (loopback) is free: no
+request leaves the machine. Any other server may forward to a paid provider,
+so its models are unknown unless the person entered a price for the model in
+settings; that entered price is the rate.
 """
 
 from __future__ import annotations
@@ -22,6 +22,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Literal
 
+from frisket.ai.llm.endpoint_config import model_server_terms
 from frisket.opendocrouter_catalog import parse_catalog, install_catalog
 from frisket.local_model_ids import bare_model_name, parse_local_model_id
 
@@ -111,11 +112,11 @@ def model_pricing(model: str) -> ModelPricing:
     carry this value, never reconstruct provenance from a zero dollar amount.
     """
     try:
-        parse_local_model_id(model)
+        endpoint_id, server_model = parse_local_model_id(model)
     except ValueError:
         pass
     else:
-        return ModelPricing((0.0, 0.0), "free_local", None)
+        return _model_server_pricing(model, endpoint_id, server_model)
     bare = bare_model_name(model)
     if model.partition("/")[0] == "openrouter":
         # OpenRouter suffixes select distinct variants whose rates can differ.
@@ -130,6 +131,33 @@ def model_pricing(model: str) -> ModelPricing:
         if bare.startswith(key):
             return ModelPricing(PRICES[key], "pricing_data", _pricing_key(model, key))
     return ModelPricing(None, "unknown", None)
+
+
+def _model_server_pricing(
+    model: str, endpoint_id: str, server_model: str
+) -> ModelPricing:
+    terms = model_server_terms(endpoint_id)
+    if terms is None:
+        return ModelPricing(None, "unknown", None)
+    if terms.on_this_machine:
+        return ModelPricing((0.0, 0.0), "free_local", None)
+    price = terms.prices.get(server_model)
+    if price is None:
+        return ModelPricing(None, "unknown", None)
+    # An entered rate has no catalog row; its identity is its value, so a
+    # changed price is a different rate and voids consent given to the old one.
+    pin, pout = price
+    return ModelPricing(price, "pricing_data", f"{model}.tokens:{pin!r}/{pout!r}")
+
+
+def model_server_on_this_machine(model: str) -> bool:
+    """Whether ``model`` names a model on a server at a loopback origin."""
+    try:
+        endpoint_id, _server_model = parse_local_model_id(model)
+    except ValueError:
+        return False
+    terms = model_server_terms(endpoint_id)
+    return terms is not None and terms.on_this_machine
 
 
 def model_price(model: str) -> tuple[float, float] | None:
@@ -150,7 +178,7 @@ def audio_price(model: str) -> dict | None:
     except ValueError:
         pass
     else:
-        return {"per_second": 0.0}
+        return {"per_second": 0.0} if model_server_on_this_machine(model) else None
     return AUDIO_PRICES.get(bare_model_name(model))
 
 
