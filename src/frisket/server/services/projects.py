@@ -428,14 +428,6 @@ class ProjectLifecycleService:
             current_description = (
                 manifest.get("description", "") if isinstance(manifest, dict) else None
             )
-            current_allowed = (
-                manifest.get("allowed_services") if isinstance(manifest, dict) else None
-            )
-            current_usage = (
-                manifest.get("usage_data_sharing")
-                if isinstance(manifest, dict)
-                else None
-            )
             current_starred = (
                 manifest.get("starred", False) if isinstance(manifest, dict) else None
             )
@@ -450,8 +442,6 @@ class ProjectLifecycleService:
                 or not storage_id.startswith("frisket.bundle.v1:")
                 or not isinstance(current_name, str)
                 or not isinstance(current_description, str)
-                or current_allowed not in ALLOWED_SERVICES_VALUES
-                or current_usage not in USAGE_DATA_SHARING_VALUES
                 or not isinstance(current_starred, bool)
                 or not isinstance(current_archived, bool)
             ):
@@ -459,6 +449,12 @@ class ProjectLifecycleService:
                     409,
                     "project creation operation conflicts with its bound bundle",
                 )
+            # The identity is verified from the manifest first; only then is
+            # the bound bundle opened, which upgrades one written by an older
+            # release, and its settings read from what it stores.
+            settings = self._workspace.get(project_id).project_metadata()
+            current_allowed = settings["allowed_services"]
+            current_usage = settings["usage_data_sharing"]
             if require_creation_match and (
                 current_name != project["name"]
                 or current_allowed != project["allowed_services"]
