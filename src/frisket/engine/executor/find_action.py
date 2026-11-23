@@ -39,6 +39,8 @@ from frisket.engine.executor.map_find_publication import (
 from frisket.engine.executor.map_find_scan import scan_find_plans
 from frisket.engine.executor.map_find_source import _snapshot_payload
 from frisket.engine.store.receipts import ReceiptStore
+from frisket.project_service_access import check_model_call
+from frisket.service_access import ServiceNotAllowed
 
 
 class FindRefused(ValueError):
@@ -313,8 +315,24 @@ def run_typed_find_action_job(project, envelope, *, execution, deps=None):
         project, getattr(deps, "router", None)
     ).for_execution(execution)
     if not model_call_cannot_go_live(router):
+        try:
+            check_model_call(
+                project,
+                prepared.operation.model,
+                destination=router.destination_for_model(prepared.operation.model),
+            )
+        except ServiceNotAllowed as exc:
+            return _failure_before_egress(
+                project,
+                envelope,
+                ActionError(
+                    code=exc.code,
+                    message=str(exc),
+                    action_kind=envelope.action_kind,
+                ),
+            )
         if (
-            project.remote_services_refused()
+            project.effective_network_policy() == "off"
             and provider_from_model_id(prepared.operation.model) != "ollama"
         ):
             return _failure_before_egress(

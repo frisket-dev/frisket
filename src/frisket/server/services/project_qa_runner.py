@@ -35,11 +35,9 @@ from frisket.engine.runner.validation import (
     assert_provider_spend_cap,
     assert_selected_egress_policy,
 )
-from frisket.ai.models.metadata import is_remote_provider
 from frisket.project_service_access import (
-    FRISKET_ROUTE_EGRESS_CLASSES,
     SelectedRoute,
-    check_route,
+    check_model_call,
     project_service_access,
 )
 from frisket.service_access import ServiceNotAllowed
@@ -168,28 +166,15 @@ def _assert_ask_model_allowed(
     model: str,
     selected_egress_class: str | None,
 ) -> None:
-    """Refuse an Ask model call the project's Allowed services does not allow.
-
-    The same ``check_route`` decision Run and the selectors use: the URL the
-    router sends the call to, or the selected Frisket Cloud route. A remote
-    provider with no known URL needs All services.
-    """
-    access = project_service_access(project)
-    destination = router.destination_for_model(model)
+    """Refuse an Ask model call the project's Allowed services does not allow."""
     try:
-        if (
-            destination is None
-            and selected_egress_class not in FRISKET_ROUTE_EGRESS_CLASSES
-            and is_remote_provider(provider_from_model_id(model))
-        ):
-            access.check_remote_service(provider_from_model_id(model))
-        check_route(
+        check_model_call(
             project,
-            access,
-            SelectedRoute("project-ask", selected_egress_class)
+            model,
+            destination=router.destination_for_model(model),
+            route=SelectedRoute("project-ask", selected_egress_class)
             if selected_egress_class is not None
             else None,
-            model_destination=destination,
         )
     except ServiceNotAllowed as exc:
         raise ServiceRefused(exc.destination, str(exc)) from None

@@ -12,6 +12,8 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 from urllib.parse import urlparse
 
+from frisket.ai.llm.types import provider_from_model_id
+from frisket.ai.models.metadata import is_remote_provider
 from frisket.execution.definitions import MODELS_GATEWAY_TARGET_ID
 from frisket.local_provider_config import (
     resolve_local_endpoints,
@@ -127,3 +129,27 @@ def check_route(
             access.check_url(destination)
             return
     access.check_remote_service(route.target_id)
+
+
+def check_model_call(
+    project: Project,
+    model: str,
+    *,
+    destination: str | None,
+    route: SelectedRoute | None = None,
+) -> None:
+    """Raise ``ServiceNotAllowed`` unless the project may send this model call.
+
+    ``destination`` is the URL the router sends ``model`` to. A remote
+    provider whose URL is not known needs All services, unless the call goes
+    through a Frisket Cloud route, which ``check_route`` judges.
+    """
+    access = project_service_access(project)
+    if (
+        destination is None
+        and (route is None or route.egress_class not in FRISKET_ROUTE_EGRESS_CLASSES)
+        and is_remote_provider(provider_from_model_id(model))
+    ):
+        access.check_remote_service(provider_from_model_id(model))
+    check_route(project, access, route, model_destination=destination)
+
