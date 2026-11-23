@@ -414,6 +414,9 @@ def create_app(
     cloud_origin: str | None = None,
     cloud_execution_transport: CloudExecutionTransport | None = None,
     embedding_runtime: EmbeddingRuntime | None = None,
+    search_index_semantic_preparation: (
+        server_workspace.SearchIndexSemanticPreparation
+    ) = "unknown",
 ) -> FastAPI:
     # The deployment's price list (frisket.execution.pricing_policy), installed
     # process-wide because the fourteen sites that mint a money confirmation
@@ -584,6 +587,7 @@ def create_app(
         cloud_connection_client=resolved_cloud_client,
         cloud_execution_transport=resolved_cloud_transport,
         embedding_runtime=embedding_runtime,
+        search_index_semantic_preparation=search_index_semantic_preparation,
     )
     stale_run_grace_seconds = (
         DEFAULT_RUN_STATUS_GRACE_SECONDS
