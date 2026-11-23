@@ -359,10 +359,10 @@ def test_a_concurrent_tightening_is_not_loosened_without_confirmation(
         project.set_allowed_services("this_machine_only", confirm_allowed_services=None)
 
     monkeypatch.setattr(project_meta, "allowed_services", paused_read)
-    a = threading.Thread(target=run_a)
+    a = threading.Thread(target=run_a)  # realtime: transaction race participant
     a.start()
     assert a_read.wait(timeout=5)
-    b = threading.Thread(target=run_b)
+    b = threading.Thread(target=run_b)  # realtime: transaction race participant
     b.start()
     # B either commits at once (A read outside its write transaction) or
     # waits for A's transaction; release A after a moment either way.
