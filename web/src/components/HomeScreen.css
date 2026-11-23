@@ -96,7 +96,6 @@
   display: flex; align-items: center; justify-content: center;
   overflow: hidden;
 }
-.home-card-cover[data-neutral="true"] { background: linear-gradient(135deg, var(--bg-hover), var(--border-strong)); }
 .home-card-glyph { font-size: 44px; color: rgba(33, 31, 27, 0.16); line-height: 1; }
 .home-card-services {
   position: absolute; left: 8px; bottom: 8px;

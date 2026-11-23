@@ -11,8 +11,8 @@ REJECTED rather than guessed at.  Once the split schema exists, however,
 versioned upgrades preserve its data in place (v6 -> v7 adds the user
 allowance column; v7 -> v8 renames it to `allowance_usd`; v8 -> v9 renames
 the organization tables and foreign-key columns to `organizations` /
-`organization_id`; v9 -> v10 adds the creator's Allowed services and
-usage-data choices to project creation intents).
+`organization_id`; v9 -> v10 adds the creator's Allowed services,
+usage-data choices and cover seed to project creation intents).
 
 `ensure_clean_control_plane_schema` is that gate, and it is shared: an
 external hosted composition runs it too, via its own bootstrap module, so
@@ -149,7 +149,7 @@ def _apply_v9_to_v10(cx: sa.Connection, tables: set[str]) -> None:
         column["name"]
         for column in sa.inspect(cx).get_columns("project_creation_intents")
     }
-    for name in ("allowed_services", "usage_data_sharing"):
+    for name in ("allowed_services", "usage_data_sharing", "cover_seed"):
         if name not in columns:
             cx.execute(
                 sa.text(

@@ -70,6 +70,8 @@ export interface ProjectInfo {
   /** The project's usage-data override over the workspace-wide setting;
    *  carried by the single-project payload, not the list. */
   usage_data_sharing?: UsageDataSharing;
+  /** The card cover's seed; null or absent derives the cover from the id. */
+  cover_seed?: string | null;
   role?: ProjectRole | null;
   /** ISO timestamp of the project bundle's last write (server: project.db
    *  mtime). Nullable for older/degenerate bundles missing project.db. */

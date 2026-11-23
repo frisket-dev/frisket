@@ -80,6 +80,34 @@ def test_team_create_accepts_both_settings_and_keeps_sensitive_in_step(
     assert sensitive is True
 
 
+def test_team_create_carries_the_cover_seed(tmp_path: Path) -> None:
+    _app, client = _owner(tmp_path)
+    made = client.post("/api/projects", json={"name": "Notes", "cover_seed": "q7z"})
+    assert made.status_code == 200, made.text
+    pid = made.json()["id"]
+    assert made.json()["cover_seed"] == "q7z"
+    listed = {row["id"]: row for row in client.get("/api/projects").json()}
+    assert listed[pid]["cover_seed"] == "q7z"
+    unseeded = client.post("/api/projects", json={"name": "Plain"}).json()
+    assert unseeded["cover_seed"] is None
+    refused = client.post("/api/projects", json={"name": "Bad", "cover_seed": "a b"})
+    assert refused.status_code == 422, refused.text
+
+
+def test_team_idempotent_create_compares_the_cover_seed(tmp_path: Path) -> None:
+    _app, client = _owner(tmp_path)
+    headers = {"Idempotency-Key": "create-seeded"}
+    request = {"name": "Seeded", "cover_seed": "aaaa"}
+    first = client.post("/api/projects", json=request, headers=headers)
+    again = client.post("/api/projects", json=request, headers=headers)
+    assert first.status_code == again.status_code == 200, again.text
+    assert again.json()["cover_seed"] == "aaaa"
+    changed = client.post(
+        "/api/projects", json={**request, "cover_seed": "bbbb"}, headers=headers
+    )
+    assert changed.status_code == 409
+
+
 def test_team_create_is_idempotent_over_both_settings(tmp_path: Path) -> None:
     _app, client = _owner(tmp_path)
     request = {"name": "Notes", "allowed_services": "approved_services"}
@@ -102,7 +130,7 @@ def test_v9_control_plane_adds_intent_settings_and_keeps_rows(
     engine = sa.create_engine(f"sqlite:///{tmp_path / 'v9.db'}", future=True)
     init_identity_schema(engine)
     with engine.begin() as cx:
-        for name in ("allowed_services", "usage_data_sharing"):
+        for name in ("allowed_services", "usage_data_sharing", "cover_seed"):
             cx.exec_driver_sql(
                 f"ALTER TABLE project_creation_intents DROP COLUMN {name}"
             )
@@ -129,11 +157,12 @@ def test_v9_control_plane_adds_intent_settings_and_keeps_rows(
             == 10
         )
         intent = cx.execute(sa.select(project_creation_intents)).one()
-    assert (intent.sensitive, intent.allowed_services, intent.usage_data_sharing) == (
-        True,
-        None,
-        None,
-    )
+    assert (
+        intent.sensitive,
+        intent.allowed_services,
+        intent.usage_data_sharing,
+        intent.cover_seed,
+    ) == (True, None, None, None)
     assert _intent_allowed_services(intent) == "all_services"
     assert _intent_usage_data_sharing(intent) == "off"
     assert set(metadata.tables) >= {"project_creation_intents"}

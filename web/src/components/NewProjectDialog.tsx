@@ -1,5 +1,6 @@
 import './NewProjectDialog.css';
 import { useEffect, useState } from 'react';
+import { RefreshCw } from 'lucide-react';
 import type { AllowedServices, UsageDataSharing } from '../api/types';
 import type { CreateProjectInput } from '../api/httpContractRoutes/projects';
 import { restrictedServicesLabel } from '../allowedServices';
@@ -8,7 +9,7 @@ import { Button } from './Button';
 import { TextInput } from './FormControls';
 import { Modal } from './Modal';
 import { ProjectCardFace } from './ProjectCard';
-import { projectCover } from './projectCover';
+import { newCoverSeed, seedCover } from './projectCover';
 import { WindowCloseButton } from './WindowCloseButton';
 
 const UNTITLED_PROJECT_NAME = 'Untitled project';
@@ -40,6 +41,7 @@ export function NewProjectDialog({
   const [name, setName] = useState('');
   const [allowedServices, setAllowedServices] = useState<AllowedServices>('all_services');
   const [dontShare, setDontShare] = useState(!workspaceSharesUsage);
+  const [coverSeed, setCoverSeed] = useState(() => newCoverSeed());
   // Captured during the first render, before the dialog moves focus into itself.
   const [trigger] = useState(() => document.activeElement);
   useEffect(() => () => {
@@ -53,6 +55,7 @@ export function NewProjectDialog({
       name: trimmed,
       allowed_services: allowedServices,
       usage_data_sharing: usageDataSharingFor(dontShare, workspaceSharesUsage),
+      cover_seed: coverSeed,
     });
   };
 
@@ -66,11 +69,11 @@ export function NewProjectDialog({
       testId="new-project-dialog"
     >
       <div className="new-project-layout">
-        <div className="new-project-preview" aria-hidden>
-          <div className="home-card new-project-preview-card" data-testid="new-project-preview">
+        <div className="new-project-preview">
+          <div className="home-card new-project-preview-card" data-testid="new-project-preview" aria-hidden>
             <div className="home-card-open">
               <ProjectCardFace
-                cover={projectCover(null)}
+                cover={seedCover(coverSeed)}
                 title={trimmed || UNTITLED_PROJECT_NAME}
                 titleTestId="new-project-preview-title"
                 placeholderTitle={!trimmed}
@@ -80,6 +83,16 @@ export function NewProjectDialog({
               />
             </div>
           </div>
+          <Button
+            type="button"
+            variant="link"
+            className="new-project-different-cover"
+            data-testid="new-project-different-cover"
+            disabled={busy}
+            onClick={() => setCoverSeed((current) => newCoverSeed(current))}
+          >
+            <RefreshCw size={12} aria-hidden /> Different cover
+          </Button>
         </div>
         <form
           className="new-project-form"

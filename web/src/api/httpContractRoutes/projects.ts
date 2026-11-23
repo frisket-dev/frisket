@@ -36,6 +36,7 @@ function mapProject(wire: ProjectWire): ProjectInfo {
     sensitive: wire.sensitive,
     allowed_services: wire.allowed_services,
     usage_data_sharing: wire.usage_data_sharing,
+    cover_seed: wire.cover_seed ?? null,
     starred: wire.starred ?? false,
     archived: wire.archived ?? false,
   };
@@ -48,6 +49,7 @@ function mapProjectList(wire: ProjectListWire): ProjectInfo[] {
     description: project.description,
     sensitive: project.sensitive,
     allowed_services: project.allowed_services,
+    cover_seed: project.cover_seed ?? null,
     updated_at: project.updated_at,
     pending_review_count: project.pending_review_count,
     starred: project.starred,
@@ -111,6 +113,7 @@ export interface CreateProjectInput {
   name: string;
   allowed_services?: AllowedServices;
   usage_data_sharing?: UsageDataSharing;
+  cover_seed?: string;
 }
 
 export function createProject(

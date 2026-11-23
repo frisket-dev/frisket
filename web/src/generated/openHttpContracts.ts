@@ -6056,6 +6056,7 @@ export type HttpCreateProjectInviteRequest = ({
 
 export type HttpCreateProjectRequest = ({
   "allowed_services"?: ("this_machine_only" | "approved_services" | "all_services") & (string);
+  "cover_seed"?: (((string)) | ((null)));
   "name"?: (string);
   "usage_data_sharing"?: ("inherit" | "on" | "off") & (string);
 });
@@ -11970,6 +11971,7 @@ export type HttpProfilePatchRequest = ({
 export type HttpProject = ({
   "allowed_services": ("this_machine_only" | "approved_services" | "all_services") & (string);
   "archived"?: (boolean);
+  "cover_seed"?: (((string)) | ((null)));
   "description": (string);
   "id": (string);
   "name": (string);
@@ -12357,6 +12359,7 @@ export type HttpProjectLineageResponse = ({
 type HttpProjectList_ProjectListItem = ({
   "allowed_services": ("this_machine_only" | "approved_services" | "all_services") & (string);
   "archived": (boolean);
+  "cover_seed"?: (((string)) | ((null)));
   "description": (string);
   "id": (string);
   "name": (string);

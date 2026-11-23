@@ -67,6 +67,7 @@ from frisket.engine.store.blob_backend import ProjectBlobStore
 from frisket.engine.store.project_meta import (
     UNREADABLE_ALLOWED_SERVICES,
 )
+from frisket.project_cover import readable_cover_seed, write_cover_seed
 from frisket.project_settings import DEFAULT_USAGE_DATA_SHARING, UsageDataSharing
 from frisket.service_access import (
     ALLOWED_SERVICES_VALUES,
@@ -1007,6 +1008,7 @@ class Workspace:
                     "description": manifest.get("description", ""),
                     "sensitive": bool(manifest.get("sensitive", False)),
                     "allowed_services": _manifest_allowed_services(manifest),
+                    "cover_seed": readable_cover_seed(manifest.get("cover_seed")),
                     "updated_at": updated_at,
                     "pending_review_count": manifest.get("pending_review_count", 0),
                     # Shell/Home project flags: read
@@ -1180,6 +1182,7 @@ class Workspace:
         project_id: str | None = None,
         allowed_services: AllowedServices = DEFAULT_ALLOWED_SERVICES,
         usage_data_sharing: UsageDataSharing = DEFAULT_USAGE_DATA_SHARING,
+        cover_seed: str | None = None,
     ) -> dict:
         with self.plugin_package_lifecycle():
             return self._create_locked(
@@ -1187,6 +1190,7 @@ class Workspace:
                 project_id=project_id,
                 allowed_services=allowed_services,
                 usage_data_sharing=usage_data_sharing,
+                cover_seed=cover_seed,
             )
 
     def _create_locked(
@@ -1196,6 +1200,7 @@ class Workspace:
         project_id: str | None,
         allowed_services: AllowedServices,
         usage_data_sharing: UsageDataSharing,
+        cover_seed: str | None,
     ) -> dict:
         if project_id is not None:
             # An explicit caller-supplied project_id must fail validation
@@ -1237,6 +1242,8 @@ class Workspace:
             usage_data_sharing=usage_data_sharing,
             blob_store=blob_store,
         )
+        if cover_seed is not None:
+            write_cover_seed(project, cover_seed)
         with project.transaction_scope():
             write_project_settings(project, ProjectSettings(model_execution_routes={}))
         self._attach_project_jobs(path.stem, project)
@@ -1258,6 +1265,7 @@ class Workspace:
             "sensitive": usage_data_sharing == "off",
             "usage_data_sharing": usage_data_sharing,
             "allowed_services": allowed_services,
+            "cover_seed": cover_seed,
         }
 
     def delete(self, project_id: str) -> None:

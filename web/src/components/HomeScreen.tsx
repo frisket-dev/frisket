@@ -751,7 +751,7 @@ function HomeProjectCard({
   onRenameCancel(): void;
 }) {
   const opened = formatRelativeTime(project.updated_at);
-  const cover = projectCover(project.id);
+  const cover = projectCover(project);
   // The card ⋯ menu: onToggleMenu toggles, so firing it while open
   // closes; the trigger testid is the popover's ignoreSelector so its own click
   // is not an "outside" dismiss.

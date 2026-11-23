@@ -50,6 +50,7 @@ vi.mock('../../src/api/homeSheetCounts', () => ({
 }));
 
 import { HomeScreen } from '../../src/components/HomeScreen';
+import { projectCover } from '../../src/components/projectCover';
 
 afterEach(cleanup);
 
@@ -99,6 +100,7 @@ describe('New project dialog', () => {
       name: 'School board records',
       allowed_services: value,
       usage_data_sharing: 'inherit',
+      cover_seed: expect.stringMatching(/^[a-z0-9]{10}$/),
     });
   });
 
@@ -147,6 +149,7 @@ describe('New project dialog', () => {
       name: '',
       allowed_services: 'all_services',
       usage_data_sharing: 'inherit',
+      cover_seed: expect.stringMatching(/^[a-z0-9]{10}$/),
     }));
   });
 
@@ -164,6 +167,29 @@ describe('New project dialog', () => {
     expect(screen.getByTestId('new-project-preview-services')).toHaveTextContent('Approved services');
     fireEvent.click(screen.getByTestId('manage-approved-endpoints'));
     expect(navigate).toHaveBeenCalledWith({ kind: 'settings', scope: 'personal', section: 'approved-endpoints' });
+  });
+
+  it('re-rolls the preview cover and creates the project with the cover it shows', async () => {
+    await openDialog();
+    const cover = () => screen.getByTestId('new-project-preview').querySelector<HTMLElement>('.home-card-cover');
+    const first = `${cover()?.style.background}|${cover()?.textContent}`;
+    fireEvent.click(screen.getByTestId('new-project-different-cover'));
+    const shown = cover()?.style.background;
+    const shownGlyph = cover()?.querySelector('.home-card-glyph')?.textContent;
+    expect(shown).toMatch(/^linear-gradient/);
+    expect(`${shown}|${cover()?.textContent}`).not.toBe(first);
+    fireEvent.click(screen.getByTestId('create-project'));
+    await waitFor(() => expect(createProject).toHaveBeenCalledTimes(1));
+    const seed = createProject.mock.calls[0][0].cover_seed;
+    expect(seed).toBeDefined();
+    cleanup();
+
+    listProjects.mockResolvedValue([{ ...created, cover_seed: seed }]);
+    render(<HomeScreen onOpen={vi.fn()} />);
+    const card = await screen.findByTestId(`project-${created.id}`);
+    const cardCover = card.querySelector<HTMLElement>('.home-card-cover');
+    expect(cardCover?.style.background).toBe(shown);
+    expect(cardCover?.querySelector('.home-card-glyph')?.textContent).toBe(shownGlyph);
   });
 
   it('hides an option the edition does not offer', async () => {
@@ -191,6 +217,17 @@ describe('New project dialog', () => {
     fireEvent.click(screen.getByTestId('create-project'));
     expect(await screen.findByTestId('new-project-error')).toHaveTextContent('disk full');
     expect(screen.getByTestId('new-project-dialog')).toBeInTheDocument();
+  });
+});
+
+describe('Project cover', () => {
+  it('derives a project without a seed from its id exactly as before seeds existed', () => {
+    expect(projectCover({ id: 'council-minutes-2026' })).toEqual({
+      style: { background: 'linear-gradient(135deg, hsl(324 42% 88%), hsl(4 46% 80%))' },
+      glyph: '¶',
+    });
+    expect(projectCover({ id: 'council-minutes-2026', cover_seed: null }))
+      .toEqual(projectCover({ id: 'council-minutes-2026' }));
   });
 });
 

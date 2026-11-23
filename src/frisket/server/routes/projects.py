@@ -93,6 +93,7 @@ def register_project_lifecycle_routes(
                 body.name,
                 allowed_services=body.allowed_services,
                 usage_data_sharing=body.usage_data_sharing,
+                cover_seed=body.cover_seed,
                 idempotency_key=request.headers.get("idempotency-key"),
                 idempotency_scope=(
                     f"user:{int(actor_id)}" if actor_id is not None else None

@@ -28,7 +28,7 @@ export function ProjectCardFace({
 }) {
   return (
     <>
-      <span className="home-card-cover" style={cover.style} data-neutral={cover.style.background === undefined}>
+      <span className="home-card-cover" style={cover.style}>
         <span className="home-card-glyph">{cover.glyph}</span>
         {chip}
         {servicesLabel && (

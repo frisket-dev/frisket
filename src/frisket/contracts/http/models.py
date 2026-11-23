@@ -15,6 +15,7 @@ from frisket.authoring.workbench.contracts import (
     WorkbenchDescriptorPackageSchemaVersion,
 )
 from frisket.contracts.http.import_errors import ImportSourceErrorGroup
+from frisket.project_cover import CoverSeed
 from frisket.project_settings import UsageDataSharing
 from frisket.service_access import AllowedServices
 
@@ -185,6 +186,8 @@ class CreateProjectRequest(WireModel):
     name: str = ""
     allowed_services: AllowedServices = "all_services"
     usage_data_sharing: UsageDataSharing = "inherit"
+    # The card cover's seed; without one the cover derives from the id.
+    cover_seed: CoverSeed | None = None
 
 
 class ProjectDeleteRequest(WireModel):
@@ -231,6 +234,7 @@ class Project(WireModel):
     sensitive: bool
     usage_data_sharing: UsageDataSharing
     allowed_services: AllowedServices
+    cover_seed: str | None = None
     starred: bool = False
     archived: bool = False
 
@@ -246,6 +250,7 @@ class ProjectListItem(WireModel):
     description: str
     sensitive: bool
     allowed_services: AllowedServices
+    cover_seed: str | None = None
     updated_at: str | None
     pending_review_count: int = Field(ge=0)
     starred: bool
