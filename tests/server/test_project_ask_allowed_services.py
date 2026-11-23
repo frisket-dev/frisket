@@ -100,17 +100,21 @@ def _ask(workspace: Workspace, model: str, *, web: bool = False) -> str:
     async def scenario() -> str:
         service = ProjectQAService(workspace)
         thread = await service.create("ask", AskThreadCreate(scope={"kind": "project"}))
-        turn = await service.submit(
-            "ask",
-            thread["id"],
-            AskTurnRequest(
-                request_id=f"ask-{model}-{web}",
-                question="What is in this project?",
-                scope={"kind": "project"},
-                model=model,
-                web=web,
-            ),
-        )
+        try:
+            turn = await service.submit(
+                "ask",
+                thread["id"],
+                AskTurnRequest(
+                    request_id=f"ask-{model}-{web}",
+                    question="What is in this project?",
+                    scope={"kind": "project"},
+                    model=model,
+                    web=web,
+                ),
+            )
+        except RouteError as refused:
+            await service.shutdown()
+            return str(refused.content["code"])
         project = workspace.get("ask")
         await asyncio.wait_for(
             asyncio.shield(service._tasks[(project, turn["id"])]), 10
@@ -148,7 +152,7 @@ def test_ask_model_is_decided_before_any_request(
         assert calls.models, status
     else:
         assert calls.models == []
-        assert status == "failed"
+        assert status == "service_not_allowed"
 
 
 @pytest.mark.parametrize(
@@ -310,3 +314,24 @@ def test_ask_refuses_at_submit_when_no_model_is_allowed(
         _submit(workspace, None)
     assert refused.value.content["code"] == "service_not_allowed"
     assert calls.models == []
+
+
+def test_ask_rechecks_the_model_before_each_call(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Tightening the setting mid-turn stops the next model call."""
+    monkeypatch.delenv("OLLAMA_URL", raising=False)
+    workspace, router, models, calls = _workspace(tmp_path / "ws", "all_services", ())
+    calls.tool_call = {"name": "inspect_sheets", "args": {}, "id": "inspect"}
+    first_complete = calls.complete
+
+    async def tightening(request: Any, *args: Any, **kwargs: Any) -> LLMResponse:
+        workspace.get("ask").set_allowed_services(
+            "this_machine_only", confirm_allowed_services=None
+        )
+        return await first_complete(request, *args, **kwargs)
+
+    router._adapters["anthropic"].complete = tightening
+    status = _ask(workspace, models["provider"])
+    assert status == "failed"
+    assert calls.models == [models["provider"]]

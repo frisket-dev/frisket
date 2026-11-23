@@ -45,6 +45,9 @@ from frisket.server.provider_config import build_provider_catalog
 from frisket.server.services.project_ask_defaults import project_ask_inventory
 from frisket.server.thread_worker import await_thread_worker
 from frisket.server.workspace import Workspace
+from frisket.project_service_access import check_model_call, project_service_access
+from frisket.server.route_errors import RouteError
+from frisket.service_access import ServiceNotAllowed
 from frisket.server.project_qa_runtime import ProjectQATurnRuntime
 from frisket.cloud_llm_checkpoint import CloudLLMCheckpointCoordinator
 from frisket.server.services.project_qa_authority import BackgroundAskContext
@@ -130,6 +133,34 @@ def _last_turn_activity(
             outstanding[tool] -= 1
     pending = [tool for tool, count in outstanding.items() for _ in range(count)]
     return last_event, pending[0] if len(pending) == 1 else None
+
+
+def _ask_model_allowed(project: Project, router: Any, model: str) -> bool:
+    try:
+        check_model_call(
+            project, model, destination=router.destination_for_model(model)
+        )
+    except ServiceNotAllowed:
+        return False
+    return True
+
+
+def _require_ask_model_allowed(
+    project: Project, router: Any, model: str | None
+) -> None:
+    """Refuse at submit, before any model call, what Allowed services refuses.
+
+    ``None`` means no candidate model is allowed at all.
+    """
+    try:
+        if model is None:
+            project_service_access(project).check_remote_service("any Ask model")
+        else:
+            check_model_call(
+                project, model, destination=router.destination_for_model(model)
+            )
+    except ServiceNotAllowed as exc:
+        raise RouteError(409, {"code": exc.code, "message": str(exc)}) from None
 
 
 class ProjectQAService:
@@ -589,8 +620,10 @@ class ProjectQAService:
                 values["scope"] = body.scope.model_dump(exclude_none=True)
                 validate_scope(project, values["scope"])
                 default_model = None
-                if not values.get("model"):
-                    router = self.workspace.router_for(project)
+                router = self.workspace.router_for(project)
+                if values.get("model"):
+                    _require_ask_model_allowed(project, router, values["model"])
+                else:
                     composition = self.workspace.execution_composition_for(
                         project,
                         router,
@@ -615,7 +648,20 @@ class ProjectQAService:
                             project=project,
                         )
                     )
-                    network_off = project.remote_services_refused()
+                    if project.allowed_services() != "all_services":
+                        candidate_models = [
+                            model
+                            for model in candidate_models
+                            if _ask_model_allowed(project, router, model)
+                        ]
+                        direct_models = [
+                            model
+                            for model in direct_models
+                            if _ask_model_allowed(project, router, model)
+                        ]
+                        if not candidate_models:
+                            _require_ask_model_allowed(project, router, None)
+                    network_off = project.effective_network_policy() == "off"
                     default_model = default_project_ask_model(
                         router,
                         composition,
