@@ -250,3 +250,46 @@ def test_spend_dashboard_prices_past_runs_from_the_workspace_servers(
     spend = client.get("/api/spend")
     assert spend.status_code == 200, spend.text
     assert spend.json()["unknown_cost_models"] == [remote]
+
+
+def test_recorded_spend_stays_known_after_servers_are_repriced_or_removed(
+    client, monkeypatch
+) -> None:
+    monkeypatch.setenv("FRISKET_COST_CONSENT_USD", "5")
+    _answer(monkeypatch)
+    loopback = _model(client, LOOPBACK_ORIGIN)
+    remote = _model(client, REMOTE_ORIGIN)
+    remote_id = remote.split("/")[1].removeprefix("@")
+    loopback_id = loopback.split("/")[1].removeprefix("@")
+    priced = client.patch(
+        f"/api/providers/local-endpoints/{remote_id}",
+        json={
+            "models": [
+                {"name": "served", "entered": False, "price": {"input": 1, "output": 2}}
+            ]
+        },
+    )
+    assert priced.status_code == 200, priced.text
+    project_id, sheet = _project(client)
+    for model, key in ((loopback, "history-loopback"), (remote, "history-remote")):
+        ran = post_v1_action_with_exact_confirmation(
+            client, project_id, _classify(sheet, model, key)
+        )
+        assert ran.status_code in {200, 202}, ran.text
+        drain_queue(client)
+    before = client.get("/api/spend").json()
+    assert before["has_unknown_costs"] is False, before
+
+    # Removing the price, then both servers, changes nothing already spent.
+    unpriced = client.patch(
+        f"/api/providers/local-endpoints/{remote_id}",
+        json={"models": []},
+    )
+    assert unpriced.status_code == 200, unpriced.text
+    assert client.get("/api/spend").json()["has_unknown_costs"] is False
+    for endpoint_id in (remote_id, loopback_id):
+        deleted = client.delete(f"/api/providers/local-endpoints/{endpoint_id}")
+        assert deleted.status_code == 200, deleted.text
+    after = client.get("/api/spend").json()
+    assert after["has_unknown_costs"] is False, after
+    assert after["unknown_cost_models"] == []
