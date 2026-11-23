@@ -237,15 +237,21 @@ export function FilterRowsControls({
   );
 }
 
-function FilterRowsSection() {
-  const { sheet, applyRowSearch, applyRowLimit, applyRowOrder } = useMainViewModel();
+interface FilterRowsBindingProps {
+  sheet: SheetMeta;
+  applyRowSearch(search: RowSearch): void;
+  applyRowLimit(limit: number | null): void;
+  applyRowOrder(order: { column: string; dir: GridSortDirection } | { score: 'search' | 'similarity' } | null): void;
+}
+
+/** The Rows controls bound to the grid view store and the grid controller. */
+export function FilterRowsBinding({ sheet, applyRowSearch, applyRowLimit, applyRowOrder }: FilterRowsBindingProps) {
   const gridView = useGridViewHandle();
   const filter = useSelector(gridView.store, (s) => s.applied.filter);
   const sort = useSelector(gridView.store, (s) => s.applied.sort);
   const focusSearch = useSelector(gridView.store, (s) => s.sidebar.focusSearch);
   const draftScope = useSelector(gridView.store, (s) => s.sidebar.searchScope);
   const selection = useCurrentViewSelection(sheet);
-  if (!sheet) return null;
   return (
     <FilterRowsControls
       key={sheet.id}
@@ -259,6 +265,19 @@ function FilterRowsSection() {
       onDraftScope={gridView.setSearchScope}
       onLimit={applyRowLimit}
       onOrder={applyRowOrder}
+    />
+  );
+}
+
+function FilterRowsSection() {
+  const { sheet, applyRowSearch, applyRowLimit, applyRowOrder } = useMainViewModel();
+  if (!sheet) return null;
+  return (
+    <FilterRowsBinding
+      sheet={sheet}
+      applyRowSearch={applyRowSearch}
+      applyRowLimit={applyRowLimit}
+      applyRowOrder={applyRowOrder}
     />
   );
 }
