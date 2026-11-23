@@ -354,28 +354,31 @@ def set_allowed_services(
     """
     if requested not in ALLOWED_SERVICES_VALUES:
         raise ValueError(f"unsupported allowed_services: {requested!r}")
-    current = allowed_services(project)
-    looser = is_looser(current, requested)
-    if looser and confirm_allowed_services != requested:
-        raise AllowedServicesConfirmationRequired(current, requested)
-    if requested != current:
-        with write_transaction(project.db, what="project allowed services"):
-            project.db.execute(
-                "INSERT INTO meta (key, value) VALUES (?, ?) "
-                "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
-                (ALLOWED_SERVICES_META_KEY, requested),
+    # The current value is read and judged inside the write transaction, so a
+    # concurrent change is either seen here or waits for this one to finish.
+    with write_transaction(project.db, what="project allowed services"):
+        current = allowed_services(project)
+        looser = is_looser(current, requested)
+        if looser and confirm_allowed_services != requested:
+            raise AllowedServicesConfirmationRequired(current, requested)
+        if requested == current:
+            return project.project_metadata()
+        project.db.execute(
+            "INSERT INTO meta (key, value) VALUES (?, ?) "
+            "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+            (ALLOWED_SERVICES_META_KEY, requested),
+        )
+        if looser:
+            append_change_in_transaction(
+                project,
+                ALLOWED_SERVICES_CHANGE_KIND,
+                {"from": current, "to": requested},
+                label=(
+                    f"Allowed services: {ALLOWED_SERVICES_LABELS[current]} to "
+                    f"{ALLOWED_SERVICES_LABELS[requested]}"
+                ),
             )
-            if looser:
-                append_change_in_transaction(
-                    project,
-                    ALLOWED_SERVICES_CHANGE_KIND,
-                    {"from": current, "to": requested},
-                    label=(
-                        f"Allowed services: {ALLOWED_SERVICES_LABELS[current]} to "
-                        f"{ALLOWED_SERVICES_LABELS[requested]}"
-                    ),
-                )
-        project._write_manifest(allowed_services=requested)
+    project._write_manifest(allowed_services=allowed_services(project))
     return project.project_metadata()
 
 
