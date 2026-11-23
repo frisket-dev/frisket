@@ -48,6 +48,7 @@ function Probe() {
   return rows ? (
     <FilterRowsBinding
       sheet={sheet}
+      searchOnlyColumns={new Set()}
       applyRowSearch={currentGrid.applyRowSearch}
       applyRowLimit={currentGrid.applyRowLimit}
       applyRowOrder={currentGrid.applyRowOrder}

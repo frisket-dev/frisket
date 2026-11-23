@@ -46,6 +46,7 @@ export function WorkspaceHeaderMenuSlot() {
     visibleOrderedColumns,
     loadActionRunEntry,
     compareActionRun,
+    facetEligibility,
   } = useMainViewModel();
   const run = useRun();
   const gridView = useGridViewHandle();
@@ -126,7 +127,7 @@ export function WorkspaceHeaderMenuSlot() {
   );
 
   const menuColumn = visibleHeaderMenu?.column ?? null;
-  const facetColumn = menuColumn ? isFacetColumn(menuColumn) : false;
+  const facetColumn = menuColumn ? isFacetColumn(menuColumn) && !facetEligibility.searchOnly.has(menuColumn.name) : false;
   const search = searchOf({ selection, filter: activeFilter });
   const columnCondition = menuColumn ? activeFilter?.[menuColumn.name] : undefined;
   const columnFiltered = facetCondition(columnCondition) !== null

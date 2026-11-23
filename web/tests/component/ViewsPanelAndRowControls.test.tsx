@@ -177,6 +177,7 @@ function renderRows(overrides: Partial<FilterRowsControlsProps> = {}) {
     sort: null,
     focusSearch: 0,
     draftScope: 'all',
+    searchOnlyColumns: new Set(),
     onSearch: vi.fn(),
     onDraftScope: vi.fn(),
     onLimit: vi.fn(),

@@ -315,7 +315,6 @@ export function useWorkspaceViewsController({
   }, [gridView, detail, selection, sheet]);
 
   const updateViewSelection = useCallback((next: import('../api/types').ViewSelection) => {
-    if (next.order.every((item) => 'score' in item)) gridView.clearSort();
     gridView.setSelection(next);
   }, [gridView]);
 

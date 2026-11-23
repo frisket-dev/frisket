@@ -4,7 +4,7 @@ import { useGridViewHandle } from '../bind/useGridViewHandle';
 import { useSelector } from '../bind/useSelector';
 import { ViewsWorkbenchPanel } from '../workbench/contributions';
 import type { ViewsPanelProps } from './ViewsPanel';
-import { chipSummary, deriveRowFilterChips } from './rowFiltering';
+import { chipSummary, deriveRowFilterChips, withoutRelevanceOrder } from './rowFiltering';
 import { sameViewSelection } from './viewDefinition';
 import { useMainViewModel } from './WorkspaceContext';
 
@@ -24,7 +24,7 @@ function useSheetViewsPanelProps(): ViewsPanelProps {
   });
   const columnCount = model.sheet?.columns.length ?? 0;
   const current = selection
-    ? model.views.find((view) => view.spec && sameViewSelection(view.spec.selection, selection))
+    ? model.views.find((view) => view.spec && sameViewSelection(withoutRelevanceOrder(view.spec.selection), selection))
     : undefined;
   return {
     views: model.views,

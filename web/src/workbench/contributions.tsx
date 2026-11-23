@@ -630,6 +630,7 @@ export function FriendlyFiltersWorkbenchPanel({
   currentSelection,
   focusFacet,
   rowsSection,
+  hiddenFacetColumns,
 }: FriendlyFiltersWorkbenchPanelProps) {
   const descriptor = FRIENDLY_FILTERS_DESCRIPTOR;
   const placement = placementForHost(descriptor, host);
@@ -656,6 +657,7 @@ export function FriendlyFiltersWorkbenchPanel({
         currentSelection={currentSelection}
         focusFacet={focusFacet}
         rowsSection={rowsSection}
+        hiddenFacetColumns={hiddenFacetColumns}
       />
     </WorkbenchContributionFrame>
   );

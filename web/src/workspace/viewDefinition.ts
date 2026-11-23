@@ -13,7 +13,7 @@ export function selectionFromGrid(sheet: SheetMeta, filter: GridFilterSpec | nul
     ...base,
     scope: { kind: 'sheet', sheet_id: Number(sheet.id), ...(rowIds !== null ? { row_ids: rowIds } : {}), ...(base?.scope.kind === 'sheet' && base.scope.parent_row_id ? { parent_row_id: base.scope.parent_row_id } : {}) },
     filters: Object.entries(filter ?? {}).map(([name, condition]) => ({ column_id: bindings?.filterColumnIds?.[name] ?? columnId(name), condition: toWireJsonObject(condition) })),
-    order: sort?.map((item) => ({ column_id: bindings?.sortColumnIds?.[item.column] ?? columnId(item.column), dir: item.dir })) ?? base?.order.filter((item) => 'score' in item) ?? [],
+    order: sort?.map((item) => ({ column_id: bindings?.sortColumnIds?.[item.column] ?? columnId(item.column), dir: item.dir })) ?? [],
     limit: base?.limit ?? null,
   };
 }

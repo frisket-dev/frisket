@@ -363,12 +363,7 @@ export function useWorkspaceGridController({
         search,
       );
       applyGridFilterSpec(next.filter);
-      replaceSelection((current) => ({
-        search: next.selectionSearch,
-        order: next.selectionSearch
-          ? current.order
-          : current.order.filter((item) => !('score' in item && item.score === 'search')),
-      }));
+      replaceSelection(() => ({ search: next.selectionSearch }));
     },
     [applyGridFilterSpec, gridView, replaceSelection, route],
   );
@@ -378,19 +373,13 @@ export function useWorkspaceGridController({
     [replaceSelection],
   );
 
-  /** Row order: a column sort, a relevance score, or none (the sheet's own order). */
+  /** Row order: one column sort, or none (the sheet's own order). */
   const applyRowOrder = useCallback(
-    (order: { column: string; dir: GridSortDirection } | { score: 'search' | 'similarity' } | null) => {
-      if (order && 'column' in order) {
-        applyGridSortForColumn(order.column, order.dir);
-        return;
-      }
-      clearGridSortTransition({ gridView, selection }, sheet?.id);
-      replaceSelection((current) => ({
-        order: order ? [{ score: order.score, dir: 'desc' }] : current.order.filter((item) => !('score' in item)),
-      }));
+    (order: { column: string; dir: GridSortDirection } | null) => {
+      if (order) applyGridSortForColumn(order.column, order.dir);
+      else clearGridSortTransition({ gridView, selection }, sheet?.id);
     },
-    [applyGridSortForColumn, gridView, replaceSelection, selection, sheet],
+    [applyGridSortForColumn, gridView, selection, sheet],
   );
 
   const headerMenuActiveSort = useMemo(() => {

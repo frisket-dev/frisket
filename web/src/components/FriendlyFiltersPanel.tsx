@@ -298,6 +298,8 @@ export interface FriendlyFiltersPanelProps {
   focusFacet?: string | null;
   /** Rendered above the column facets (the sheet sidebar's Rows section). */
   rowsSection?: ReactNode;
+  /** Facetable columns that get no card: left to search, or not yet counted. */
+  hiddenFacetColumns?: ReadonlySet<string>;
 }
 
 function selectedValues(condition: FilterCondition | undefined): string[] {
@@ -366,12 +368,13 @@ export function FriendlyFiltersPanel({
   currentSelection = null,
   focusFacet = null,
   rowsSection = null,
+  hiddenFacetColumns,
 }: FriendlyFiltersPanelProps) {
   const activeSheet = sheets.find((sheet) => sheet.id === activeSheetId) ?? null;
   const [reloadSeq, setReloadSeq] = useState(0);
   const facetColumns = useMemo(
-    () => facetColumnsOf(activeSheet?.columns ?? []),
-    [activeSheet],
+    () => facetColumnsOf(activeSheet?.columns ?? []).filter((column) => !hiddenFacetColumns?.has(column.name)),
+    [activeSheet, hiddenFacetColumns],
   );
 
   const updateColumn = useCallback(

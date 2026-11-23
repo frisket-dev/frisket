@@ -50,17 +50,25 @@ export interface RowFilterChip {
 
 const CHIP_VALUE_LIMIT = 24;
 
-/** Markdown documents are searched, not faceted. */
-function isLongFormText(column: ColumnDef): boolean {
-  return column.type === 'text' && column.format === 'markdown';
-}
+/** Above this many distinct values a column is searched, not faceted. */
+export const FACET_DISTINCT_LIMIT = 50;
 
 export function isFacetColumn(column: ColumnDef): boolean {
-  if (isLongFormText(column)) return false;
   const behavior = facetBehaviorFor(column.type);
   return behavior?.kind === 'range'
     || behavior?.kind === 'collection'
     || (behavior?.kind === 'categorical' && behavior.operator === 'eq');
+}
+
+/** Whether a facetable column is left to search instead, by the server's
+ *  whole-column counts: too many distinct values to list, or cells too long
+ *  to list. Range columns keep their histogram at any count. */
+export function isSearchOnly(
+  column: ColumnDef,
+  counts: { distinct: number; omittedRows?: number },
+): boolean {
+  if (facetBehaviorFor(column.type)?.kind === 'range') return false;
+  return counts.distinct > FACET_DISTINCT_LIMIT || (counts.omittedRows ?? 0) > 0;
 }
 
 /** Facet cards in the order the sidebar lists them: preferred types first. */
@@ -72,9 +80,10 @@ export function facetColumnsOf(columns: ColumnDef[]): ColumnDef[] {
       - Number(facetBehaviorFor(left.type)?.preferred === true));
 }
 
-/** Columns the search scope can name. */
-export function searchableColumnsOf(columns: ColumnDef[]): ColumnDef[] {
-  return columns.filter((column) => column.type === 'text');
+/** Columns the search scope can name: text columns, and columns left to
+ *  search by the facet cap. */
+function searchableColumnsOf(columns: ColumnDef[], searchOnly: ReadonlySet<string>): ColumnDef[] {
+  return columns.filter((column) => column.type === 'text' || searchOnly.has(column.name));
 }
 
 function truncateChipValue(value: string): string {
@@ -174,9 +183,10 @@ export function withSearch(
 export function searchScopeColumnsOf(
   columns: ColumnDef[],
   state: Pick<RowFilterState, 'selection' | 'filter'>,
+  searchOnly: ReadonlySet<string>,
 ): ColumnDef[] {
   const represented = searchOf(state);
-  return searchableColumnsOf(columns).filter((column) => (
+  return searchableColumnsOf(columns, searchOnly).filter((column) => (
     typeof state.filter?.[column.name]?.contains !== 'string'
     || (represented.text !== '' && represented.scope === column.name)
   ));
@@ -199,14 +209,17 @@ function facetChipValue(column: string, condition: ColumnCondition, valueLabel: 
   return label.startsWith(`${column} `) ? label.slice(column.length + 1) : label;
 }
 
-export function sortOf(state: Pick<RowFilterState, 'selection' | 'sort'>):
-  | { kind: 'column'; column: string; dir: 'asc' | 'desc' }
-  | { kind: 'score'; score: 'search' | 'similarity' }
-  | null {
+/** The sheet's row order: one column sort, or none (sheet order). A search
+ *  filters rows here; it never ranks them. */
+export function sortOf(state: Pick<RowFilterState, 'sort'>): { column: string; dir: 'asc' | 'desc' } | null {
   const column = state.sort?.[0];
-  if (column) return { kind: 'column', column: column.column, dir: column.dir };
-  const score = state.selection?.order.find((item) => 'score' in item);
-  return score && 'score' in score ? { kind: 'score', score: score.score } : null;
+  return column ? { column: column.column, dir: column.dir } : null;
+}
+
+/** A selection as the sheet shows it: relevance order removed, so rows a
+ *  saved View once ranked by score keep sheet order (or their column sort). */
+export function withoutRelevanceOrder(selection: ViewSelection): ViewSelection {
+  return { ...selection, order: selection.order.filter((item) => !('score' in item)) };
 }
 
 export function deriveRowFilterChips(state: RowFilterState): RowFilterChip[] {
@@ -261,9 +274,7 @@ export function deriveRowFilterChips(state: RowFilterState): RowFilterChip[] {
       key: 'sort',
       tone: 'shape',
       kind: 'Sorted by',
-      value: sort.kind === 'column'
-        ? `${sort.column} ${sort.dir === 'asc' ? '↑' : '↓'}`
-        : `${sort.score} score`,
+      value: `${sort.column} ${sort.dir === 'asc' ? '↑' : '↓'}`,
       target: { kind: 'sort' },
     });
   }

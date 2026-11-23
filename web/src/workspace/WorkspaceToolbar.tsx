@@ -290,7 +290,6 @@ export function WorkspaceGridControls() {
       updateViewSelection({
         ...selection,
         similarity: undefined,
-        order: selection.order.filter((item) => !('score' in item && item.score === 'similarity')),
       });
     }
   };

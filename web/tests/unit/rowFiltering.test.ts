@@ -128,7 +128,7 @@ describe('removing one composed constraint', () => {
   it('offers the search no column that already holds another contains', () => {
     const columns = [column('body', 'text'), column('title', 'text'), column('notes', 'text')];
     const current = { selection: selection(), filter: { body: { contains: 'a' }, title: { contains: 'b' } } };
-    expect(searchScopeColumnsOf(columns, current).map((item) => item.name)).toEqual(['body', 'notes']);
+    expect(searchScopeColumnsOf(columns, current, new Set()).map((item) => item.name)).toEqual(['body', 'notes']);
   });
 });
 
@@ -176,9 +176,9 @@ describe('facet logic', () => {
     expect(selectionWithoutFacet(current, 1).filters.map((item) => item.column_id)).toEqual([2]);
   });
 
-  it('facets text values, including generated ones, and searches markdown', () => {
+  it('can facet any text column by type; the distinct-value cap decides the rest', () => {
     expect(isFacetColumn(column('filename', 'text'))).toBe(true);
-    expect(isFacetColumn(column('markdown', 'text', { format: 'markdown' }))).toBe(false);
+    expect(isFacetColumn(column('markdown', 'text', { format: 'markdown' }))).toBe(true);
     expect(isFacetColumn(column('label', 'text', { ai: { actionName: 'Classify', prompt: '', model: 'm', costSoFar: 0, versions: [] } }))).toBe(true);
     expect(facetColumnsOf([column('size', 'number'), column('kind', 'category')]).map((item) => item.name))
       .toEqual(['kind', 'size']);

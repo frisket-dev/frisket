@@ -1,6 +1,7 @@
 import '../grid/SheetGrid.css';
 import { Suspense, useCallback, useEffect, useMemo, useState, useSyncExternalStore } from 'react';
 import { useLimitNote } from './useLimitNote';
+import { useFacetEligibility } from './useFacetEligibility';
 import type { CellValue, ColumnDef, HistoryState, ProjectInfo, Row } from '../api/open';
 import { subscribeMapPointsMeta } from '../api/mapPointsMeta';
 import { PreviewTable } from '../components/PreviewTable';
@@ -459,6 +460,7 @@ export function useWorkspaceModel({
   const viewController = useWorkspaceViewsController({
     project, sheet, currentViewColumns, chromeState, visibility, showError,
   });
+  const facetEligibility = useFacetEligibility(sheet, dataVersion);
   const showAllMatchingRows = useCallback(() => applyRowLimit(null), [applyRowLimit]);
   const gridLimitNote = useLimitNote(
     sheet,
@@ -1127,6 +1129,7 @@ export function useWorkspaceModel({
       requestDeleteRows,
       selectedRowIdsForSheet,
       visibleRowCount,
+      facetEligibility,
       addedRow: addedRow?.sheetId === sheet?.id ? addedRow : null,
       dismissAddedRow,
       undoAddedRow,
@@ -1178,6 +1181,7 @@ export function useWorkspaceModel({
       requestDeleteRows,
       selectedRowIdsForSheet,
       visibleRowCount,
+      facetEligibility,
       addedRow,
       dismissAddedRow,
       undoAddedRow,

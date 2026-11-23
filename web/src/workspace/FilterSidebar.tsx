@@ -1,5 +1,5 @@
 import './FilterSidebar.css';
-import { useCallback, useEffect, useRef, useState, type KeyboardEvent } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react';
 import { ArrowDown, ArrowUp, Search, X } from 'lucide-react';
 import { useCurrentViewSelection } from '../bind/useCurrentViewSelection';
 import { useGridViewHandle } from '../bind/useGridViewHandle';
@@ -32,10 +32,12 @@ export interface FilterRowsControlsProps {
   focusSearch: number;
   /** The scope the next search text applies to while no search is active. */
   draftScope: string;
+  /** Columns the facet cap leaves to search; the scope can name them. */
+  searchOnlyColumns: ReadonlySet<string>;
   onSearch(search: RowSearch): void;
   onDraftScope(scope: string): void;
   onLimit(limit: number | null): void;
-  onOrder(order: { column: string; dir: GridSortDirection } | { score: 'search' | 'similarity' } | null): void;
+  onOrder(order: { column: string; dir: GridSortDirection } | null): void;
 }
 
 /** Search, sort and limit: every row-level control lives here, not on the grid. */
@@ -46,6 +48,7 @@ export function FilterRowsControls({
   sort,
   focusSearch,
   draftScope,
+  searchOnlyColumns,
   onSearch,
   onDraftScope,
   onLimit,
@@ -53,7 +56,7 @@ export function FilterRowsControls({
 }: FilterRowsControlsProps) {
   const search = searchOf({ selection, filter });
   const scope = search.text ? search.scope : draftScope;
-  const order = sortOf({ selection, sort });
+  const order = sortOf({ sort });
   const limit = selection?.limit ?? null;
 
   const [draft, setDraft] = useState(search.text);
@@ -96,7 +99,7 @@ export function FilterRowsControls({
     if (focusSearch > 0) searchRef.current?.focus();
   }, [focusSearch]);
 
-  const textColumns = searchScopeColumnsOf(sheet.columns, { selection, filter });
+  const textColumns = searchScopeColumnsOf(sheet.columns, { selection, filter }, searchOnlyColumns);
   const commit = (text: string, nextScope = scope) => {
     cancelPending();
     onSearch({ text, scope: nextScope });
@@ -112,14 +115,12 @@ export function FilterRowsControls({
     timer.current = window.setTimeout(flushPending, SEARCH_DEBOUNCE_MS);
   };
 
-  const sortValue = order === null ? '' : order.kind === 'column' ? `column:${order.column}` : `score:${order.score}`;
+  const sortValue = order === null ? '' : `column:${order.column}`;
   const sortOptions: PanelSelectOption[] = [
     { value: '', label: 'Row order' },
-    ...(selection?.search ? [{ value: 'score:search', label: 'Search score' }] : []),
-    ...(selection?.similarity ? [{ value: 'score:similarity', label: 'Similarity score' }] : []),
     ...sheet.columns.map((column) => ({ value: `column:${column.name}`, label: column.name })),
   ];
-  const direction = order?.kind === 'column' ? order.dir : 'asc';
+  const direction = order ? order.dir : 'asc';
   const applyLimitDraft = (raw: string) => {
     const parsed = Number(raw);
     if (Number.isInteger(parsed) && parsed > 0) onLimit(parsed);
@@ -189,24 +190,23 @@ export function FilterRowsControls({
           options={sortOptions}
           onValueChange={(next) => {
             if (next === '') onOrder(null);
-            else if (next.startsWith('column:')) onOrder({ column: next.slice('column:'.length), dir: direction });
-            else onOrder({ score: next === 'score:similarity' ? 'similarity' : 'search' });
+            else onOrder({ column: next.slice('column:'.length), dir: direction });
           }}
         />
-        <div className="filter-direction" data-inactive={order?.kind === 'column' ? undefined : 'true'}>
+        <div className="filter-direction" data-inactive={order ? undefined : 'true'}>
           <SegmentedToggle
             size="compact"
             fullWidth={false}
             ariaLabel="Sort direction"
             testId="sheet-filter-sort-direction"
-            disabled={order?.kind !== 'column'}
-            value={order?.kind === 'column' ? order.dir : ''}
+            disabled={!order}
+            value={order ? order.dir : ''}
             options={[
               { value: 'asc', label: 'Asc', icon: ArrowUp },
               { value: 'desc', label: 'Desc', icon: ArrowDown },
             ]}
             onValueChange={(next) => {
-              if (order?.kind === 'column') onOrder({ column: order.column, dir: next === 'desc' ? 'desc' : 'asc' });
+              if (order) onOrder({ column: order.column, dir: next === 'desc' ? 'desc' : 'asc' });
             }}
           />
         </div>
@@ -255,13 +255,14 @@ export function FilterRowsControls({
 
 interface FilterRowsBindingProps {
   sheet: SheetMeta;
+  searchOnlyColumns: ReadonlySet<string>;
   applyRowSearch(search: RowSearch, sheetId: string): void;
   applyRowLimit(limit: number | null): void;
-  applyRowOrder(order: { column: string; dir: GridSortDirection } | { score: 'search' | 'similarity' } | null): void;
+  applyRowOrder(order: { column: string; dir: GridSortDirection } | null): void;
 }
 
 /** The Rows controls bound to the grid view store and the grid controller. */
-export function FilterRowsBinding({ sheet, applyRowSearch, applyRowLimit, applyRowOrder }: FilterRowsBindingProps) {
+export function FilterRowsBinding({ sheet, searchOnlyColumns, applyRowSearch, applyRowLimit, applyRowOrder }: FilterRowsBindingProps) {
   const gridView = useGridViewHandle();
   const filter = useSelector(gridView.store, (s) => s.applied.filter);
   const sort = useSelector(gridView.store, (s) => s.applied.sort);
@@ -277,6 +278,7 @@ export function FilterRowsBinding({ sheet, applyRowSearch, applyRowLimit, applyR
       sort={sort}
       focusSearch={focusSearch}
       draftScope={draftScope}
+      searchOnlyColumns={searchOnlyColumns}
       onSearch={(search) => applyRowSearch(search, sheet.id)}
       onDraftScope={gridView.setSearchScope}
       onLimit={applyRowLimit}
@@ -286,11 +288,12 @@ export function FilterRowsBinding({ sheet, applyRowSearch, applyRowLimit, applyR
 }
 
 function FilterRowsSection() {
-  const { sheet, applyRowSearch, applyRowLimit, applyRowOrder } = useMainViewModel();
+  const { sheet, applyRowSearch, applyRowLimit, applyRowOrder, facetEligibility } = useMainViewModel();
   if (!sheet) return null;
   return (
     <FilterRowsBinding
       sheet={sheet}
+      searchOnlyColumns={facetEligibility.searchOnly}
       applyRowSearch={applyRowSearch}
       applyRowLimit={applyRowLimit}
       applyRowOrder={applyRowOrder}
@@ -300,11 +303,15 @@ function FilterRowsSection() {
 
 function FilterTab() {
   const { sheets } = useCurrentSheet();
-  const { sheet } = useMainViewModel();
+  const { sheet, facetEligibility } = useMainViewModel();
   const hostContext = useWorkbenchHostContext();
   const gridView = useGridViewHandle();
   const focusFacet = useSelector(gridView.store, (s) => s.sidebar.focusFacet);
   const selection = useCurrentViewSelection(sheet);
+  const hiddenFacets = useMemo(
+    () => new Set([...facetEligibility.searchOnly, ...facetEligibility.pending]),
+    [facetEligibility],
+  );
   return (
     <FriendlyFiltersWorkbenchPanel
       host="rightInspector"
@@ -313,6 +320,7 @@ function FilterTab() {
       currentSelection={selection}
       focusFacet={focusFacet}
       rowsSection={<FilterRowsSection />}
+      hiddenFacetColumns={hiddenFacets}
     />
   );
 }
