@@ -12,10 +12,10 @@ import {
   listSheets,
   type WireColumn,
 } from './helpers';
+import { ROW_HEIGHT } from '../../src/grid/rowHeights';
 
 const MARKER_WIDTH = 40;
 const HEADER_HEIGHT = 34;
-const ROW_HEIGHT = 34;
 const CHIP_WIDTH = 130; // SheetGrid CHILD_CHIP_COL default
 const colWidth = (c: WireColumn): number => (c.type === 'text' ? 240 : 140);
 

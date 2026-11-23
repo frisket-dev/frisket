@@ -59,7 +59,7 @@ async function mount(sample: PreviewOverlayCell, descriptor = column) {
   const edit = vi.fn().mockResolvedValue(undefined);
   const facet = vi.fn();
   await act(async () => {
-    render(<SheetGrid sheet={sheet} dataVersion={0} liveRun={null} rowHeight={32} wrapText={false}
+    render(<SheetGrid sheet={sheet} dataVersion={0} liveRun={null} wrapText={false}
       columnGroupsStorageScope="preview-grid" previewColumns={[descriptor]} previewCells={{ '1': { [descriptor.name]: sample } }}
       onRowOpen={open} onColumnOpen={vi.fn()} onCellEdit={edit} onFacetValueFilter={facet}
     />);
@@ -72,7 +72,7 @@ async function mountImportPlaceholders() {
   const edit = vi.fn().mockResolvedValue(undefined);
   const selected = vi.fn();
   await act(async () => {
-    render(<SheetGrid sheet={sheet} dataVersion={0} liveRun={null} rowHeight={32} wrapText={false}
+    render(<SheetGrid sheet={sheet} dataVersion={0} liveRun={null} wrapText={false}
       columnGroupsStorageScope="preview-grid" pendingImportRowCount={3}
       onRowOpen={open} onColumnOpen={vi.fn()} onCellEdit={edit} onSelectedRowsChange={selected}
     />);
@@ -83,7 +83,7 @@ async function mountImportPlaceholders() {
 describe('preview grid interactions', () => {
   it('soft-refreshes committed import rows without changing the hard cache version', async () => {
     const props = {
-      sheet, dataVersion: 7, liveRun: null, rowHeight: 32, wrapText: false,
+      sheet, dataVersion: 7, liveRun: null, wrapText: false,
       columnGroupsStorageScope: 'preview-grid', pendingImportRowCount: 3,
       onRowOpen: vi.fn(), onColumnOpen: vi.fn(), onCellEdit: vi.fn(),
     } as const;
@@ -172,7 +172,7 @@ describe('preview grid interactions', () => {
       annotatedTextColumnIds: ['text'],
     };
     const props = {
-      sheet: documentSheet, dataVersion: 0, liveRun: null, rowHeight: 32, wrapText: false,
+      sheet: documentSheet, dataVersion: 0, liveRun: null, wrapText: false,
       columnGroupsStorageScope: 'preview-grid',
       onRowOpen: vi.fn(), onColumnOpen: vi.fn(), onCellEdit: vi.fn(),
     };
@@ -263,7 +263,7 @@ describe('preview grid interactions', () => {
     };
     await act(async () => {
       render(<SheetGrid sheet={groupedSheet} dataVersion={0} liveRun={null}
-        rowHeight={32} wrapText={false} columnGroupsStorageScope="preview-grid"
+        wrapText={false} columnGroupsStorageScope="preview-grid"
         onRowOpen={vi.fn()} onColumnOpen={vi.fn()} onCellEdit={vi.fn()}
       />);
     });
@@ -291,7 +291,7 @@ it('renders projected expected values in the ordinary grid and routes edits to t
   const cell = { value: 'verified', source_row_id: 50, source_column_id: 20, checked: true };
   const project = vi.fn().mockResolvedValue({ links: [], columns: [expected], rows: { '1': { [expected.id]: cell }, '2': { [expected.id]: { ...cell, source_row_id: null, value: null, checked: false } } } });
   const edit = vi.fn().mockResolvedValue(undefined);
-  render(<SheetGrid sheet={target} dataVersion={0} liveRun={null} rowHeight={32} wrapText={false}
+  render(<SheetGrid sheet={target} dataVersion={0} liveRun={null} wrapText={false}
     columnGroupsStorageScope="expected-grid" onRowOpen={vi.fn()} onColumnOpen={vi.fn()} onCellEdit={vi.fn()}
     expectedColumns={[expected]} projectExpected={project} onExpectedEdit={edit} />);
   await waitFor(() => expect(editor.props?.getCellContent([1, 0])).toMatchObject({ kind: GridCellKind.Text, data: 'verified', readonly: false, allowOverlay: true }));
@@ -313,7 +313,7 @@ it.each(['request failure', 'unavailable link'] as const)('shows a read-only una
   else project.mockResolvedValueOnce({ links: [{ id: 4, available: false }], columns: [], rows: { '1': {}, '2': {} } });
   project.mockResolvedValue({ links: [], columns: expectedColumns, rows: { '1': { [expected.id]: cell } } });
   const edit = vi.fn().mockResolvedValue(undefined);
-  const props = { sheet: target, liveRun: null, rowHeight: 32, wrapText: false, columnGroupsStorageScope: 'expected-grid',
+  const props = { sheet: target, liveRun: null, wrapText: false, columnGroupsStorageScope: 'expected-grid',
     onRowOpen: vi.fn(), onColumnOpen: vi.fn(), onCellEdit: vi.fn(), expectedColumns, projectExpected: project, onExpectedEdit: edit };
   const view = render(<SheetGrid {...props} dataVersion={0} />);
   await waitFor(() => expect(editor.props?.getCellContent([1, 0])).toMatchObject({ kind: GridCellKind.Text, displayData: 'Unavailable', readonly: true, allowOverlay: false }));

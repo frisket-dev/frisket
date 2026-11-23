@@ -1,7 +1,7 @@
 import { expect, type Page } from '@playwright/test';
 import { LOCAL_EDITION_DESCRIPTOR } from '../../src/editions/posture';
 import { settingsSectionsFor } from '../../src/settings/openSettingsRegistry';
-import { createProject, importCsv, openDiscoverTab, openProject } from '../e2e/helpers';
+import { createProject, importCsv, openDiscoverTab, openFilterSidebar, openProject, openViewsTab } from '../e2e/helpers';
 
 type Shot = (page: Page, family: string, name: string, source: string, detailSelector?: string) => Promise<void>;
 
@@ -98,25 +98,11 @@ export async function captureSettingsScenes(page: Page, shot: Shot) {
   }
 }
 
-async function openViews(page: Page) {
-  const rail = page.getByTestId('discover-rail');
-  if (await rail.isVisible()) {
-    await page.getByTestId('discover-rail-icon-Views').click();
-  } else {
-    const tab = page.getByTestId('discover-tab-Views');
-    if (await tab.isVisible()) await tab.click();
-    else {
-      await page.getByTestId('discover-tab-overflow').click();
-      await page.getByTestId('discover-tab-menu-Views').click();
-    }
-  }
-  await expect(page.getByTestId('views-panel')).toBeVisible();
-}
 
 /** Small real data, no remote sources, model runs, background schedules, or fabricated events. */
 export async function capturePanelScenes(page: Page, shot: Shot) {
   const { projectId, sheetId } = await createWorkbench(page, 'Panels inventory');
-  await openDiscoverTab(page, 'Facets');
+  await openFilterSidebar(page);
   await expect(page.getByTestId('friendly-filters-panel')).toBeVisible();
   await expect(page.getByTestId('friendly-filters-panel').getByText('Planning', { exact: true })).toBeVisible();
   await expect(page.getByTestId('friendly-filters-panel').locator('[aria-busy="true"]')).toHaveCount(0);
@@ -152,7 +138,7 @@ export async function capturePanelScenes(page: Page, shot: Shot) {
   await page.getByTestId('import-workspace-close').click();
   await expect(page.getByTestId('import-workspace-dialog')).toHaveCount(0);
 
-  await openViews(page);
+  await openViewsTab(page);
   await expect(page.getByTestId('views-list')).toContainText('No views yet.');
   await shot(page, 'Side panels', 'views-empty', 'src/workspace/ViewsPanel.tsx');
   await page.getByTestId('create-view').click();

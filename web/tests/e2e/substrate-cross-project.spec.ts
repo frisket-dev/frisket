@@ -55,7 +55,7 @@ test('cross-project isolation: a grid filter, a row selection, and an open row d
   const columnsA = await sheetColumns(page.request, pidA, sheetA);
   await openFriendlyFilterSidebar(page, columnsA, 'status');
   await page.getByTestId('facet-check-status-open').check();
-  await expect(page.getByTestId('active-grid-filter')).toContainText('status');
+  await expect(page.getByTestId('row-filter-chips')).toContainText('status');
   await selectRow(page, 0);
   await expect(page.getByTestId('delete-rows-button')).toBeVisible();
   // 'city' is a plain non-AI text column (now in-place editable —
@@ -73,7 +73,7 @@ test('cross-project isolation: a grid filter, a row selection, and an open row d
   void sheetB;
 
   // B shows neither A's filter, selection, nor open row drawer.
-  await expect(page.getByTestId('active-grid-filter')).toHaveCount(0);
+  await expect(page.getByTestId('row-filter-chips')).toHaveCount(0);
   await expect(page.getByTestId('delete-rows-button')).toHaveCount(0);
   await expect(page.getByTestId('row-drawer')).toHaveCount(0);
 
@@ -85,7 +85,7 @@ test('cross-project isolation: a grid filter, a row selection, and an open row d
   await expect(page).toHaveURL(new RegExp(`/p/${pidA}`));
   await expect(page.getByTestId('grid')).toBeVisible({ timeout: 15_000 });
 
-  await expect(page.getByTestId('active-grid-filter')).toHaveCount(0);
+  await expect(page.getByTestId('row-filter-chips')).toHaveCount(0);
   await expect(page.getByTestId('delete-rows-button')).toHaveCount(0);
   await expect(page.getByTestId('row-drawer')).toHaveCount(0);
 });

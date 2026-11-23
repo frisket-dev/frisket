@@ -13,7 +13,7 @@ export function selectionFromGrid(sheet: SheetMeta, filter: GridFilterSpec | nul
     ...base,
     scope: { kind: 'sheet', sheet_id: Number(sheet.id), ...(rowIds !== null ? { row_ids: rowIds } : {}), ...(base?.scope.kind === 'sheet' && base.scope.parent_row_id ? { parent_row_id: base.scope.parent_row_id } : {}) },
     filters: Object.entries(filter ?? {}).map(([name, condition]) => ({ column_id: bindings?.filterColumnIds?.[name] ?? columnId(name), condition: toWireJsonObject(condition) })),
-    order: sort?.map((item) => ({ column_id: bindings?.sortColumnIds?.[item.column] ?? columnId(item.column), dir: item.dir })) ?? base?.order.filter((item) => 'score' in item) ?? [],
+    order: sort?.map((item) => ({ column_id: bindings?.sortColumnIds?.[item.column] ?? columnId(item.column), dir: item.dir })) ?? [],
     limit: base?.limit ?? null,
   };
 }
@@ -45,8 +45,22 @@ export function sameViewDefinition(a: ViewDefinitionInput, b: ViewDefinitionInpu
   return canonicalViewValue(a) === canonicalViewValue(b);
 }
 
+function withoutAbsentFields(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(withoutAbsentFields);
+  if (value !== null && typeof value === 'object') {
+    return Object.fromEntries(
+      Object.entries(value)
+        .filter(([, child]) => child !== undefined)
+        .map(([key, child]) => [key, withoutAbsentFields(child)]),
+    );
+  }
+  return value;
+}
+
+/** A saved view is the current one when its selection deep-equals the
+ *  current selection; a field left out and a field set to `undefined` agree. */
 export function sameViewSelection(a: ViewSelection, b: ViewSelection): boolean {
-  return canonicalViewValue(a) === canonicalViewValue(b);
+  return canonicalViewValue(withoutAbsentFields(a)) === canonicalViewValue(withoutAbsentFields(b));
 }
 
 /** Layout references are IDs on disk; grid-local names are resolved only at the boundary. */

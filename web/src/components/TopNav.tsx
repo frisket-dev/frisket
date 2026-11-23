@@ -30,6 +30,7 @@ import {
   FolderOpen,
   Globe,
   Settings,
+  ShieldCheck,
   Trash2,
   Users,
 } from 'lucide-react';
@@ -335,6 +336,7 @@ function ProjectMenuPopover({
   projects,
   onCloseMenu,
   onOpenExportModal,
+  onOpenReceipts,
   onSelectProject,
   onToggleExportOpen,
 }: {
@@ -348,6 +350,8 @@ function ProjectMenuPopover({
   projects: ProjectInfo[] | null;
   onCloseMenu(): void;
   onOpenExportModal(modal: ExportModalKind): void;
+  /** Opens the project's receipts panel; absent outside a workspace. */
+  onOpenReceipts?(): void;
   onSelectProject(project: ProjectInfo): void;
   onToggleExportOpen(): void;
 }) {
@@ -395,6 +399,20 @@ function ProjectMenuPopover({
       </div>
       <div className="menu-sep" />
       <div className="menu-section-label">This project</div>
+      {onOpenReceipts && (
+        <button
+          type="button"
+          className="menu-item"
+          data-testid="open-provenance-manifest"
+          onClick={() => {
+            onCloseMenu();
+            onOpenReceipts();
+          }}
+        >
+          <ShieldCheck size={12} className="menu-item-icon" />
+          <span className="menu-item-name">Receipts</span>
+        </button>
+      )}
       <button
         type="button"
         className="menu-item"
@@ -563,6 +581,7 @@ export function ProjectMenu({
   sheets,
   currentSheetExportOptions,
   catalogExportTargets,
+  onOpenReceipts,
 }: {
   project: ProjectInfo;
   projectApi: ProjectApi;
@@ -570,6 +589,7 @@ export function ProjectMenu({
   sheets: SheetMeta[];
   currentSheetExportOptions?: SheetViewExportOptions | null;
   catalogExportTargets: ExportTarget[];
+  onOpenReceipts?(): void;
 }) {
   const [open, setOpen] = useState(false);
   const [projects, setProjects] = useState<ProjectInfo[] | null>(null);
@@ -642,6 +662,7 @@ export function ProjectMenu({
           projectApi={projectApi}
           projects={projects}
           onCloseMenu={closeMenu}
+          onOpenReceipts={onOpenReceipts}
           onOpenExportModal={(modal) => {
             closeMenu();
             setExportModal(modal);

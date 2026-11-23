@@ -263,14 +263,14 @@ describe('walkthrough targets', () => {
 
   it('resolves a Discover tab from either the open panel or collapsed rail', () => {
     const rail = document.createElement('button');
-    rail.dataset.testid = 'discover-rail-icon-Facets';
+    rail.dataset.testid = 'discover-rail-icon-Mentions';
     document.body.append(rail);
-    expect(resolveWalkthroughTarget({ kind: 'discover-tab', id: 'Facets' })).toBe(rail);
+    expect(resolveWalkthroughTarget({ kind: 'discover-tab', id: 'Mentions' })).toBe(rail);
 
     const tab = document.createElement('button');
-    tab.dataset.testid = 'discover-tab-Facets';
+    tab.dataset.testid = 'discover-tab-Mentions';
     document.body.prepend(tab);
-    expect(resolveWalkthroughTarget({ kind: 'discover-tab', id: 'Facets' })).toBe(tab);
+    expect(resolveWalkthroughTarget({ kind: 'discover-tab', id: 'Mentions' })).toBe(tab);
   });
 
   it('resolves the first visible stable tour anchor', () => {

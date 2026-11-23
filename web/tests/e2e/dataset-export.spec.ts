@@ -8,12 +8,12 @@ import {
   gridReadSelection,
   importCsv,
   listSheets,
-  openAdvancedSortPanel,
   openFriendlyFilterSidebar,
   openProject,
   sheetColumns,
   sheetData,
   uniqueName,
+  setSheetSort,
 } from './helpers';
 import { testPython } from '../support/testPython';
 
@@ -173,15 +173,12 @@ test('project menu exports either the entire sheet or the active grid view as CS
   await page.getByTestId('facet-check-status-done').check();
   await filterResponse;
 
-  await openAdvancedSortPanel(page, columns, 'title');
-  await page.getByTestId('grid-sort-column').selectOption('published');
-  await page.getByTestId('grid-sort-direction').selectOption('desc');
   const sortResponse = page.waitForResponse((res) => {
     if (res.request().method() !== 'GET') return false;
     const selection = gridReadSelection(new URL(res.url()), pid, sheetId);
     return (selection?.filters.length ?? 0) > 0 && (selection?.order.length ?? 0) > 0;
   });
-  await page.getByTestId('apply-grid-sort').click();
+  await setSheetSort(page, 'published', 'desc');
   await sortResponse;
 
   await page.getByTestId('switch-project').click();

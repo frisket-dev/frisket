@@ -96,6 +96,20 @@ export function readGridCellPalette(): GridCellPalette {
   };
 }
 
+/** Row filtering's canvas tints: search-match highlight and the just-added row. */
+export interface RowFilterTints {
+  searchHighlight: string;
+  rowAdded: string;
+}
+
+export function readRowFilterTints(): RowFilterTints {
+  const s = tokens();
+  return {
+    searchHighlight: v(s, '--search-highlight', '#fbe7a1'),
+    rowAdded: v(s, '--row-added-bg', '#fffbea'),
+  };
+}
+
 /** Comparison-only difference tint, derived beside the ordinary grid themes
  * so read-only projections do not grow a second CSS-token mapping. */
 export function readGridDifferenceTheme(): Partial<Theme> {

@@ -36,6 +36,8 @@ from frisket.contracts.http.translate_comparison import (
 from frisket.contracts.http.resolve_previews import (
     ClusterPreviewRequest,
     ClusterPreviewResponse,
+    ColumnValueCountsRequest,
+    ColumnValueCountsResponse,
     ColumnValuesPreviewRequest,
     ColumnValuesPreviewResponse,
     ReplaceRulesPreviewRequest,
@@ -384,6 +386,21 @@ def register_preview_routes(
             limit=body.limit,
             offset=body.offset,
             value_mode=body.value_mode,
+            selection=body.selection,
+        )
+
+    @app.post(
+        "/api/projects/{pid}/column-values/v1/counts",
+        response_model=ColumnValueCountsResponse,
+        responses={
+            400: {"model": V1ActionError},
+            **http_error_responses(401, 403, 404, 409, 422, 500),
+        },
+    )
+    def column_value_counts(pid: str, body: ColumnValueCountsRequest):
+        """Whole-column distinct counts for several columns in one request."""
+        return service.column_value_counts(
+            pid, sheet_id=body.sheet_id, input_columns=body.input_columns
         )
 
     @app.post(

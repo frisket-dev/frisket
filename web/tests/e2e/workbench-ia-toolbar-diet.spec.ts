@@ -1,16 +1,8 @@
-// Toolbar diet + Window-menu retirement (workbench-ia-toolbar-diet-v1).
-//
-// The sheet toolbar keeps ONLY: sheet name/count · view switcher · split hint ·
-// add-row · a selection-gated Delete-N (rendered only when rows are selected) ·
-// a spacer · a Discover toggle · a ⋯ overflow menu. Everything else is either
-// deleted outright (inline filter, grid filter/sort buttons, cluster toggle,
-// open-map/graph buttons, column-settings select, action-panel toggle) or
-// re-homed:
-//   - filter/sort panels + column settings → the column ▾ caret menu (advanced
-//     Filter/Sort rows + the existing settings row; the panels survive)
-//   - wrap text · row height · views · provenance → the ⋯ overflow menu
-//     with the same testids, relocated.
-// The Window menu retires fully; hide/reveal stays through the ⌘K palette.
+// The sheet header row: sheet name/count · view switcher · split hint · a
+// selection-gated Delete-N · Add ▾ (Add row, Add column…) · Filter with its
+// active-count badge · Wrap. Search, sort, limit, facets and views live in the
+// Filter sidebar; Receipts live in the project menu. The Window menu stays
+// retired; hide/reveal works through the ⌘K palette.
 
 import { expect, test } from '@playwright/test';
 import {
@@ -34,17 +26,13 @@ const REMOVED_TOOLBAR_TESTIDS = [
   'open-graph-button',
   'column-settings-select',
   'toggle-action-panel',
-];
-
-// Controls that moved INTO the ⋯ overflow: absent from the main strip while the
-// overflow is closed, present (same testids) once it opens.
-const OVERFLOW_HOSTED_TESTIDS = [
+  'toolbar-overflow-button',
   'row-height-select',
   'open-views-submenu',
-  'open-provenance-manifest',
+  'grid-add-column-button',
 ];
 
-test('dieted toolbar renders only the kept controls; removed ones are gone', async ({ page }) => {
+test('the sheet header row renders only the kept controls; removed ones are gone', async ({ page }) => {
   const pid = await createProject(page.request, uniqueName('toolbar-diet-kept'));
   const sheetId = await importCsv(
     page.request,
@@ -55,28 +43,24 @@ test('dieted toolbar renders only the kept controls; removed ones are gone', asy
   await openProject(page, pid, sheetId);
   await expect(page.getByTestId('grid')).toBeVisible({ timeout: 15_000 });
 
-  // Kept controls.
-  await expect(page.getByTestId('sheet-stats')).toBeVisible();
+  await expect(page.getByTestId('sheet-stats')).toHaveText('2 rows · 2 columns');
   await expect(page.getByTestId('view-switcher')).toBeVisible();
-  await expect(page.getByTestId('add-row-button')).toBeVisible();
-  // Wrap text earned toolbar rank; Discover has NO toolbar toggle — the
-  // rail's ‹ is the affordance.
+  await expect(page.getByTestId('add-menu-button')).toBeVisible();
+  await expect(page.getByTestId('filter-sidebar-toggle')).toBeVisible();
+  await expect(page.getByTestId('filter-badge')).toHaveCount(0);
   await expect(page.getByTestId('toggle-wrap')).toBeVisible();
   await expect(page.getByTestId('toolbar-toggle-discover')).toHaveCount(0);
-  await expect(page.getByTestId('toolbar-overflow-button')).toBeVisible();
+  // Nothing is active, so there is no chip strip.
+  await expect(page.getByTestId('row-filter-chips')).toHaveCount(0);
 
   // Delete-N is selection-gated: absent (not merely disabled) with no selection.
   await expect(page.getByTestId('delete-rows-button')).toHaveCount(0);
 
-  // Every removed control is gone entirely.
   for (const testid of REMOVED_TOOLBAR_TESTIDS) {
     await expect(page.getByTestId(testid), `${testid} should be removed`).toHaveCount(0);
   }
-
-  // Re-homed controls are absent from the main strip until the overflow opens.
-  for (const testid of OVERFLOW_HOSTED_TESTIDS) {
-    await expect(page.getByTestId(testid), `${testid} should be hidden in overflow`).toHaveCount(0);
-  }
+  // Receipts are in the project menu, not the sheet toolbar.
+  await expect(page.getByTestId('open-provenance-manifest')).toHaveCount(0);
 });
 
 test('Delete-N appears only with a selection and deletes the selected rows', async ({ page }) => {
@@ -109,8 +93,8 @@ test('Delete-N appears only with a selection and deletes the selected rows', asy
   await expect(page.getByTestId('delete-rows-button')).toHaveCount(0);
 });
 
-test('⋯ overflow hosts wrap / row-height / views / provenance and each works', async ({ page }) => {
-  const pid = await createProject(page.request, uniqueName('toolbar-diet-overflow'));
+test('Wrap, Add ▾, Filter and the project menu each work from the keyboard and pointer', async ({ page }) => {
+  const pid = await createProject(page.request, uniqueName('toolbar-diet-controls'));
   const sheetId = await importCsv(
     page.request,
     pid,
@@ -120,63 +104,44 @@ test('⋯ overflow hosts wrap / row-height / views / provenance and each works',
   await openProject(page, pid, sheetId);
   await expect(page.getByTestId('grid')).toBeVisible({ timeout: 15_000 });
 
-  const overflowMenu = page.getByTestId('toolbar-overflow-menu');
-  // Idempotent: the four items differ in whether selecting them dismisses the
-  // menu (views/provenance close it; wrap/row-height leave it open).
-  const openOverflow = async () => {
-    if ((await overflowMenu.count()) === 0) {
-      await page.getByTestId('toolbar-overflow-button').click();
-    }
-    await expect(overflowMenu).toBeVisible();
-  };
-
-  // All four affordances live inside the overflow.
-  await openOverflow();
-  for (const testid of OVERFLOW_HOSTED_TESTIDS) {
-    await expect(page.getByTestId(testid), `${testid} in overflow`).toBeVisible();
-  }
-
-  // Wrap text toggles its pressed state from the TOOLBAR (not the overflow).
   const wrap = page.getByTestId('toggle-wrap');
   const wrapBefore = await wrap.getAttribute('aria-pressed');
   await wrap.click();
   await expect(wrap).not.toHaveAttribute('aria-pressed', wrapBefore ?? '');
+  await expect(wrap).toHaveAttribute('title', wrapBefore === 'true' ? 'Wrap text: off' : 'Wrap text: on');
 
-  // Row height keeps the Frisket select surface above the overflow popover and
-  // applies a real pointer selection (selectOption would bypass that UI).
-  await openOverflow();
-  const rowHeightSelect = page.getByTestId('row-height-select');
-  await rowHeightSelect.click();
-  const rowHeightMenu = page.getByTestId('row-height-select-menu');
-  await expect(rowHeightMenu).toHaveCount(1);
-  await expect(rowHeightMenu).toBeVisible();
-  await expect(overflowMenu).toBeVisible();
-  await expect(rowHeightMenu).toHaveCSS('position', 'fixed');
-  await expect.poll(async () => rowHeightMenu.evaluate((menu) => menu.matches(':popover-open'))).toBe(true);
-  const compact = rowHeightMenu.getByRole('option', { name: 'Compact' });
-  await expect.poll(async () => compact.evaluate((option) => {
-    const rect = option.getBoundingClientRect();
-    const hit = document.elementFromPoint(rect.left + rect.width / 2, rect.top + rect.height / 2);
-    return hit !== null && option.contains(hit);
-  })).toBe(true);
-  await rowHeightMenu.getByRole('option', { name: 'Roomy' }).click();
-  await expect(rowHeightSelect).toHaveValue('48');
-  await expect(rowHeightMenu).toHaveCount(0);
-  await expect(overflowMenu).toBeVisible();
+  // Add ▾ opens a menu whose first item takes focus; Escape returns focus.
+  const add = page.getByTestId('add-menu-button');
+  await add.click();
+  await expect(page.getByTestId('add-menu')).toBeVisible();
+  await expect(page.getByTestId('add-row-button')).toBeFocused();
+  await expect(page.getByTestId('add-column-button')).toHaveText('Add column…');
+  await page.keyboard.press('Escape');
+  await expect(page.getByTestId('add-menu')).toHaveCount(0);
+  await expect(add).toBeFocused();
 
-  // Views opens the views panel.
-  await openOverflow();
-  await page.getByTestId('open-views-submenu').click();
-  await page.getByTestId('views-overflow-open-panel').click();
-  await expect(page.getByTestId('views-panel')).toBeVisible();
+  // Add column… hands off to the add-column popover.
+  await add.click();
+  await page.getByTestId('add-column-button').click();
+  await expect(page.getByTestId('grid-add-column-popover')).toBeVisible();
+  await page.getByTestId('grid-add-column-cancel').click();
 
-  // Provenance opens the manifest.
-  await openOverflow();
+  // Filter opens the sidebar on its Filter tab; Escape closes it and returns focus.
+  const filter = page.getByTestId('filter-sidebar-toggle');
+  await filter.click();
+  await expect(filter).toHaveAttribute('aria-expanded', 'true');
+  await expect(page.getByTestId('filter-sidebar-tab-filter')).toHaveAttribute('aria-selected', 'true');
+  await page.keyboard.press('Escape');
+  await expect(page.getByTestId('filter-sidebar')).toHaveCount(0);
+  await expect(filter).toBeFocused();
+
+  // Receipts open from the project menu.
+  await page.getByTestId('switch-project').click();
   await page.getByTestId('open-provenance-manifest').click();
   await expect(page.getByTestId('provenance-manifest')).toBeVisible();
 });
 
-test('caret menu carries friendly Filter, advanced Sort, and Columns', async ({ page }) => {
+test('caret menu carries Filter…, Search in…, sort and Columns', async ({ page }) => {
   const pid = await createProject(page.request, uniqueName('toolbar-diet-caret'));
   const sheetId = await importCsv(
     page.request,
@@ -188,23 +153,28 @@ test('caret menu carries friendly Filter, advanced Sort, and Columns', async ({ 
   await openProject(page, pid, sheetId);
   await expect(page.getByTestId('grid')).toBeVisible({ timeout: 15_000 });
 
-  // Columns → the surviving column-settings drawer. Done first, while the grid
-  // is clean (the filter/sort panels below push the header down).
   await clickHeaderMenu(page, columns, 'city');
   await page.getByTestId('header-menu-column-settings').click();
   await expect(page.getByTestId('column-drawer')).toBeVisible();
   await page.getByTestId('column-drawer').getByLabel('Close drawer').click();
 
-  // Rich filter → the Facets sidebar, now filtering's single home.
+  // Filter… opens the sidebar on this column's facet, marked as focused.
   await clickHeaderMenu(page, columns, 'city');
-  await page.getByTestId('header-menu-filter-sidebar').click();
-  await expect(page.getByTestId('discover-panel')).toBeVisible();
-  await expect(page.getByTestId('friendly-facet-city')).toBeVisible();
+  await expect(page.getByTestId('header-menu-filter-sidebar')).toHaveCount(0);
+  await expect(page.getByTestId('header-menu-advanced-sort')).toHaveCount(0);
+  await expect(page.getByTestId('header-menu-clear-sort')).toHaveCount(0);
+  await expect(page.getByTestId('header-menu-clear-filter')).toHaveCount(0);
+  await page.getByTestId('header-menu-filter').click();
+  await expect(page.getByTestId('filter-sidebar')).toBeVisible();
+  await expect(page.getByTestId('friendly-facet-city')).toHaveAttribute('data-focused', 'true');
 
-  // Advanced sort → the surviving grid-sort-panel.
+  // Sorting from the caret shows a sort chip and a Clear sort item.
   await clickHeaderMenu(page, columns, 'city');
-  await page.getByTestId('header-menu-advanced-sort').click();
-  await expect(page.getByTestId('grid-sort-panel')).toBeVisible();
+  await page.getByTestId('header-menu-sort-desc').click();
+  await expect(page.getByTestId('row-filter-chip-sort')).toContainText('Sorted by city ↓');
+  await clickHeaderMenu(page, columns, 'city');
+  await page.getByTestId('header-menu-clear-sort').click();
+  await expect(page.getByTestId('row-filter-chip-sort')).toHaveCount(0);
 });
 
 const GRAPH_SLUG = 'frisket-investigative-view-graph-neighborhood';

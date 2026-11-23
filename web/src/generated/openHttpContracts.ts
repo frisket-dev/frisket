@@ -583,6 +583,15 @@ export const HTTP_CONTRACT_ARTIFACT = {
       "request": null
     },
     {
+      "id": "tenant.column_value_counts.post",
+      "method": "POST",
+      "path": "/api/projects/{pid}/column-values/v1/counts",
+      "request": {
+        "mediaType": "application/json",
+        "required": true
+      }
+    },
+    {
       "id": "tenant.column_values_preview.post",
       "method": "POST",
       "path": "/api/projects/{pid}/column-values/v1/preview",
@@ -5865,11 +5874,35 @@ type HttpColumnTypeList_JsonValue = JsonValue;
 
 export type HttpColumnTypeList = (Array<(HttpColumnTypeList_ColumnTypeEntry)>);
 
+export type HttpColumnValueCountsRequest = ({
+  "input_columns"?: JsonValue;
+  "sheet_id"?: JsonValue;
+  [key: string]: JsonValue | undefined;
+});
+
+type HttpColumnValueCountsResponse_ColumnDistinctCount = ({
+  "distinct": (number);
+  "input_column": (string);
+  "list_distinct": (((number)) | ((null)));
+  "omitted_rows": (number);
+  [key: string]: (HttpColumnValueCountsResponse_JsonValue) | (number) | (string) | (((number)) | ((null)));
+});
+
+type HttpColumnValueCountsResponse_JsonValue = JsonValue;
+
+export type HttpColumnValueCountsResponse = ({
+  "columns": (Array<(HttpColumnValueCountsResponse_ColumnDistinctCount)>);
+  "schema_version": ("frisket.column_value_counts.v1") & (string);
+  "sheet_id": (number);
+  [key: string]: (HttpColumnValueCountsResponse_JsonValue) | (Array<(HttpColumnValueCountsResponse_ColumnDistinctCount)>) | ("frisket.column_value_counts.v1") & (string) | (number);
+});
+
 export type HttpColumnValuesPreviewRequest = ({
   "input_column"?: JsonValue;
   "limit"?: JsonValue;
   "offset"?: JsonValue;
   "search"?: JsonValue;
+  "selection"?: JsonValue;
   "sheet_id"?: JsonValue;
   "value_mode"?: JsonValue;
   [key: string]: JsonValue | undefined;
@@ -5879,6 +5912,13 @@ type HttpColumnValuesPreviewResponse_ColumnValueCount = ({
   "count": (number);
   "value": (string);
   [key: string]: (HttpColumnValuesPreviewResponse_JsonValue) | (number) | (string);
+});
+
+type HttpColumnValuesPreviewResponse_ColumnValuesScope = ({
+  "distribution_counts": (((Array<(number)>)) | ((null)));
+  "total_rows": (number);
+  "values": (Array<(HttpColumnValuesPreviewResponse_ColumnValueCount)>);
+  [key: string]: (HttpColumnValuesPreviewResponse_JsonValue) | (((Array<(number)>)) | ((null))) | (number) | (Array<(HttpColumnValuesPreviewResponse_ColumnValueCount)>);
 });
 
 type HttpColumnValuesPreviewResponse_DateColumnDistribution = ({
@@ -5971,13 +6011,14 @@ export type HttpColumnValuesPreviewResponse = ({
   "offset": (number);
   "omitted_rows"?: (number);
   "schema_version": ("frisket.column_values_preview.v1") & (string);
+  "scope"?: (((HttpColumnValuesPreviewResponse_ColumnValuesScope)) | ((null)));
   "search": (((string)) | ((null)));
   "sheet_id": (number);
   "total_rows": (number);
   "truncated": (boolean);
   "value_hash": (((string)) | ((null)));
   "values": (Array<(HttpColumnValuesPreviewResponse_ColumnValueCount)>);
-  [key: string]: (HttpColumnValuesPreviewResponse_JsonValue) | (number) | (((HttpColumnValuesPreviewResponse_NumberColumnDistribution)) | ((HttpColumnValuesPreviewResponse_IntegerColumnDistribution)) | ((HttpColumnValuesPreviewResponse_DateColumnDistribution)) | ((null))) | (string) | (boolean) | (((HttpColumnValuesPreviewResponse_ListFacetPreview)) | ((null))) | ("frisket.column_values_preview.v1") & (string) | (((string)) | ((null))) | (Array<(HttpColumnValuesPreviewResponse_ColumnValueCount)>) | undefined;
+  [key: string]: (HttpColumnValuesPreviewResponse_JsonValue) | (number) | (((HttpColumnValuesPreviewResponse_NumberColumnDistribution)) | ((HttpColumnValuesPreviewResponse_IntegerColumnDistribution)) | ((HttpColumnValuesPreviewResponse_DateColumnDistribution)) | ((null))) | (string) | (boolean) | (((HttpColumnValuesPreviewResponse_ListFacetPreview)) | ((null))) | ("frisket.column_values_preview.v1") & (string) | (((HttpColumnValuesPreviewResponse_ColumnValuesScope)) | ((null))) | (((string)) | ((null))) | (Array<(HttpColumnValuesPreviewResponse_ColumnValueCount)>) | undefined;
 });
 
 type HttpComparisonCaptureRequest_ActionCompareDraftSource = ({
@@ -16832,6 +16873,21 @@ export type HttpContractOperationMap = {
       readonly "401": HttpError;
       readonly "403": HttpError;
       readonly "404": HttpError;
+      readonly "422": HttpError;
+      readonly "500": HttpError;
+    };
+  };
+  readonly "tenant.column_value_counts.post": {
+    readonly pathParams: HttpInline_87cacc773db826e7;
+    readonly query: HttpInline_d746974fa9afd5e9;
+    readonly request: HttpColumnValueCountsRequest;
+    readonly responses: {
+      readonly "200": HttpColumnValueCountsResponse;
+      readonly "400": HttpActionError;
+      readonly "401": HttpError;
+      readonly "403": HttpError;
+      readonly "404": HttpError;
+      readonly "409": HttpError;
       readonly "422": HttpError;
       readonly "500": HttpError;
     };

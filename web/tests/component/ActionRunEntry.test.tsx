@@ -98,10 +98,9 @@ function renderColumnMenu(entry: ActionColumnMenuEntry | null) {
       activeFilter={null}
       onSort={vi.fn()}
       onClearSort={vi.fn()}
+      filterLabel="Filter…"
       onFilter={vi.fn()}
       onClearFilter={vi.fn()}
-      onOpenFilterSidebar={vi.fn()}
-      onAdvancedSort={vi.fn()}
       columnActions={[]}
       onColumnAction={vi.fn()}
       actionRunEntry={entry}
@@ -180,7 +179,7 @@ describe('group-header provenance entry', () => {
         sheet={sheet}
         dataVersion={0}
         liveRun={null}
-        rowHeight={32}
+       
         wrapText={false}
         columnGroupsStorageScope="entry-tests"
         onRowOpen={vi.fn()}
@@ -250,7 +249,7 @@ describe('group-header provenance entry', () => {
         sheet={sheet}
         dataVersion={0}
         liveRun={null}
-        rowHeight={32}
+       
         wrapText={false}
         columnGroupsStorageScope="entry-tests-retry"
         onRowOpen={vi.fn()}
@@ -337,7 +336,7 @@ describe('group-header provenance entry', () => {
         sheet={sheet}
         dataVersion={0}
         liveRun={null}
-        rowHeight={32}
+       
         wrapText={false}
         columnGroupsStorageScope="entry-tests-conf-only"
         onRowOpen={vi.fn()}
@@ -372,7 +371,7 @@ describe('group-header provenance entry', () => {
         sheet={sheet}
         dataVersion={0}
         liveRun={null}
-        rowHeight={32}
+       
         wrapText={false}
         columnGroupsStorageScope="entry-tests-just-only"
         onRowOpen={vi.fn()}
@@ -406,7 +405,7 @@ describe('group-header provenance entry', () => {
         sheet={sheet}
         dataVersion={0}
         liveRun={null}
-        rowHeight={32}
+       
         wrapText={false}
         columnGroupsStorageScope="entry-tests-neither"
         onRowOpen={vi.fn()}
@@ -454,7 +453,7 @@ describe('group-header provenance entry', () => {
         sheet={sheet}
         dataVersion={0}
         liveRun={null}
-        rowHeight={32}
+       
         wrapText={false}
         columnGroupsStorageScope="entry-tests-hover"
         onRowOpen={vi.fn()}
@@ -514,7 +513,7 @@ describe('group-header provenance entry', () => {
         sheet={sheet}
         dataVersion={0}
         liveRun={null}
-        rowHeight={32}
+       
         wrapText={false}
         columnGroupsStorageScope="entry-tests-no-anchor"
         hiddenColumnNames={['plaintiff', 'defendant']}

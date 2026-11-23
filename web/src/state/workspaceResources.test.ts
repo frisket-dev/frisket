@@ -103,7 +103,7 @@ describe('scoped chrome preferences', () => {
     expect(preferences).toMatchObject({
       ribbonMode: 'ribbon',
       activeRibbonTab: 'analyze',
-      discoverTab: 'Facets',
+      discoverTab: 'Mentions',
       promotedViews: [],
       openSplit: null,
       documentView: null,
@@ -134,7 +134,7 @@ describe('scoped chrome preferences', () => {
 
     expect(preferences.ribbonMode).toBe('ribbon');
     expect(preferences.activeRibbonTab).toBe('analyze');
-    expect(preferences.discoverTab).toBe('Facets');
+    expect(preferences.discoverTab).toBe('Mentions');
     expect(preferences.promotedViews).toEqual([]);
     expect(preferences.openSplit).toBeNull();
     expect(preferences.documentView).toBeNull();

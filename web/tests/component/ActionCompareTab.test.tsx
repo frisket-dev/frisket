@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { ROW_HEIGHT } from '../../src/grid/rowHeights';
 import '@testing-library/jest-dom/vitest';
 import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -80,7 +81,7 @@ function fixture(): ActionComparisonContext {
   };
 }
 
-const gridPreferences = { rowHeight: 48, wrapText: false, frozenColumnCount: 1 } as const;
+const gridPreferences = { wrapText: false, frozenColumnCount: 1 } as const;
 
 describe('ActionCompareTab', () => {
   it('shows blank unrun cells and progress only after an explicit run', async () => {
@@ -240,7 +241,7 @@ describe('ActionCompareTab', () => {
     const grid = editor.props!;
     expect(grid.headerHeight).toBe(34);
     expect(grid.groupHeaderHeight).toBe(28);
-    expect(grid.rowHeight).toBe(48);
+    expect(grid.rowHeight).toBe(ROW_HEIGHT);
     expect(grid.rowSelectionMode).toBe('multi');
     expect(grid.rowMarkers).toEqual({ kind: 'both', width: 40 });
     expect(grid.freezeColumns).toBe(1);

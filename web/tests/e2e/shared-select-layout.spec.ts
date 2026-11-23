@@ -66,7 +66,7 @@ test('relative-date select shell is not styled as its caption', async ({ page })
   const columns = await sheetColumns(page.request, pid, sheet);
   await setColumnType(page.request, pid, columns[0].id, 'date');
   await page.goto(`/p/${pid}/s/${sheet}`);
-  await openFriendlyFilterSidebar(page, columns, 'published');
+  await openFriendlyFilterSidebar(page, await sheetColumns(page.request, pid, sheet), 'published');
   await page.getByTestId('friendly-facet-published').getByRole('button', { name: 'More filter options' }).click();
   await page.getByTestId('facet-advanced-operator-published').selectOption('date_relative');
   const shell = page.getByTestId('facet-relative-unit-published').locator('..');

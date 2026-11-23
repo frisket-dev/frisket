@@ -29,19 +29,15 @@ export interface CitationViewerFocus {
 export type RibbonMode = 'ribbon' | 'menu';
 
 export type DiscoverTab =
-  | 'Facets'
   | 'Mentions'
   | 'Sources'
-  | 'Views'
   | 'Alerts'
   | 'Embeddings'
   | 'Notifications';
 
 export const DISCOVER_TABS: readonly DiscoverTab[] = [
-  'Facets',
   'Mentions',
   'Sources',
-  'Views',
   'Alerts',
   'Embeddings',
   'Notifications',
@@ -132,7 +128,6 @@ interface ChromeState {
   documentAnnotationPreferences: DocumentAnnotationPreferences;
   documentAlongsidePreferences: DocumentAlongsidePreferences;
   provenanceOpen: boolean;
-  overflowMenuOpen: boolean;
 }
 
 export function createChromeState(
@@ -162,7 +157,6 @@ export function createChromeState(
     documentAnnotationPreferences: preferences.documentAnnotationPreferences,
     documentAlongsidePreferences: preferences.documentAlongsidePreferences ?? {},
     provenanceOpen: false,
-    overflowMenuOpen: false,
   };
 }
 
@@ -221,7 +215,6 @@ export function createChromeStore(
 
   toggleProvenanceOpen(): void;
   closeProvenanceOpen(): void;
-  setOverflowMenuOpen(open: boolean): void;
 } {
   const store = createStore<ChromeState>(createChromeState(projectId, preferences));
 
@@ -339,9 +332,6 @@ export function createChromeStore(
     },
     closeProvenanceOpen() {
       store.set((s) => (s.provenanceOpen ? { ...s, provenanceOpen: false } : s));
-    },
-    setOverflowMenuOpen(open) {
-      store.set((s) => (s.overflowMenuOpen === open ? s : { ...s, overflowMenuOpen: open }));
     },
   };
 }

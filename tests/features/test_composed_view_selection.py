@@ -294,3 +294,30 @@ def test_view_presentation_requires_stable_ids_without_changing_membership(data)
         normalize_view_spec(
             project, {**definition, "presentation": {"columns": ["renamed"]}}
         )
+
+
+def test_search_without_an_order_keeps_sheet_order(make_project):
+    project = make_project("search-order")
+    sheet = project.add_sheet("notes")
+    text = project.add_column(sheet, "text")
+    rows = project.add_rows(
+        sheet,
+        [
+            {"text": "a short budget note"},
+            {"text": "roads"},
+            {"text": "budget budget budget: the budget"},
+        ],
+        {"text": text},
+    )
+    drain_index(project)
+    base = {
+        "scope": {"kind": "sheet", "sheet_id": sheet},
+        "filters": [],
+        "search": {"text": "budget"},
+        "limit": None,
+    }
+    with open_selection(project, {**base, "order": []}) as selection:
+        assert [hit["row_id"] for hit in selection.hits()] == [rows[0], rows[2]]
+    ranked = {**base, "order": [{"score": "search", "dir": "desc"}]}
+    with open_selection(project, ranked) as selection:
+        assert [hit["row_id"] for hit in selection.hits()] == [rows[2], rows[0]]

@@ -2790,6 +2790,13 @@ export interface ColumnValuesPreview {
   /** Additive member inventory for a list-valued JSON column. `values` keeps
    * its whole-cell Resolve-authoring meaning. */
   listFacet?: ColumnListFacet | null;
+  /** Counts within a requested selection: `values` follows the order of the
+   * top-level `values`, `distributionCounts` the distribution's bins. */
+  scope?: {
+    totalRows: number;
+    values: ColumnValueCount[];
+    distributionCounts: number[] | null;
+  };
 }
 
 /** Independently paged member inventory carried alongside a whole-cell

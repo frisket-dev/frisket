@@ -26,6 +26,7 @@ import {
 } from './variantBadgePresentation';
 import { answerText, scoreLabel } from './evaluation/comparisonEvaluation';
 import { evaluationTheme } from './evaluation/evaluationTheme';
+import { ROW_HEIGHT, WRAP_ROW_MAX_HEIGHT } from '../grid/rowHeights';
 
 
 
@@ -61,7 +62,6 @@ export interface ActionCompareStructuredValue {
 export interface ActionCompareGridProps {
   projectId: string;
   state: ActionCompareSessionSnapshot;
-  rowHeight: number;
   wrapText: boolean;
   frozenColumnCount: number;
   labelForDraft?(draft: ActionCompareVariant['draft'], displayKey: string): string;
@@ -210,7 +210,7 @@ function compareColumns(
   return [...sourceColumns, ...expectedColumns, ...generatedColumns];
 }
 
-export function ActionCompareGrid({ projectId, state, rowHeight, wrapText, frozenColumnCount,
+export function ActionCompareGrid({ projectId, state, wrapText, frozenColumnCount,
   labelForDraft, onOpenBoundedValue, onOpenStructuredValue, evaluation }: ActionCompareGridProps) {
   const { gridTheme, generatedColumnTheme, gridCellPalette, differenceTheme } = useGridTheme();
   const evaluationColors = useMemo(() => evaluationTheme(gridTheme), [gridTheme]);
@@ -411,7 +411,7 @@ export function ActionCompareGrid({ projectId, state, rowHeight, wrapText, froze
       getCellsForSelection
       theme={gridTheme}
       rowSelectionMode="multi"
-      rowHeight={rowHeight}
+      rowHeight={wrapText ? WRAP_ROW_MAX_HEIGHT : ROW_HEIGHT}
       freezeColumns={frozenColumnCount}
       onColumnResize={onColumnResize}
       onCellActivated={onCellActivated}

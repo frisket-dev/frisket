@@ -85,9 +85,10 @@ function useWorkspaceExportContext() {
 
 function WorkspaceProjectMenu() {
   const context = useWorkspaceExportContext();
+  const { toggleProvenanceWithDrawers } = useWorkspaceShell();
   const actSurface = useActSurfaceHandle();
   const targets = useSelector(actSurface.store, (state) => state.actExportTargets);
-  return <ProjectMenu {...context} catalogExportTargets={targets} />;
+  return <ProjectMenu {...context} catalogExportTargets={targets} onOpenReceipts={toggleProvenanceWithDrawers} />;
 }
 
 function WorkspaceProjectExportModals() {

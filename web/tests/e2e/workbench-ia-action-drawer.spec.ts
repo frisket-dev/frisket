@@ -183,7 +183,7 @@ test('column ▾ caret menu offers sort/filter/actions-for-type and opens the dr
   await expect(drawer.getByTestId('action-form-title')).toContainText(/clean/i);
 });
 
-test('caret menu Filter… opens the inline filter row; discovery list is gone from the inspector', async ({
+test('caret menu Filter… opens the Filter sidebar; discovery list is gone from the inspector', async ({
   page,
 }) => {
   const { pid, sheetId } = await seed(page);
@@ -191,7 +191,7 @@ test('caret menu Filter… opens the inline filter row; discovery list is gone f
 
   await clickHeaderMenu(page, columns, 'story');
   await page.getByTestId('grid-column-header-menu').getByTestId('header-menu-filter').click();
-  await expect(page.getByTestId('inline-filter-row')).toBeVisible();
+  await expect(page.getByTestId('filter-sidebar')).toBeVisible();
 
   // The resident action-discovery filter list no longer renders anywhere.
   await expect(page.getByTestId('action-discovery-filter')).toHaveCount(0);

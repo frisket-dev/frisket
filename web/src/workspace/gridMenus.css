@@ -47,13 +47,13 @@
 .grid-header-menu {
   position: fixed;
   z-index: 80;
-  width: 246px;
+  width: 240px;
   height: auto;
   padding: 6px;
   background: var(--bg);
   border: 1px solid var(--border);
   border-radius: var(--radius-8);
-  box-shadow: var(--shadow-drawer);
+  box-shadow: var(--shadow-menu);
   /* Guard against a tall menu overflowing the viewport (workbench-ia-action-
      drawer-v1); the actions list also scrolls internally (below). */
   max-height: min(84vh, 620px);
@@ -77,9 +77,9 @@
   font-size: 12px;
   font-weight: 700;
 }
-.grid-header-menu-title span:last-child {
+.grid-header-menu-title .grid-header-menu-type {
   flex: none;
-  color: var(--focus);
+  color: var(--accent-strong);
   font-size: 11px;
   font-weight: 600;
 }
@@ -128,16 +128,4 @@
   overflow-wrap: anywhere;
   font-size: 11px;
   font-weight: 700;
-}
-/* Filtered-state chip near the caret (replaces inc 6's funnel sprite). */
-.grid-header-menu-filtered {
-  margin-left: 6px;
-  padding: 1px 6px;
-  border-radius: var(--radius-999);
-  font-size: 10px;
-  font-weight: 650;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-  background: var(--act-bg);
-  color: var(--act);
 }

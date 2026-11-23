@@ -1,7 +1,7 @@
 .workspace { flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; }
 .grid-host { flex: 1; min-height: 0; overscroll-behavior-x: none; position: relative; }
 
-/* Header overlay band: DOM affordances (revive chevrons + add-column "+") over
+/* Header overlay band: DOM affordances (revive chevrons, annotations) over
    glide's canvas header, positioned via column x-offsets. The band itself is
    click-through; only its buttons capture pointer events. */
 .grid-hidden-columns-band {
@@ -11,8 +11,7 @@
   z-index: 20;
   pointer-events: none;
 }
-.grid-hidden-boundary,
-.grid-add-column-button {
+.grid-hidden-boundary {
   position: absolute;
   top: 50%;
   transform: translate(-50%, -50%);
@@ -35,13 +34,7 @@
   top: 0;
   transform: translate(-50%, 0);
 }
-.grid-add-column-button {
-  min-width: 22px;
-  font-size: 14px;
-  font-weight: 600;
-}
-.grid-hidden-boundary:hover,
-.grid-add-column-button:hover {
+.grid-hidden-boundary:hover {
   border-color: var(--accent);
   color: var(--accent);
   opacity: 1;
@@ -236,4 +229,29 @@
 .gdg-growing-entry > textarea.gdg-input {
   overflow-wrap: anywhere;
   word-break: break-word;
+}
+
+/* Under the last row while a limit hides matching rows. */
+.grid-limit-note {
+  position: absolute;
+  right: 0;
+  left: 0;
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 16px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-sidebar);
+  color: var(--text-mid);
+  font-size: var(--font-size-small);
+}
+.grid-limit-note button {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--accent-strong);
+  font: inherit;
+  font-weight: 500;
+  cursor: pointer;
 }

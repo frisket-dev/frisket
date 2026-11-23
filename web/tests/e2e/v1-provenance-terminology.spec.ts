@@ -3,11 +3,11 @@ import {
   createProject,
   importCsv,
   openProject,
-  openToolbarOverflow,
   primeMapRowsReplies,
   runAndWait,
   typedActionRequest,
   uniqueName,
+  openReceipts,
 } from './helpers';
 import { prepareOwnModelReplay, REPLAY_MODEL } from './replayModelScenario';
 
@@ -54,8 +54,7 @@ test('provenance drawer presents run summaries with action metadata', async ({
   );
 
   await openProject(page, pid, sheetId);
-  await openToolbarOverflow(page);
-  await page.getByTestId('open-provenance-manifest').click();
+  await openReceipts(page);
 
   const drawer = page.getByTestId('provenance-manifest');
   await expect(drawer).toBeVisible();
