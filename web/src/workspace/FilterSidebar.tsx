@@ -10,7 +10,7 @@ import { TextInput } from '../components/FormControls';
 import { FriendlyFiltersWorkbenchPanel } from '../workbench/contributions';
 import type { FilterSidebarTab } from '../state/gridViewStore';
 import type { GridFilterSpec, GridSortDirection, GridSortSpec, SheetMeta, ViewSelection } from '../api/types';
-import { deriveRowFilterChips, searchOf, searchableColumnsOf, sortOf, type RowSearch } from './rowFiltering';
+import { deriveRowFilterChips, searchOf, searchScopeColumnsOf, sortOf, type RowSearch } from './rowFiltering';
 import { SheetViewsTab } from './SheetViewsTab';
 import { useCurrentSheet, useMainViewModel, useWorkbenchHostContext } from './WorkspaceContext';
 
@@ -71,18 +71,32 @@ export function FilterRowsControls({
     if (limit !== null) setLimitDraft(String(limit));
   }
 
+  const pending = useRef<RowSearch | null>(null);
+  const onSearchRef = useRef(onSearch);
+  useEffect(() => {
+    onSearchRef.current = onSearch;
+  }, [onSearch]);
   const cancelPending = useCallback(() => {
     if (timer.current !== null) {
       window.clearTimeout(timer.current);
       timer.current = null;
     }
+    pending.current = null;
   }, []);
-  useEffect(() => cancelPending, [cancelPending]);
+  // A search still waiting on its debounce is committed, not dropped, when the
+  // box loses focus or the controls unmount (a tab switch). The owner rejects
+  // it if the sheet has changed meanwhile.
+  const flushPending = useCallback(() => {
+    const search = pending.current;
+    cancelPending();
+    if (search) onSearchRef.current(search);
+  }, [cancelPending]);
+  useEffect(() => flushPending, [flushPending]);
   useEffect(() => {
     if (focusSearch > 0) searchRef.current?.focus();
   }, [focusSearch]);
 
-  const textColumns = searchableColumnsOf(sheet.columns);
+  const textColumns = searchScopeColumnsOf(sheet.columns, { selection, filter });
   const commit = (text: string, nextScope = scope) => {
     cancelPending();
     onSearch({ text, scope: nextScope });
@@ -94,7 +108,8 @@ export function FilterRowsControls({
       commit('');
       return;
     }
-    timer.current = window.setTimeout(() => commit(next), SEARCH_DEBOUNCE_MS);
+    pending.current = { text: next, scope };
+    timer.current = window.setTimeout(flushPending, SEARCH_DEBOUNCE_MS);
   };
 
   const sortValue = order === null ? '' : order.kind === 'column' ? `column:${order.column}` : `score:${order.score}`;
@@ -125,6 +140,7 @@ export function FilterRowsControls({
           data-active={draft ? 'true' : undefined}
           value={draft}
           onChange={(event) => onSearchChange(event.currentTarget.value)}
+          onBlur={flushPending}
           onKeyDown={(event) => {
             if (event.key === 'Enter') {
               event.preventDefault();
@@ -239,7 +255,7 @@ export function FilterRowsControls({
 
 interface FilterRowsBindingProps {
   sheet: SheetMeta;
-  applyRowSearch(search: RowSearch): void;
+  applyRowSearch(search: RowSearch, sheetId: string): void;
   applyRowLimit(limit: number | null): void;
   applyRowOrder(order: { column: string; dir: GridSortDirection } | { score: 'search' | 'similarity' } | null): void;
 }
@@ -261,7 +277,7 @@ export function FilterRowsBinding({ sheet, applyRowSearch, applyRowLimit, applyR
       sort={sort}
       focusSearch={focusSearch}
       draftScope={draftScope}
-      onSearch={applyRowSearch}
+      onSearch={(search) => applyRowSearch(search, sheet.id)}
       onDraftScope={gridView.setSearchScope}
       onLimit={applyRowLimit}
       onOrder={applyRowOrder}

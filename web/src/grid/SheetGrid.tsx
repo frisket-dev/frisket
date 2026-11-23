@@ -1553,15 +1553,11 @@ function useSheetGridController({
     () => searchOf({ selection: viewSelection ?? null, filter: activeFilter ?? null }),
     [activeFilter, viewSelection],
   );
-  const filteredColumnNames = useMemo(() => {
-    const names = new Set(
-      Object.entries(activeFilter ?? {})
-        .filter(([, condition]) => facetCondition(condition) !== null)
-        .map(([name]) => name),
-    );
-    if (rowSearch.text && rowSearch.scope !== 'all') names.add(rowSearch.scope);
-    return names;
-  }, [activeFilter, rowSearch]);
+  const filteredColumnNames = useMemo(() => new Set(
+    Object.entries(activeFilter ?? {})
+      .filter(([, condition]) => facetCondition(condition) !== null || typeof condition.contains === 'string')
+      .map(([name]) => name),
+  ), [activeFilter]);
   const {
     columns,
     gridColumns,

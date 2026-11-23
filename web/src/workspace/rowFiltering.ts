@@ -33,6 +33,7 @@ type ColumnCondition = Partial<Record<GridFilterOperator, GridFilterValue>>;
 export type ChipTarget =
   | { kind: 'search' }
   | { kind: 'facet'; column: string }
+  | { kind: 'contains'; column: string }
   | { kind: 'rows' }
   | { kind: 'similarity' }
   | { kind: 'sort' }
@@ -101,12 +102,19 @@ export function searchOf(state: Pick<RowFilterState, 'selection' | 'filter'>): R
   return { text: '', scope: 'all' };
 }
 
-function filterWithoutSearch(filter: GridFilterSpec | null): GridFilterSpec | null {
-  const next: GridFilterSpec = {};
-  for (const [column, condition] of Object.entries(filter ?? {})) {
-    const facet = facetCondition(condition);
-    if (facet) next[column] = facet;
-  }
+/** Sets or, with null, removes one column's `contains` condition, leaving
+ *  its facet in place. */
+export function withColumnContains(
+  filter: GridFilterSpec | null,
+  column: string,
+  text: string | null,
+): GridFilterSpec | null {
+  const next: GridFilterSpec = { ...(filter ?? {}) };
+  const condition: ColumnCondition = { ...(next[column] ?? {}) };
+  if (text === null) delete condition.contains;
+  else condition.contains = text;
+  if (Object.keys(condition).length > 0) next[column] = condition;
+  else delete next[column];
   return Object.keys(next).length > 0 ? next : null;
 }
 
@@ -141,22 +149,37 @@ export function selectionWithoutFacet(selection: ViewSelection, columnId: number
   };
 }
 
-/** Search moves between the selection's full-text search and one column's
- *  `contains` condition; the previous home is always cleared. */
+/** The search box holds one predicate: the full-text search, else the first
+ *  column `contains`. Editing or clearing it touches only that predicate; a
+ *  saved View's other `contains` conditions stay as ordinary constraints. */
 export function withSearch(
   state: Pick<RowFilterState, 'selection' | 'filter'>,
   search: RowSearch,
 ): { selectionSearch: ViewSelection['search']; filter: GridFilterSpec | null } {
-  const text = search.text;
-  const active = text.trim() !== '';
-  let filter = filterWithoutSearch(state.filter);
-  if (active && search.scope !== 'all') {
-    filter = { ...(filter ?? {}), [search.scope]: { ...(filter?.[search.scope] ?? {}), contains: text } };
+  const represented = searchOf(state);
+  let filter = state.filter;
+  if (represented.text && represented.scope !== 'all') {
+    filter = withColumnContains(filter, represented.scope, null);
   }
+  const active = search.text.trim() !== '';
+  if (active && search.scope !== 'all') filter = withColumnContains(filter, search.scope, search.text);
   return {
-    selectionSearch: active && search.scope === 'all' ? { text } : undefined,
+    selectionSearch: active && search.scope === 'all' ? { text: search.text } : undefined,
     filter,
   };
+}
+
+/** Columns the search can move to: every searchable column except those
+ *  already holding another `contains` condition. */
+export function searchScopeColumnsOf(
+  columns: ColumnDef[],
+  state: Pick<RowFilterState, 'selection' | 'filter'>,
+): ColumnDef[] {
+  const represented = searchOf(state);
+  return searchableColumnsOf(columns).filter((column) => (
+    typeof state.filter?.[column.name]?.contains !== 'string'
+    || (represented.text !== '' && represented.scope === column.name)
+  ));
 }
 
 function facetChipValue(column: string, condition: ColumnCondition, valueLabel: string | null): string {
@@ -212,14 +235,25 @@ export function deriveRowFilterChips(state: RowFilterState): RowFilterChip[] {
   }
   for (const [column, condition] of Object.entries(state.filter ?? {})) {
     const facet = facetCondition(condition);
-    if (!facet) continue;
-    chips.push({
-      key: `facet:${column}`,
-      tone: 'filter',
-      kind: column,
-      value: facetChipValue(column, facet, state.filterValueLabel),
-      target: { kind: 'facet', column },
-    });
+    if (facet) {
+      chips.push({
+        key: `facet:${column}`,
+        tone: 'filter',
+        kind: column,
+        value: facetChipValue(column, facet, state.filterValueLabel),
+        target: { kind: 'facet', column },
+      });
+    }
+    const contains = condition.contains;
+    if (typeof contains === 'string' && contains !== '' && !(search.text && search.scope === column)) {
+      chips.push({
+        key: `contains:${column}`,
+        tone: 'filter',
+        kind: column,
+        value: `contains “${truncateChipValue(contains)}”`,
+        target: { kind: 'contains', column },
+      });
+    }
   }
   const sort = sortOf(state);
   if (sort) {

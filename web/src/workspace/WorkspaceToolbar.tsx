@@ -12,7 +12,7 @@ import { useCurrentViewSelection } from '../bind/useCurrentViewSelection';
 import { useSelector } from '../bind/useSelector';
 import { useMainViewModel } from './WorkspaceContext';
 import { FILTER_SIDEBAR_ID, FILTER_TOGGLE_TEST_ID } from './FilterSidebar';
-import { deriveRowFilterChips, sheetCountLabel, withColumnFacet, type RowFilterChip } from './rowFiltering';
+import { deriveRowFilterChips, sheetCountLabel, withColumnContains, withColumnFacet, type RowFilterChip } from './rowFiltering';
 
 const WORK_VIEW_SWITCH: Array<{ kind: WorkViewKind; label: string; Icon: LucideIcon }> = [
   { kind: 'grid', label: 'Grid', Icon: LayoutGrid },
@@ -275,8 +275,9 @@ export function WorkspaceGridControls() {
   };
   const removeChip = (chip: RowFilterChip) => {
     const target = chip.target;
-    if (target.kind === 'search') applyRowSearch({ text: '', scope: 'all' });
+    if (target.kind === 'search') applyRowSearch({ text: '', scope: 'all' }, sheet.id);
     else if (target.kind === 'facet') applyGridFilterSpec(withColumnFacet(filter, target.column, null));
+    else if (target.kind === 'contains') applyGridFilterSpec(withColumnContains(filter, target.column, null));
     else if (target.kind === 'sort') applyRowOrder(null);
     else if (target.kind === 'limit') applyRowLimit(null);
     else if (target.kind === 'rows') {

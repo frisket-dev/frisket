@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo } from 'react';
+import { useCallback, useEffect, useMemo, useRef } from 'react';
 import { gridFromPresentation } from './viewDefinition';
 import { groupManagedHiddenColumnNames } from './workspaceColumnVisibility';
 import type {
@@ -336,17 +336,32 @@ export function useWorkspaceGridController({
     clearGridSortTransition({ gridView, selection }, sheet?.id);
   }, [gridView, selection, sheet]);
 
+  // Row commands can run after a delay (a debounced search), so they read the
+  // selection current at that moment, never the one from the render that
+  // scheduled them.
+  const currentSelectionRef = useRef(currentSelection);
+  useEffect(() => {
+    currentSelectionRef.current = currentSelection;
+  }, [currentSelection]);
+
   const replaceSelection = useCallback(
     (patch: (current: ViewSelection) => Partial<ViewSelection>) => {
-      if (!currentSelection) return;
-      gridView.setSelection({ ...currentSelection, ...patch(currentSelection) });
+      const current = currentSelectionRef.current;
+      if (!current) return;
+      gridView.setSelection({ ...current, ...patch(current) });
     },
-    [currentSelection, gridView],
+    [gridView],
   );
 
+  /** `sheetId` is the sheet the search was typed on; a search that arrives
+   *  after navigation moved to another sheet is dropped. */
   const applyRowSearch = useCallback(
-    (search: RowSearch) => {
-      const next = withSearch({ selection: currentSelection, filter: gridView.store.get().applied.filter }, search);
+    (search: RowSearch, sheetId: string) => {
+      if (route.store.get().sheetId !== sheetId) return;
+      const next = withSearch(
+        { selection: currentSelectionRef.current, filter: gridView.store.get().applied.filter },
+        search,
+      );
       applyGridFilterSpec(next.filter);
       replaceSelection((current) => ({
         search: next.selectionSearch,
@@ -355,7 +370,7 @@ export function useWorkspaceGridController({
           : current.order.filter((item) => !('score' in item && item.score === 'search')),
       }));
     },
-    [applyGridFilterSpec, currentSelection, gridView, replaceSelection],
+    [applyGridFilterSpec, gridView, replaceSelection, route],
   );
 
   const applyRowLimit = useCallback(

@@ -7,8 +7,10 @@ import {
   isFacetColumn,
   limitNote,
   searchOf,
+  searchScopeColumnsOf,
   selectionWithoutFacet,
   sheetCountLabel,
+  withColumnContains,
   withColumnFacet,
   withSearch,
   type RowFilterState,
@@ -106,6 +108,20 @@ describe('composed searches from a saved View', () => {
       .toEqual({ selectionSearch: undefined, filter: { body: { contains: 'c' }, title: { contains: 'b' } } });
     expect(withSearch(twoColumns, { text: '', scope: 'body' }))
       .toEqual({ selectionSearch: undefined, filter: { title: { contains: 'b' } } });
+  });
+});
+
+describe('removing one composed constraint', () => {
+  it('drops only that column contains and keeps its facet', () => {
+    expect(withColumnContains({ body: { contains: 'a', eq: 'x' }, title: { contains: 'b' } }, 'body', null))
+      .toEqual({ body: { eq: 'x' }, title: { contains: 'b' } });
+    expect(withColumnContains({ title: { contains: 'b' } }, 'title', null)).toBeNull();
+  });
+
+  it('offers the search no column that already holds another contains', () => {
+    const columns = [column('body', 'text'), column('title', 'text'), column('notes', 'text')];
+    const current = { selection: selection(), filter: { body: { contains: 'a' }, title: { contains: 'b' } } };
+    expect(searchScopeColumnsOf(columns, current).map((item) => item.name)).toEqual(['body', 'notes']);
   });
 });
 
