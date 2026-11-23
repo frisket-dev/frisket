@@ -73,6 +73,42 @@ describe('row filter chips', () => {
   });
 });
 
+describe('composed searches from a saved View', () => {
+  it('keeps a column contains visible beside a full-text search', () => {
+    const chips = deriveRowFilterChips(state({
+      selection: selection({ search: { text: 'Northstar' } }),
+      filter: { body: { contains: 'invoice' } },
+    }));
+    expect(chips.map((chip) => `${chip.kind} ${chip.value}`)).toEqual([
+      'Search “Northstar”',
+      'body contains “invoice”',
+    ]);
+  });
+
+  it('represents one column contains as the search and keeps the others as constraints', () => {
+    const current = { selection: selection(), filter: { body: { contains: 'a' }, title: { contains: 'b', eq: 'x' } } };
+    expect(searchOf(current)).toEqual({ text: 'a', scope: 'body' });
+    expect(deriveRowFilterChips(state(current)).map((chip) => `${chip.kind} ${chip.value}`)).toEqual([
+      'Search “a” in body',
+      'title x',
+      'title contains “b”',
+    ]);
+  });
+
+  it('edits or clears only the represented search predicate', () => {
+    const fullText = { selection: selection({ search: { text: 'Northstar' } }), filter: { body: { contains: 'invoice' } } };
+    expect(withSearch(fullText, { text: 'Acme', scope: 'all' }))
+      .toEqual({ selectionSearch: { text: 'Acme' }, filter: { body: { contains: 'invoice' } } });
+    expect(withSearch(fullText, { text: '', scope: 'all' }))
+      .toEqual({ selectionSearch: undefined, filter: { body: { contains: 'invoice' } } });
+    const twoColumns = { selection: selection(), filter: { body: { contains: 'a' }, title: { contains: 'b' } } };
+    expect(withSearch(twoColumns, { text: 'c', scope: 'body' }))
+      .toEqual({ selectionSearch: undefined, filter: { body: { contains: 'c' }, title: { contains: 'b' } } });
+    expect(withSearch(twoColumns, { text: '', scope: 'body' }))
+      .toEqual({ selectionSearch: undefined, filter: { title: { contains: 'b' } } });
+  });
+});
+
 describe('search scope', () => {
   it('reads all-text search from the selection and a column search from its contains condition', () => {
     expect(searchOf({ selection: selection({ search: { text: 'x' } }), filter: null })).toEqual({ text: 'x', scope: 'all' });
