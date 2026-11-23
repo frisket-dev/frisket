@@ -638,4 +638,4 @@ def test_local_embedding_refresh_persists_known_free_cost(
     run = store.get_run(refresh.run_id)
     assert run is not None
     assert float(run["cost_actual"]) == 0.0
-    assert _unpriced_models_with_usage(project, ()) == set()
+    assert _unpriced_models_with_usage(project) == set()
