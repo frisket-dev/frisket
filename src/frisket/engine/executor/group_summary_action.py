@@ -258,13 +258,6 @@ def run_typed_group_summary_action(
             )
         except ServiceNotAllowed as exc:
             return ActionCtx(project_id, action.kind).fail(exc.code, str(exc))
-        if (
-            project.effective_network_policy() == "off"
-            and provider_from_model_id(prepared.operation.model) != "ollama"
-        ):
-            return ActionCtx(project_id, action.kind).fail(
-                "network_disabled", "Project network access is disabled"
-            )
         try:
             assert_provider_spend_cap(
                 project, provider_from_model_id(prepared.operation.model)

@@ -124,6 +124,7 @@ class TestLocalServerRuntimeConfig:
             "plugins_available": True,
             "plugin_management_available": True,
             "product_telemetry_available": True,
+            "allowed_services_default": "all_services",
             "allowed_services_offered": [
                 "this_machine_only",
                 "approved_services",
@@ -156,6 +157,7 @@ class TestLocalServerRuntimeConfig:
             "plugins_available": True,
             "plugin_management_available": True,
             "product_telemetry_available": True,
+            "allowed_services_default": "all_services",
             "allowed_services_offered": [
                 "this_machine_only",
                 "approved_services",

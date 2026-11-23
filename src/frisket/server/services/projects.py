@@ -110,10 +110,6 @@ class ProjectRetentionError(ValueError):
     pass
 
 
-class ProjectNetworkPolicyError(ValueError):
-    pass
-
-
 class ProjectSettingsError(ValueError):
     pass
 
@@ -140,21 +136,6 @@ def _retention_policy_response(policy: dict[str, Any]) -> dict[str, Any]:
         "schemaVersion": RETENTION_POLICY_SCHEMA_VERSION,
         **policy,
         "supported_default_evidence": list(SUPPORTED_RETENTION_VALUES),
-    }
-
-
-NETWORK_POLICY_SCHEMA_VERSION = "frisket.project_network_policy.v1"
-
-
-def _network_policy_response(project: Any) -> dict[str, Any]:
-    policy = project.network_policy()
-    return {
-        "schemaVersion": NETWORK_POLICY_SCHEMA_VERSION,
-        "mode": policy["mode"],
-        "organization_default": policy["organization_default"],
-        # The resolved two-state value the gate actually reads, so the UI can
-        # honestly say what "inherit" currently means for this project.
-        "effective": project.effective_network_policy(),
     }
 
 
@@ -716,19 +697,6 @@ class ProjectLifecycleService:
             )
         except ValueError as exc:
             raise ProjectRetentionError(str(exc)) from exc
-
-    def network_policy(self, project_id: str) -> dict[str, Any]:
-        self._ensure_exists(project_id)
-        return _network_policy_response(self._workspace.get(project_id))
-
-    def update_network_policy(self, project_id: str, *, mode: str) -> dict[str, Any]:
-        self._ensure_exists(project_id)
-        project = self._workspace.get(project_id)
-        try:
-            project.set_network_policy(mode=mode)
-        except ValueError as exc:
-            raise ProjectNetworkPolicyError(str(exc)) from exc
-        return _network_policy_response(project)
 
     def project_settings(self, project_id: str) -> dict[str, Any]:
         self._ensure_exists(project_id)

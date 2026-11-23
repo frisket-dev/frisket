@@ -140,7 +140,7 @@ def test_custom_http_capability_network_off_refuses_before_effect(
     sheet = project.add_sheet("Data")
     column = project.add_column(sheet, "private", type="text")
     project.add_rows(sheet, [{"private": "one"}], {"private": column})
-    project.set_network_policy(mode="off")
+    project.set_allowed_services("approved_services", confirm_allowed_services=None)
     body = {
         "action_id": "map.api_call",
         "scope": {"kind": "sheet_rows", "sheet_id": sheet},
@@ -151,7 +151,7 @@ def test_custom_http_capability_network_off_refuses_before_effect(
         "idempotency_key": "blocked",
     }
     result = run_action_spec(project, body, project_id="api")
-    assert result.status == "failed" and result.errors[0].code == "network_disabled"
+    assert result.status == "failed" and result.errors[0].code == "service_not_allowed"
     assert project.db.execute("SELECT COUNT(*) FROM runs").fetchone()[0] == 0
     project.close()
 

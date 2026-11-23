@@ -689,7 +689,6 @@ CANONICAL_OPERATION_IDS: Mapping[RouteIdentity, str] = MappingProxyType(
         ): "tenant.ocr_compare_scratch_estimate.post",
         ("tenant", "citation_viewer", "GET"): "tenant.citation_viewer.get",
         ("tenant", "get_project", "GET"): "tenant.get_project.get",
-        ("tenant", "get_project_network", "GET"): "tenant.get_project_network.get",
         ("tenant", "get_project_provider_keys", "GET"): (
             "tenant.get_project_provider_keys.get"
         ),
@@ -1095,12 +1094,6 @@ CANONICAL_OPERATION_IDS: Mapping[RouteIdentity, str] = MappingProxyType(
             "update_project_usage_data_sharing",
             "PATCH",
         ): "outer.update_project_usage_data_sharing.patch",
-        ("tenant", "update_project_network", "PATCH"): (
-            "outer.update_project_network.patch"
-        ),
-        ("outer", "update_project_network", "PATCH"): (
-            "outer.update_project_network.patch"
-        ),
         ("tenant", "create_project", "POST"): "tenant.create_project.post",
         ("outer", "create_project", "POST"): "outer.create_project.post",
         ("tenant", "list_projects", "GET"): "tenant.list_projects.get",

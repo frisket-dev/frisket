@@ -59,7 +59,12 @@ def _project_id(client: TestClient, name: str) -> str:
 
 
 def _set_network(client: TestClient, project_id: str, mode: str) -> None:
-    response = client.patch(f"/api/projects/{project_id}/network", json={"mode": mode})
+    """Off restricts the project to Approved services; on allows All services."""
+    value = "approved_services" if mode == "off" else "all_services"
+    response = client.patch(
+        f"/api/projects/{project_id}/allowed-services",
+        json={"allowed_services": value, "confirm_allowed_services": value},
+    )
     assert response.status_code == 200, response.text
 
 
@@ -76,14 +81,14 @@ def _assert_network_disabled(response, capability: str) -> None:
     payload = response.json()
     assert payload["status"] == "failed", payload
     assert len(payload["errors"]) == 1, payload
-    assert payload["errors"][0]["code"] == "network_disabled", payload
+    assert payload["errors"][0]["code"] == "service_not_allowed", payload
     assert payload["errors"][0]["details"]["capability"] == capability, payload
 
 
 def _assert_not_network_disabled(response) -> None:
     payload = response.json()
     codes = [e["code"] for e in payload.get("errors", [])]
-    assert "network_disabled" not in codes, payload
+    assert "service_not_allowed" not in codes, payload
 
 
 def _census_action(key: str) -> dict[str, Any]:

@@ -239,10 +239,12 @@ def test_datalab_setup_respects_permissions_and_network(tmp_path, monkeypatch):
     choice = _choice(client, pid, "media.ocr")
     assert not any(scope["can_mutate"] for scope in choice["setup"]["scopes"])
     assert choice["can_run"] is False
-    client.app.state.workspace.get(pid).set_network_policy(mode="off")
+    client.app.state.workspace.get(pid).set_allowed_services(
+        "approved_services", confirm_allowed_services=None
+    )
     choice = _choice(client, pid, "media.ocr")
     assert choice["status"] == "unavailable"
-    assert choice["blocker"]["code"] == "project_network_off"
+    assert choice["blocker"]["code"] == "service_not_allowed"
     assert choice["setup"] is None
 
 

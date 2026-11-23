@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 from urllib.parse import urlparse
 
 from frisket.ai.llm.types import provider_from_model_id
@@ -19,6 +19,7 @@ from frisket.service_access import (
     DEFAULT_PORTS,
     ApprovedEndpoint,
     ServiceAccess,
+    ServiceNotAllowed,
     host_is_loopback,
     read_approved_endpoints,
     workspace_edition,
@@ -140,3 +141,24 @@ def check_model_call(
     ):
         access.check_remote_service(provider_from_model_id(model))
     check_route(project, access, route, model_destination=destination)
+
+
+def remote_service_refusal(project: Project, service: str) -> ServiceNotAllowed | None:
+    """Why the project refuses ``service``, a remote service with no
+    destination this check can approve, or ``None`` when it is allowed."""
+    try:
+        project_service_access(project).check_remote_service(service)
+    except ServiceNotAllowed as exc:
+        return exc
+    return None
+
+
+def model_call_allowed(project: Project, router: Any, model: str) -> bool:
+    """Whether ``check_model_call`` allows ``model`` at the router's URL."""
+    try:
+        check_model_call(
+            project, model, destination=router.destination_for_model(model)
+        )
+    except ServiceNotAllowed:
+        return False
+    return True

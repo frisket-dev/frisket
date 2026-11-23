@@ -54,7 +54,7 @@ from frisket.engine.runner import (
     InvalidTargetRows,
     InvalidTargetSheet,
     MapRunner,
-    NetworkDisabled,
+    ServiceRefused,
     OutputColumnExists,
     ProviderKeyRefusal,
     RunProgress,
@@ -108,12 +108,6 @@ def missing_provider_key_error(action_kind: str, provider: str) -> ActionError:
         field="params.model",
         details={"provider": provider, "retryable": True, "resumable": True},
     )
-
-
-# Egress gate: the project's network policy is off and the action resolves a remote
-# capability. status="failed", never "needs_confirmation" — off is off, not a
-# confirm-and-proceed gate. The classification is server-derived only.
-NETWORK_DISABLED_ERROR_CODE = "network_disabled"
 
 
 def missing_model_key_error_for_request(
@@ -492,7 +486,7 @@ def _queue_v1_project_run_request(
                 )
             except (
                 ProviderKeyRefusal,
-                NetworkDisabled,
+                ServiceRefused,
                 OutputColumnExists,
                 InvalidTargetSheet,
                 InvalidTargetRows,

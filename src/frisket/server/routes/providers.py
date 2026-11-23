@@ -108,20 +108,13 @@ def register_provider_config_routes(app: FastAPI, *, workspace: Workspace) -> No
         responses=http_error_responses(404, 409, 500),
     )
     def list_providers(project_id: str | None = None) -> LocalProviderCatalog:
-        # The catalog is instance-scoped; an optional project_id folds in
-        # that project's effective network policy so the picker only offers
-        # providers dispatch would accept.
+        # The catalog is instance-scoped; an optional project_id keeps only
+        # the providers that project's Allowed services lets dispatch use.
+        catalog = provider_config.build_provider_catalog(root, dict(os.environ))
         if not project_id:
-            return LocalProviderCatalog.model_validate(
-                provider_config.build_provider_catalog(root, dict(os.environ))
-            )
+            return LocalProviderCatalog.model_validate(catalog)
         # Workspace.get raises its own 404 for unknown/malformed ids.
         project = workspace.get(project_id)
-        catalog = provider_config.build_provider_catalog(
-            root,
-            dict(os.environ),
-            network_off=project.effective_network_policy() == "off",
-        )
         router = workspace.router_for(project)
         catalog["providers"] = [
             entry

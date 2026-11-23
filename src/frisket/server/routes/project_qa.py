@@ -34,7 +34,7 @@ from frisket.server.route_errors import (
     register_typed_error,
     reject_unknown_query_parameters,
 )
-from frisket.server.services.project_qa import ProjectQAService
+from frisket.server.services.project_qa import AskServiceNotAllowed, ProjectQAService
 from frisket.server.services.project_qa_skills import ProjectQASkillConflict
 from frisket.server.services.skills import SkillLibraryError
 
@@ -71,6 +71,12 @@ def register_project_qa_routes(app: FastAPI, *, service: ProjectQAService) -> No
         lambda exc: (
             exc.detail() if isinstance(exc, ProjectQASkillConflict) else str(exc)
         ),
+    )
+    register_typed_error(
+        app,
+        AskServiceNotAllowed,
+        409,
+        lambda exc: exc.detail() if isinstance(exc, AskServiceNotAllowed) else str(exc),
     )
     register_typed_error(
         app, (ProjectQAConflictError, ProjectQAResearchConflictError), 409

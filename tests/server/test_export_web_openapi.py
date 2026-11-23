@@ -1218,11 +1218,9 @@ def _case_project_config_identity_and_parity(
     document = exporter.export_real_compositions(tmp_path / "state")
     operation_ids = _operation_ids(document)
     expected = {
-        "outer.update_project_network.patch",
         "tenant.compact_project.post",
         "tenant.delete_project_provider_key.delete",
         "tenant.delete_project_secret.delete",
-        "tenant.get_project_network.get",
         "tenant.get_project_provider_keys.get",
         "tenant.get_project_retention.get",
         "tenant.get_project_secrets.get",
@@ -1234,14 +1232,7 @@ def _case_project_config_identity_and_parity(
         "tenant.validate_project_provider_key.post",
     }
     assert expected <= operation_ids
-    assert "tenant.update_project_network.patch" not in operation_ids
-    network = _operation(document, "outer.update_project_network.patch")
-    assert network["x-frisket-editions"] == ["local", "team"]
-    assert {row["owner"] for row in network["x-frisket-effective-identities"]} == {
-        "tenant",
-        "outer",
-    }
-    assert "409" not in network["responses"]
+    assert not any("project_network" in operation for operation in operation_ids)
 
 
 Case = Callable[[Path, pytest.MonkeyPatch], None]

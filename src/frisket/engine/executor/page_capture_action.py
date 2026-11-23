@@ -17,6 +17,7 @@ from frisket.engine.executor.page_capture import (
     execute_prepared_capture,
     _web_capture_page_result_from_existing_receipt,
 )
+from frisket.project_service_access import remote_service_refusal
 
 
 class CaptureRefused(ValueError):
@@ -158,11 +159,12 @@ def run_typed_page_capture_action(
             action=action,
         )
     try:
-        if project.remote_services_refused():
+        refusal = remote_service_refusal(project, "page capture")
+        if refusal is not None:
             raise CaptureRefused(
                 ActionError(
-                    code="network_disabled",
-                    message="Project network access is disabled",
+                    code=refusal.code,
+                    message=str(refusal),
                     action_kind=action.kind,
                 )
             )

@@ -27,6 +27,7 @@ from frisket.engine.executor.visual_cuts_read import _settle
 from frisket.ops.base import ActionProgramInvocationHalt
 from frisket.ops.extraction import extract_response_schema, render_extract_messages
 from frisket.ops.integrations.hosted_error import HostedEngineError
+from frisket.project_service_access import remote_service_refusal
 
 
 class AdmittedResearcher:
@@ -48,10 +49,9 @@ class AdmittedResearcher:
             raise ActionProgramInvocationHalt(
                 "preview_unsupported", "Agent Research requires an admitted run"
             )
-        if self._ctx.project.remote_services_refused():
-            raise ActionProgramInvocationHalt(
-                "network_disabled", "Agent Research requires network access"
-            )
+        refusal = remote_service_refusal(self._ctx.project, "Agent Research")
+        if refusal is not None:
+            raise ActionProgramInvocationHalt(refusal.code, str(refusal))
         require_agent_attempt(self._ctx)
         self._started = True
 

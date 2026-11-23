@@ -27,7 +27,7 @@ from frisket.actions.types import (
 from frisket.engine.executor.map_rows_action import _typed_map_rows_plan
 from frisket.engine.runner.network_policy import remote_capability_for_spec
 from frisket.ai.llm import ModelRouter
-from frisket.engine.runner.validation import NetworkDisabled, assert_network_policy
+from frisket.engine.runner.validation import ServiceRefused, assert_allowed_services
 from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 from frisket.project_service_access import SelectedRoute
 from frisket.execution.targets import CAPABILITY_TO_MARKDOWN
@@ -95,12 +95,16 @@ def test_document_network_policy_follows_capability_not_builtin_id(
     remote = remote_capability_for_spec(plan.program, spec)
     assert remote == ("engine:datalab" if engine == "datalab" else None)
     project = make_project("policy")
-    project.set_network_policy(mode="off")
+    project.set_allowed_services("approved_services", confirm_allowed_services=None)
     if engine == "datalab":
-        with pytest.raises(NetworkDisabled):
-            assert_network_policy(project, plan.program, spec, router=_router())
+        with pytest.raises(ServiceRefused):
+            assert_allowed_services(
+                project, plan.program, spec, router=_router(), selected_route=None
+            )
     else:
-        assert_network_policy(project, plan.program, spec, router=_router())
+        assert_allowed_services(
+            project, plan.program, spec, router=_router(), selected_route=None
+        )
 
 
 def _router() -> ModelRouter:
@@ -119,16 +123,18 @@ def test_network_policy_uses_selected_route_egress(make_project):
     )
     spec = plan.spec_dict()
     project = make_project("selected-route")
-    project.set_network_policy(mode="off")
-    assert_network_policy(
+    project.set_allowed_services("approved_services", confirm_allowed_services=None)
+    assert_allowed_services(
         project,
         plan.program,
         spec,
         router=_router(),
-        selected_route=SelectedRoute("models-gateway", "operator_lan"),
+        selected_route=SelectedRoute(
+            "models-gateway", "operator_lan", "http://127.0.0.1:9000"
+        ),
     )
-    with pytest.raises(NetworkDisabled, match="execution_route:frisket_shared"):
-        assert_network_policy(
+    with pytest.raises(ServiceRefused, match="Frisket Cloud"):
+        assert_allowed_services(
             project,
             plan.program,
             spec,

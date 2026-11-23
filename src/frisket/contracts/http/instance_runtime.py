@@ -54,6 +54,9 @@ class RuntimeConfigResponse(WireModel):
     # The Allowed services choices this edition offers, in strictness order.
     # Frisket Cloud leaves out "this_machine_only": projects already live on
     # Frisket's servers, so the UI hides that choice rather than disabling it.
+    # The choice the new project dialog starts from: the organization's
+    # default on Team, otherwise All services.
+    allowed_services_default: AllowedServices
     allowed_services_offered: list[AllowedServices]
 
 

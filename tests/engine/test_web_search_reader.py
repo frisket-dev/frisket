@@ -1,6 +1,7 @@
 import asyncio
 import threading
 import traceback
+from pathlib import Path
 from types import SimpleNamespace
 
 import ddgs
@@ -34,7 +35,10 @@ def test_search_refuses_unadmitted_calls_before_provider(monkeypatch, mode):
     ctx = _context(preview=mode == "preview")
     if mode != "preview":
         ctx.project = SimpleNamespace(
-            remote_services_refused=lambda: mode == "network_off"
+            allowed_services=lambda: (
+                "approved_services" if mode == "network_off" else "all_services"
+            ),
+            path=Path("/nonexistent-workspace/project.frisket"),
         )
 
     async def run():

@@ -52,9 +52,8 @@ class ServicesRefusal:
 
     code: str
     message: str
-    network_off: bool
-    project: Any = None
-    access: ServiceAccess | None = None
+    project: Any
+    access: ServiceAccess
 
     def blocker(self) -> dict[str, Any]:
         return {"code": self.code, "message": self.message, "field": None}
@@ -65,41 +64,30 @@ class ServicesRefusal:
         *,
         model_destination: str | None = None,
     ) -> bool:
-        if self.access is not None:
-            try:
-                check_route(
-                    self.project,
-                    self.access,
-                    route,
-                    model_destination=model_destination,
-                )
-            except ServiceNotAllowed:
-                return True
-        return (
-            self.network_off
-            and route is not None
-            and route.egress_class not in {"none", "operator_lan"}
-        )
+        try:
+            check_route(
+                self.project,
+                self.access,
+                route,
+                model_destination=model_destination,
+            )
+        except ServiceNotAllowed:
+            return True
+        return False
 
 
 def _services_refusal(project: Any) -> ServicesRefusal | None:
-    network_off = project.effective_network_policy() == "off"
     access = project_service_access(project)
-    if not access.allows_all_services:
-        return ServicesRefusal(
-            SERVICE_NOT_ALLOWED,
-            f"This project's Allowed services setting is "
-            f"{ALLOWED_SERVICES_LABELS[access.allowed_services]}; it does not "
-            "allow this service.",
-            network_off,
-            project,
-            access,
-        )
-    if network_off:
-        return ServicesRefusal(
-            "project_network_off", "This project's network setting is off.", True
-        )
-    return None
+    if access.allows_all_services:
+        return None
+    return ServicesRefusal(
+        SERVICE_NOT_ALLOWED,
+        f"This project's Allowed services setting is "
+        f"{ALLOWED_SERVICES_LABELS[access.allowed_services]}; it does not "
+        "allow this service.",
+        project,
+        access,
+    )
 
 
 def _target_route(
@@ -256,13 +244,6 @@ def _default_action_model(
         _recommendation_composition(composition).provider_for_resolution(),
         composition.facts,
         options=options,
-        # Allowed services already decided each choice's status above; the
-        # network setting alone still filters by egress class.
-        allowed_egress_classes=(
-            {"none", "operator_lan"}
-            if services_refusal is not None and services_refusal.access is None
-            else None
-        ),
         directly_runnable_engines=directly_runnable,
     )
     if preferred is not None or services_refusal:

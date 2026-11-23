@@ -207,6 +207,9 @@ class Workspace:
         project_qa_runtime_port: ProjectQARuntimePort | None = None,
         plugin_composition_policy: PluginCompositionPolicy | None = None,
         edition: str = "solo",
+        allowed_services_default: Callable[[], AllowedServices] = lambda: (
+            DEFAULT_ALLOWED_SERVICES
+        ),
         cloud_connection_store: Any | None = None,
         cloud_connection_client: Any | None = None,
         cloud_execution_transport: Any | None = None,
@@ -223,6 +226,9 @@ class Workspace:
         self._owns_embedding_runtime = embedding_runtime is None
         self.root = root
         self.edition = str(edition).strip().lower()
+        # The Allowed services a new project starts from: the organization's
+        # default on Team, otherwise All services.
+        self.allowed_services_default = allowed_services_default
         self.root.mkdir(parents=True, exist_ok=True)
         register_workspace_edition(self.root, self.edition)
         ensure_writable_data_root(self.root)

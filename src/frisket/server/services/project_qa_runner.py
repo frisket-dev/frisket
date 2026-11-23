@@ -33,7 +33,6 @@ from frisket.authoring.project_ask import (
 from frisket.engine.runner.validation import (
     ServiceRefused,
     assert_provider_spend_cap,
-    assert_selected_egress_policy,
 )
 from frisket.project_service_access import (
     SelectedRoute,
@@ -248,12 +247,6 @@ async def run_turn(
                 project,
                 router,
                 request.model,
-                selected_egress_class,
-            )
-        if selected_egress_class is not None and not model_call_cannot_go_live(router):
-            await await_thread_worker(
-                assert_selected_egress_policy,
-                project,
                 selected_egress_class,
             )
         provider = provider_from_model_id(request.model)

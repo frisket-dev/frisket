@@ -32,7 +32,7 @@ def test_build_provider_catalog_default_is_unfiltered(tmp_path) -> None:
     assert "network" not in catalog
 
 
-def test_providers_route_threads_project_network_policy(tmp_path) -> None:
+def test_providers_route_threads_project_allowed_services(tmp_path) -> None:
     client = make_client(
         tmp_path,
         router=ModelRouter(
@@ -51,10 +51,12 @@ def test_providers_route_threads_project_network_policy(tmp_path) -> None:
         "tavily",
     }
 
-    client.patch(f"/api/projects/{pid}/network", json={"mode": "off"})
+    client.patch(
+        f"/api/projects/{pid}/allowed-services",
+        json={"allowed_services": "approved_services"},
+    )
     filtered = client.get("/api/providers", params={"project_id": pid}).json()
     assert filtered["providers"] == []
-    assert filtered["network"] == "off"
 
     # Instance-scoped call (no project) stays unfiltered.
     instance = client.get("/api/providers").json()
@@ -75,7 +77,7 @@ def test_providers_route_threads_project_network_policy(tmp_path) -> None:
 @pytest.fixture
 def off_project(make_project):
     p = make_project("p")
-    p.set_network_policy(mode="off")
+    p.set_allowed_services("approved_services", confirm_allowed_services=None)
     yield p
 
 
@@ -95,18 +97,18 @@ def test_hosted_engines_read_policy_unavailable_when_off(off_project) -> None:
     engines = {e["id"]: e for e in translate["ui_hints"]["engines"]}
     for hosted in ("deepl", "google_translate"):
         assert engines[hosted]["available"] is False
-        assert "network setting is off" in engines[hosted]["error"]
+        assert "Allowed services setting" in engines[hosted]["error"]
     # Local engines keep their own availability semantics (whatever they are
     # on this machine) and never carry the network error.
-    assert "network setting is off" not in (engines["opus_mt"].get("error") or "")
+    assert "Allowed services setting" not in (engines["opus_mt"].get("error") or "")
 
     ocr = next(a for a in payload["actions"] if a["kind"] == "media.ocr")
     ocr_engines = {e["id"]: e for e in ocr["ui_hints"]["engines"]}
     assert ocr_engines["datalab"]["available"] is False
-    assert "network setting is off" in ocr_engines["datalab"]["error"]
+    assert "Allowed services setting" in ocr_engines["datalab"]["error"]
 
 
-def test_legacy_always_remote_kinds_carry_network_disabled_hint(off_project) -> None:
+def test_legacy_always_remote_kinds_carry_service_not_allowed_hint(off_project) -> None:
     payload = _hints_payload(off_project)
     by_kind = {a["kind"]: a for a in payload["actions"]}
     # Typed actions are merged at the HTTP catalog boundary after this legacy
@@ -118,16 +120,18 @@ def test_legacy_always_remote_kinds_carry_network_disabled_hint(off_project) -> 
         "media.fetch_url",
         "web.capture_page",
     ):
-        assert by_kind[kind]["ui_hints"].get("network_disabled") is True, kind
+        assert by_kind[kind]["ui_hints"].get("service_not_allowed") is True, kind
     # A local-only kind never carries the hint.
-    assert "network_disabled" not in (by_kind["map.translate"].get("ui_hints") or {})
+    assert "service_not_allowed" not in (by_kind["map.translate"].get("ui_hints") or {})
 
 
-def test_no_network_hints_under_default_on(make_project) -> None:
+def test_no_service_hints_under_all_services(make_project) -> None:
     project = make_project("on")
     payload = _hints_payload(project)
     by_kind = {a["kind"]: a for a in payload["actions"]}
-    assert "network_disabled" not in (by_kind["enrich.geocode"].get("ui_hints") or {})
+    assert "service_not_allowed" not in (
+        by_kind["enrich.geocode"].get("ui_hints") or {}
+    )
     translate = by_kind["map.translate"]
     engines = {e["id"]: e for e in translate["ui_hints"]["engines"]}
-    assert "network setting is off" not in (engines["deepl"].get("error") or "")
+    assert "Allowed services setting" not in (engines["deepl"].get("error") or "")

@@ -52,10 +52,6 @@ from frisket.contracts.http.project_collaboration import (
     SetProjectMemberRequest,
 )
 from frisket.contracts.http.models import UpdateProjectUsageDataSharingRequest
-from frisket.contracts.http.project_config import (
-    ProjectNetworkRequest,
-    ProjectNetworkResponse,
-)
 from frisket.contracts.http.organization_operations import (
     OrganizationMediaProxyStatus,
 )
@@ -227,9 +223,10 @@ def _warn_if_control_plane_locator_diverges() -> None:
 class _CreateProjectBody(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    # An empty name creates "Untitled project".
+    # An empty name creates "Untitled project"; no Allowed services starts
+    # from the organization's default.
     name: str = ""
-    allowed_services: AllowedServices = DEFAULT_ALLOWED_SERVICES
+    allowed_services: AllowedServices | None = None
     usage_data_sharing: UsageDataSharing = DEFAULT_USAGE_DATA_SHARING
 
 
@@ -237,9 +234,10 @@ class _DeleteBody(BaseModel):
     confirm_name: str
 
 
-class _OrganizationNetworkBody(BaseModel):
-    # "on" | "off" | None (clear back to the built-in "on").
-    network_default: str | None = None
+class _OrganizationAllowedServicesBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    allowed_services_default: AllowedServices
 
 
 class _AttemptLimiter:
@@ -556,43 +554,6 @@ def _valid_project_bundle(bundle, *, slug: str) -> bool:
         return False
 
 
-def _sync_project_network_policy(
-    cx: sa.Connection, workspace: Any, *, organization_id: int, slug: str
-) -> None:
-    """Materialize the control-plane network settings into the bundle
-    (following the `sensitive` sync precedent): the gate reads
-    policy from the Project bundle at validate/dispatch/replay time, where no
-    control-plane handle exists — so both the project's mode and the organization
-    default live there, reconciled on drift."""
-    organization_default = cx.execute(
-        sa.select(organizations.c.network_default).where(
-            organizations.c.id == organization_id
-        )
-    ).scalar_one_or_none()
-    mode = (
-        cx.execute(
-            sa.select(projects.c.network).where(
-                projects.c.organization_id == organization_id,
-                projects.c.slug == slug,
-            )
-        ).scalar_one_or_none()
-        or "inherit"
-    )
-    try:
-        project = workspace.get(slug)
-    except (HTTPException, ValueError):
-        # Bundle not materialized yet (pending creation intent): intent
-        # completion calls this sync again once the bundle exists.
-        return
-    policy = project.network_policy()
-    if policy["mode"] != mode or policy["organization_default"] != organization_default:
-        project.set_network_policy(
-            mode=mode,
-            organization_default=organization_default,
-            clear_organization_default=organization_default is None,
-        )
-
-
 def _intent_usage_data_sharing(intent: Any) -> UsageDataSharing:
     for value in USAGE_DATA_SHARING_VALUES:
         if intent.usage_data_sharing == value:
@@ -673,9 +634,6 @@ def _complete_project_intent(
                 .where(projects.c.id == exists)
                 .values(sensitive=requested_sensitive)
             )
-        _sync_project_network_policy(
-            cx, workspace, organization_id=int(intent.organization_id), slug=slug
-        )
         atomic_upsert(
             cx,
             table=project_roles,
@@ -1081,8 +1039,21 @@ def create_team_app(
             include_managed_local_models=False,
         )
 
+    def organization_allowed_services_default() -> AllowedServices:
+        with engine.connect() as cx:
+            stored = cx.execute(
+                sa.select(organizations.c.allowed_services_default).where(
+                    organizations.c.id == organization_id
+                )
+            ).scalar_one_or_none()
+        for value in ALLOWED_SERVICES_VALUES:
+            if stored == value:
+                return value
+        return DEFAULT_ALLOWED_SERVICES
+
     core = create_app(
         config.data_dir,
+        allowed_services_default=organization_allowed_services_default,
         queue=open_queue(database_url=config.run_queue_database_url, cloud=False),
         control_database_url=config.database_url,
         queue_payload_extra={"organization_id": organization_id},
@@ -1465,7 +1436,8 @@ def create_team_app(
         user = require_organization_member(request)
         name = body.name.strip() or UNTITLED_PROJECT_NAME
         choices = {
-            "allowed_services": body.allowed_services,
+            "allowed_services": body.allowed_services
+            or organization_allowed_services_default(),
             "usage_data_sharing": body.usage_data_sharing,
             "sensitive": body.usage_data_sharing == "off",
         }
@@ -1587,7 +1559,7 @@ def create_team_app(
     ) -> dict[str, Any]:
         """Team twin of the core /usage-data-sharing route: writes the
         control-plane projects.sensitive ("off" means sensitive) AND the bundle
-        in one step, exactly like the /network twin below. Intent completion
+        in one step. Intent completion
         and the admin surfaces read that column, so it must agree with the
         bundle the telemetry routes read."""
         actor = require_user(request)
@@ -1615,56 +1587,6 @@ def create_team_app(
                 detail=f"{pid}:{body.usage_data_sharing}",
             )
         return updated
-
-    @app.patch(
-        "/api/projects/{pid}/network",
-        name="update_project_network",
-        response_model=ProjectNetworkResponse,
-        response_model_exclude_unset=True,
-        responses=http_error_responses(400, 401, 403, 404, 422, 500),
-    )
-    def update_project_network(
-        pid: str, request: Request, body: ProjectNetworkRequest
-    ) -> ProjectNetworkResponse:
-        """Team twin of the core /network route: writes the control-plane
-        projects.network AND the bundle in one step (the sensitivity-route
-        precedent), so intent recovery re-materializes the same value."""
-        actor = require_user(request)
-        if not access.can_on_project(organization_id, pid, int(actor["id"]), "owner"):
-            raise HTTPException(403, "project owner required")
-        if body.mode not in ("inherit", "on", "off"):
-            raise HTTPException(400, f"unsupported network mode: {body.mode}")
-        with engine.begin() as cx:
-            updated = cx.execute(
-                projects.update()
-                .where(
-                    projects.c.organization_id == organization_id,
-                    projects.c.slug == pid,
-                )
-                .values(network=body.mode)
-            )
-            if updated.rowcount == 0:
-                raise HTTPException(404, f"no project '{pid}'")
-            _sync_project_network_policy(
-                cx, core.state.workspace, organization_id=organization_id, slug=pid
-            )
-            record_audit(
-                cx,
-                user_id=actor["id"],
-                organization_id=organization_id,
-                action="project_network_updated",
-                detail=f"{pid}:{body.mode}",
-            )
-        project = core.state.workspace.get(pid)
-        policy = project.network_policy()
-        return ProjectNetworkResponse.model_validate(
-            {
-                "schemaVersion": "frisket.project_network_policy.v1",
-                "mode": policy["mode"],
-                "organization_default": policy["organization_default"],
-                "effective": project.effective_network_policy(),
-            }
-        )
 
     @app.delete("/api/projects/{pid}", name="delete_project")
     def delete_project(pid: str, request: Request, body: _DeleteBody) -> dict[str, Any]:
@@ -1715,63 +1637,41 @@ def create_team_app(
             )
         return result
 
-    @app.get("/api/organization/network")
-    def get_organization_network(request: Request) -> dict[str, Any]:
-        require_organization_member(request, browser=True)
-        with engine.connect() as cx:
-            network_default = cx.execute(
-                sa.select(organizations.c.network_default).where(
-                    organizations.c.id == organization_id
-                )
-            ).scalar_one_or_none()
-        return {
-            "network_default": network_default,
-            "effective_default": (network_default or "on"),
-        }
-
-    @app.patch("/api/organization/network")
-    def update_organization_network(
-        request: Request, body: _OrganizationNetworkBody
+    @app.get(
+        "/api/organization/allowed-services-default",
+        name="get_organization_allowed_services_default",
+    )
+    def get_organization_allowed_services_default(
+        request: Request,
     ) -> dict[str, Any]:
-        """Organization-wide default for projects whose mode is "inherit" (egress-gate
-        same synchronization rule). Owner-only; fans the new default out to every organization
-        project bundle because the gate reads bundle-side."""
+        """The Allowed services new projects in this organization start from."""
+        require_organization_member(request, browser=True)
+        return {"allowed_services_default": organization_allowed_services_default()}
+
+    @app.patch(
+        "/api/organization/allowed-services-default",
+        name="update_organization_allowed_services_default",
+    )
+    def update_organization_allowed_services_default(
+        request: Request, body: _OrganizationAllowedServicesBody
+    ) -> dict[str, Any]:
+        """Owner-only. Existing projects keep their own value; only projects
+        created afterwards start from the new default."""
         actor = require_user(request, browser=True, admin=True)
-        if body.network_default not in (None, "on", "off"):
-            raise HTTPException(
-                400, f"unsupported network default: {body.network_default}"
-            )
         with engine.begin() as cx:
             cx.execute(
                 organizations.update()
                 .where(organizations.c.id == organization_id)
-                .values(network_default=body.network_default)
+                .values(allowed_services_default=body.allowed_services_default)
             )
-            slugs = list(
-                cx.execute(
-                    sa.select(projects.c.slug).where(
-                        projects.c.organization_id == organization_id
-                    )
-                ).scalars()
-            )
-            for slug in slugs:
-                _sync_project_network_policy(
-                    cx,
-                    core.state.workspace,
-                    organization_id=organization_id,
-                    slug=slug,
-                )
             record_audit(
                 cx,
                 user_id=actor["id"],
                 organization_id=organization_id,
-                action="organization_network_default_updated",
-                detail=str(body.network_default),
+                action="organization_allowed_services_default_updated",
+                detail=body.allowed_services_default,
             )
-        return {
-            "network_default": body.network_default,
-            "effective_default": body.network_default or "on",
-        }
+        return {"allowed_services_default": body.allowed_services_default}
 
     @app.get(
         "/api/organization/media-proxy/status",

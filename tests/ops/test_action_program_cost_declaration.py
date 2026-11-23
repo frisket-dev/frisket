@@ -357,8 +357,8 @@ def test_local_download_is_free_but_still_respects_network_policy(
     assert validated.est["billed_cost"] == 0
     assert validated.est["requires_confirmation"] is False
     assert validated.unrouted_confirmation_hash is None
-    project.set_network_policy(mode="off")
-    with pytest.raises(validation.NetworkDisabled):
+    project.set_allowed_services("approved_services", confirm_allowed_services=None)
+    with pytest.raises(validation.ServiceRefused):
         _validate(project, spec, program=plan.program, confirmed=False)
 
 

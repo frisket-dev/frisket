@@ -460,7 +460,7 @@ class Project:
             )
         return value
 
-    # ---------- project_meta: manifest, metadata, retention, network policy ----------
+    # ---------- project_meta: manifest, metadata, retention, allowed services ----------
     _write_manifest = project_meta._write_manifest
     refresh_pending_review_summary = project_meta.refresh_pending_review_summary
     project_metadata = project_meta.project_metadata
@@ -473,9 +473,6 @@ class Project:
     _ensure_retention_policy = project_meta._ensure_retention_policy
     retention_policy = project_meta.retention_policy
     set_retention_policy = project_meta.set_retention_policy
-    network_policy = project_meta.network_policy
-    set_network_policy = project_meta.set_network_policy
-    effective_network_policy = project_meta.effective_network_policy
     remote_services_refused = project_meta.remote_services_refused
 
     # ---------- credentials: provider keys / secrets ----------

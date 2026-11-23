@@ -45,7 +45,7 @@ from frisket.contracts.http.project_qa import (
     AskThreadCreate,
     AskTurnRequest,
 )
-from frisket.engine.runner.validation import NetworkDisabled
+from frisket.engine.runner.validation import ServiceRefused
 from frisket.engine.store import Project
 from frisket.engine.store.citations import (
     record_citation,
@@ -288,7 +288,9 @@ def test_ask_blocks_selected_cloud_and_own_key_routes_when_network_is_off(
                 cloud_execution_preference="cloud_first",
             ),
         )
-    cloud_project.set_network_policy(mode="off")
+    cloud_project.set_allowed_services(
+        "approved_services", confirm_allowed_services=None
+    )
     cloud_qa = ProjectQAStore(cloud_project)
     cloud_thread = cloud_qa.create_thread(title="Cloud route")
     cloud_turn = cloud_qa.submit_turn(
@@ -308,7 +310,7 @@ def test_ask_blocks_selected_cloud_and_own_key_routes_when_network_is_off(
         ),
     )
     own_project = own_workspace.get(own_workspace.create("Own Ask")["id"])
-    own_project.set_network_policy(mode="off")
+    own_project.set_allowed_services("approved_services", confirm_allowed_services=None)
     own_qa = ProjectQAStore(own_project)
     own_thread = own_qa.create_thread(title="Own route")
     own_turn = own_qa.submit_turn(
@@ -319,11 +321,11 @@ def test_ask_blocks_selected_cloud_and_own_key_routes_when_network_is_off(
     )
 
     with closing(cloud_project), closing(own_project):
-        with pytest.raises(NetworkDisabled, match="execution_route:frisket_shared"):
+        with pytest.raises(ServiceRefused, match="Frisket Cloud"):
             SoloCloudProjectQARuntimePort(cloud_workspace)._prepare_turn(
                 cloud_project, cloud_turn["id"]
             )
-        with pytest.raises(NetworkDisabled, match="execution_route:third_party_api"):
+        with pytest.raises(ServiceRefused, match="Allowed services setting"):
             SoloCloudProjectQARuntimePort(own_workspace)._prepare_turn(
                 own_project, own_turn["id"]
             )
@@ -354,7 +356,7 @@ def test_ask_allows_a_configured_local_endpoint_when_network_is_off(tmp_path):
             project,
             ProjectSettings(model_execution_routes={model: "own"}),
         )
-    project.set_network_policy(mode="off")
+    project.set_allowed_services("approved_services", confirm_allowed_services=None)
     qa = ProjectQAStore(project)
     thread = qa.create_thread(title="Local route")
     turn = qa.submit_turn(
@@ -633,7 +635,9 @@ def test_solo_workspace_routes_ask_through_selected_cloud_account(
                 ),
             )
         transport.on_execute = lambda call_count: (
-            project.set_network_policy(mode="off")
+            project.set_allowed_services(
+                "approved_services", confirm_allowed_services=None
+            )
             if disable_network_after_first_call and call_count == 1
             else None
         )
@@ -696,7 +700,9 @@ def test_own_key_ask_rechecks_network_policy_before_each_model_call(tmp_path):
 
             async def complete(self, request, _client):
                 self.calls += 1
-                project.set_network_policy(mode="off")
+                project.set_allowed_services(
+                    "approved_services", confirm_allowed_services=None
+                )
                 return LLMResponse(
                     content=None,
                     data=None,

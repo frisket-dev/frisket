@@ -543,7 +543,7 @@ async def _execute_row(
     )
     # This public entry point may be called without prior spec validation.
     admission = routed_admission_in_scope(ctx.extras or {})
-    validation.assert_network_policy(
+    validation.assert_allowed_services(
         project,
         program,
         spec,

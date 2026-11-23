@@ -240,7 +240,7 @@ def authored_options(
 
     ``capability`` defaults to transcription for the three dispatch-side
     callers that are transcription BY CONSTRUCTION (the transcribe program's
-    own transport preference, the network policy's transcribe branch); every
+    own transport preference, the service check's transcribe branch); every
     resolution-time caller passes the program's declared capability.
     """
     keys = _CAPABILITY_OPTION_KEYS.get(capability)

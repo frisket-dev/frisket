@@ -126,7 +126,7 @@ def test_v9_control_plane_adds_intent_settings_and_keeps_rows(
             cx.exec_driver_sql(
                 "SELECT schema_version FROM schema_marker WHERE id = 1"
             ).scalar_one()
-            == 10
+            == 11
         )
         intent = cx.execute(sa.select(project_creation_intents)).one()
     assert (intent.sensitive, intent.allowed_services, intent.usage_data_sharing) == (

@@ -111,6 +111,7 @@ from frisket.server.routes.instance import (
     register_product_telemetry_routes,
 )
 from frisket.server.routes.runtime_config import register_runtime_config_routes
+from frisket.service_access import DEFAULT_ALLOWED_SERVICES, AllowedServices
 from frisket.server.routes.approved_endpoints import (
     ApprovedEndpointAccess,
     register_approved_endpoint_routes,
@@ -366,6 +367,9 @@ def create_app(
     workspace_root: str | Path,
     router: ModelRouter | None = None,
     *,
+    allowed_services_default: Callable[[], AllowedServices] = lambda: (
+        DEFAULT_ALLOWED_SERVICES
+    ),
     queue: JobQueue | None = None,
     queue_clock: Callable[[], datetime] | None = None,
     queue_payload_extra: dict[str, Any] | None = None,
@@ -584,6 +588,7 @@ def create_app(
         action_observer=action_observer,
         project_qa_runtime_port=project_qa_runtime_port,
         edition=edition,
+        allowed_services_default=allowed_services_default,
         cloud_connection_store=resolved_cloud_store,
         cloud_connection_client=resolved_cloud_client,
         cloud_execution_transport=resolved_cloud_transport,

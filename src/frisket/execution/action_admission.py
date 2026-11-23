@@ -42,18 +42,6 @@ def missing_action_credential_error(
     )
 
 
-def network_disabled_error(action_kind: str, capability: str) -> ActionError:
-    return ActionError(
-        code="network_disabled",
-        message=(
-            f"this project's network setting is off; it blocks {capability}. "
-            "Turn network on in the project settings to run this."
-        ),
-        action_kind=action_kind,
-        details={"capability": capability},
-    )
-
-
 def action_admission_error(
     project: Project | None,
     action: RegisteredAction,
@@ -128,6 +116,4 @@ def external_service_error(
             action_kind=action_kind,
             details={"capability": capability},
         )
-    if project.effective_network_policy() == "off":
-        return network_disabled_error(action_kind, capability)
     return None

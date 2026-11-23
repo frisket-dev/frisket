@@ -184,7 +184,6 @@ class ProjectModelRoutesService:
         inventory: dict[str, _ModelInventoryEntry] = {}
         catalog = build_provider_catalog(
             self._workspace.root,
-            network_off=False,
             # Pinning records the route that static configuration would choose;
             # it must not turn every project into an Ollama reachability probe.
             # Exact non-catalog supports are added from the composition below.

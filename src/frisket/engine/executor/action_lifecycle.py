@@ -27,7 +27,7 @@ from frisket.engine.runner import (
     InvalidTargetRows,
     InvalidTargetSheet,
     ProviderKeyRefusal,
-    NetworkDisabled,
+    ServiceRefused,
     OutputColumnExists,
     RunProgress,
 )
@@ -1188,11 +1188,11 @@ def _run_reserved_maprunner_action(
                 details={"missing": exc.missing},
             )
         return ctx.failed(refusal_error(exc, refusal_site))
-    except (NetworkDisabled, GenerationDeclarationConflict) as exc:
+    except (ServiceRefused, GenerationDeclarationConflict) as exc:
         # Releasing the claim with a staged generation would make the run
-        # permanently unterminalizable, so a network refusal under a live
+        # permanently unterminalizable, so a service refusal under a live
         # managed writer fails loudly instead.
-        if isinstance(exc, NetworkDisabled) and _has_live_managed_writer(
+        if isinstance(exc, ServiceRefused) and _has_live_managed_writer(
             project, prepared_run
         ):
             raise

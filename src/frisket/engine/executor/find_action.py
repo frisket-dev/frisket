@@ -402,13 +402,4 @@ def _service_refusal(
         )
     except ServiceNotAllowed as exc:
         return ActionError(code=exc.code, message=str(exc), action_kind=action_kind)
-    if (
-        project.effective_network_policy() == "off"
-        and provider_from_model_id(model) != "ollama"
-    ):
-        return ActionError(
-            code="network_disabled",
-            message="Project network access is disabled",
-            action_kind=action_kind,
-        )
     return None

@@ -1,6 +1,7 @@
 """Meta/manifest store for a project bundle: the manifest.json writer and its
 externalized summaries (name/description/sensitive/starred/archived and the
-pending-review count), plus the project-level retention and network policies
+pending-review count), plus the project-level retention policy and Allowed
+services setting
 persisted in the meta table. Free functions over the facade's per-thread
 SQLite connection; ``project`` stays duck-typed (``Any``) so this leaf never
 re-imports the facade module."""
@@ -37,9 +38,6 @@ _log = logging.getLogger(__name__)
 PROJECT_SCHEMA_VERSION = "frisket.project.v1"
 
 RETENTION_POLICY_META_KEY = "retention_policy"
-
-
-NETWORK_POLICY_META_KEY = "network_policy"
 
 
 STORAGE_ID_META_KEY = "storage_id"
@@ -81,50 +79,6 @@ def _normalize_retention_policy(data: object | None = None) -> dict[str, Any]:
     for key in ("pin_evidence_by_default", "no_compact"):
         if key in data:
             policy[key] = bool(data[key])
-    return policy
-
-
-SUPPORTED_NETWORK_POLICY_MODES = ("inherit", "on", "off")
-
-
-# The organization default is a two-state effective value; "inherit" is only a
-# project-level deferral, never an organization value.
-SUPPORTED_NETWORK_ORGANIZATION_DEFAULTS = ("on", "off")
-
-
-DEFAULT_NETWORK_POLICY: dict[str, Any] = {
-    "mode": "inherit",
-    # Team edition materializes the organization default into the bundle (the same
-    # reason `sensitive` syncs): the gate reads policy from the Project at
-    # validate/dispatch/replay time, where no control-plane handle exists.
-    # Local edition never writes it — None resolves to "on".
-    "organization_default": None,
-}
-
-
-def _normalize_network_policy(data: object | None = None) -> dict[str, Any]:
-    policy = dict(DEFAULT_NETWORK_POLICY)
-    if data is None:
-        return policy
-    if not isinstance(data, dict):
-        raise ValueError("network policy must be an object")
-    if "mode" in data:
-        mode = str(data["mode"])
-        if mode not in SUPPORTED_NETWORK_POLICY_MODES:
-            raise ValueError(f"unsupported network mode: {mode}")
-        policy["mode"] = mode
-    raw_default = (
-        data["organization_default"]
-        if "organization_default" in data
-        else data.get("org_default")
-    )
-    if raw_default is not None:
-        organization_default = str(raw_default)
-        if organization_default not in SUPPORTED_NETWORK_ORGANIZATION_DEFAULTS:
-            raise ValueError(
-                f"unsupported network organization default: {organization_default}"
-            )
-        policy["organization_default"] = organization_default
     return policy
 
 
@@ -382,10 +336,8 @@ def set_allowed_services(
     return project.project_metadata()
 
 
-# The reading of an UNREADABLE retention policy. Unlike its network-policy
-# sibling (whose default is the permissive "on" by a considered tradeoff --
-# the off-switch is an explicit choice and a corrupt value there costs a
-# blocked call at worst), retention gates a DESTRUCTIVE operation: resetting
+# The reading of an UNREADABLE retention policy. Retention gates a
+# DESTRUCTIVE operation: resetting
 # to DEFAULT_RETENTION_POLICY would re-enable compaction of evidence a user
 # explicitly pinned, and persisting that reset would destroy the only record
 # that they had chosen otherwise. So an unparseable value reads as the most
@@ -453,60 +405,10 @@ def set_retention_policy(
     return _persist_retention_policy(project, policy)
 
 
-def network_policy(project: Any) -> dict[str, Any]:
-    """Project-level network policy.
-
-    ``{"mode": "inherit"|"on"|"off", "organization_default": "on"|"off"|None}``.
-    A safety default, explicitly NOT a guarantee: enforcement is
-    app-level (picker filter + dispatch/replay gate); plugins,
-    notification delivery and source polling are not covered here.
-    """
-    raw = project.get_meta(NETWORK_POLICY_META_KEY)
-    if raw:
-        try:
-            return _normalize_network_policy(json.loads(raw))
-        except (json.JSONDecodeError, ValueError):
-            return _persist_network_policy(project, None)
-    return _normalize_network_policy()
-
-
-def set_network_policy(
-    project: Any,
-    *,
-    mode: str | None = None,
-    organization_default: str | None = None,
-    clear_organization_default: bool = False,
-) -> dict[str, Any]:
-    policy = project.network_policy()
-    if mode is not None:
-        policy["mode"] = mode
-    if organization_default is not None:
-        policy["organization_default"] = organization_default
-    if clear_organization_default:
-        policy["organization_default"] = None
-    return _persist_network_policy(project, policy)
-
-
-def effective_network_policy(project: Any) -> str:
-    """The gate's two-state read: ``"on"`` or ``"off"``.
-
-    ``project mode -> organization default -> "on"``. The un-configured state is
-    ``on`` (turnkey: existing remote-engine workflows keep working; the
-    off-switch is an explicit choice)."""
-    policy = project.network_policy()
-    if policy["mode"] in ("on", "off"):
-        return str(policy["mode"])
-    return str(policy["organization_default"] or "on")
-
-
 def remote_services_refused(project: Any) -> bool:
     """Whether the project refuses services beyond this machine and approved
-    endpoints: its network setting is off, or Allowed services is not All
-    services. Sites with no destination to classify read this."""
-    return (
-        project.effective_network_policy() == "off"
-        or project.allowed_services() != "all_services"
-    )
+    endpoints, which sites with no destination to classify read."""
+    return project.allowed_services() != "all_services"
 
 
 def _read_manifest(project: Any) -> dict[str, Any]:
@@ -529,16 +431,4 @@ def _persist_retention_policy(project: Any, policy: object | None) -> dict[str, 
             (RETENTION_POLICY_META_KEY, json.dumps(normalized, sort_keys=True)),
         )
     project._write_manifest(retention=normalized)
-    return normalized
-
-
-def _persist_network_policy(project: Any, policy: object | None) -> dict[str, Any]:
-    normalized = _normalize_network_policy(policy)
-    with write_transaction(project.db, what="project network policy"):
-        project.db.execute(
-            "INSERT INTO meta (key, value) VALUES (?, ?) "
-            "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
-            (NETWORK_POLICY_META_KEY, json.dumps(normalized, sort_keys=True)),
-        )
-    project._write_manifest(network=normalized)
     return normalized

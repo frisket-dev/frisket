@@ -180,15 +180,17 @@ def test_queued_find_network_off_allows_only_configured_local_model(
     from frisket.ai.llm.endpoint_config import LocalModelEndpointConfig
 
     class Adapter(_FindAdapter, OpenAICompatAdapter):
-        def __init__(self):
+        def __init__(self, base_url: str):
             _FindAdapter.__init__(self, "unused", matches=[])
-            OpenAICompatAdapter.__init__(self, "test", "http://127.0.0.1:11434/v1")
+            OpenAICompatAdapter.__init__(self, "test", base_url)
 
         async def complete(self, req, client, *, cost_model=None):
             del cost_model
             return await super().complete(req, client)
 
-    adapter = Adapter()
+    adapter = Adapter(
+        "http://127.0.0.1:11434/v1" if local else "https://api.anthropic.com/v1"
+    )
     router = ModelRouter(
         model_call_policy=LOCAL_PURCHASE_POLICY,
         keys={"anthropic": "stub"},
@@ -210,7 +212,7 @@ def test_queued_find_network_off_allows_only_configured_local_model(
     sheet = project.add_sheet("Documents")
     column = project.add_column(sheet, "body", type="text")
     project.add_rows(sheet, [{"body": "Local policy report."}], {"body": column})
-    project.set_network_policy(mode="off")
+    project.set_allowed_services("approved_services", confirm_allowed_services=None)
     request = ActionRequest(
         action_id="map.find",
         scope={"kind": "sheet_rows", "sheet_id": sheet},
@@ -240,7 +242,7 @@ def test_queued_find_network_off_allows_only_configured_local_model(
         assert len(calls) == 1
         assert calls[0]["cost_source"] == "free_local"
     else:
-        assert result.errors[0].code == "network_disabled"
+        assert result.errors[0].code == "service_not_allowed"
 
 
 class _VisualFindAdapter:

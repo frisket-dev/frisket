@@ -18,10 +18,13 @@ from frisket.engine.store.project_qa import ProjectQAStore
 from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 from frisket.local_provider_config import resolve_local_endpoints
 from frisket.server.provider_config import create_local_endpoint
-from frisket.server.route_errors import RouteError, register_route_error_handler
+from frisket.server.route_errors import register_route_error_handler
 from frisket.server.routes.selector_choices import register_selector_choices_routes
 from frisket.server.services import project_qa_runner
-from frisket.server.services.project_qa import ProjectQAService
+from frisket.server.services.project_qa import (
+    AskServiceNotAllowed,
+    ProjectQAService,
+)
 from frisket.server.services.selector_choices import SelectorCapabilities
 from frisket.server.workspace import Workspace
 from frisket.service_access import (
@@ -112,9 +115,9 @@ def _ask(workspace: Workspace, model: str, *, web: bool = False) -> str:
                     web=web,
                 ),
             )
-        except RouteError as refused:
+        except AskServiceNotAllowed as refused:
             await service.shutdown()
-            return str(refused.content["code"])
+            return refused.code
         project = workspace.get("ask")
         await asyncio.wait_for(
             asyncio.shield(service._tasks[(project, turn["id"])]), 10
@@ -287,9 +290,9 @@ def test_ask_refuses_a_disallowed_model_at_submit(
     workspace, _router, models, calls = _workspace(
         tmp_path / "ws", "this_machine_only", ()
     )
-    with pytest.raises(RouteError) as refused:
+    with pytest.raises(AskServiceNotAllowed) as refused:
         _submit(workspace, models[model_key])
-    assert refused.value.content["code"] == "service_not_allowed"
+    assert refused.value.code == "service_not_allowed"
     assert calls.models == []
 
 
@@ -310,9 +313,9 @@ def test_ask_refuses_at_submit_when_no_model_is_allowed(
     workspace, _router, _models, calls = _workspace(
         tmp_path / "ws", "this_machine_only", (), origins=(REMOTE_ORIGIN,)
     )
-    with pytest.raises(RouteError) as refused:
+    with pytest.raises(AskServiceNotAllowed) as refused:
         _submit(workspace, None)
-    assert refused.value.content["code"] == "service_not_allowed"
+    assert refused.value.code == "service_not_allowed"
     assert calls.models == []
 
 

@@ -12,7 +12,9 @@ versioned upgrades preserve its data in place (v6 -> v7 adds the user
 allowance column; v7 -> v8 renames it to `allowance_usd`; v8 -> v9 renames
 the organization tables and foreign-key columns to `organizations` /
 `organization_id`; v9 -> v10 adds the creator's Allowed services and
-usage-data choices to project creation intents).
+usage-data choices to project creation intents; v10 -> v11 folds the network
+on/off defaults into Allowed services: an organization default of off becomes
+Approved services, and the network columns are dropped).
 
 `ensure_clean_control_plane_schema` is that gate, and it is shared: an
 external hosted composition runs it too, via its own bootstrap module, so
@@ -30,7 +32,7 @@ from frisket.team.schema import metadata
 # Bumped only when the identity schema changes shape in a way that an existing
 # database cannot serve. The split itself is version 1: there is no version 0
 # to upgrade from, because pre-split databases are dropped, not migrated.
-SCHEMA_VERSION = 10
+SCHEMA_VERSION = 11
 
 TEAM_EDITION = "team"
 
@@ -158,6 +160,44 @@ def _apply_v9_to_v10(cx: sa.Connection, tables: set[str]) -> None:
             )
 
 
+def _apply_v10_to_v11(cx: sa.Connection, tables: set[str]) -> None:
+    """Carry the organization network default into Allowed services.
+
+    Off becomes Approved services and on becomes All services; an unset
+    default stays unset (All services). The project network column goes
+    too: each bundle folds its own network setting when it is opened. Tables
+    a database lacks come whole from ``create_all``.
+    """
+    if "organizations" not in tables:
+        return
+    organization_columns = {
+        column["name"] for column in sa.inspect(cx).get_columns("organizations")
+    }
+    if "allowed_services_default" not in organization_columns:
+        cx.execute(
+            sa.text(
+                "ALTER TABLE organizations ADD COLUMN allowed_services_default VARCHAR"
+            )
+        )
+    if "network_default" in organization_columns:
+        cx.execute(
+            sa.text(
+                "UPDATE organizations SET allowed_services_default = CASE "
+                "network_default WHEN 'off' THEN 'approved_services' "
+                "WHEN 'on' THEN 'all_services' END "
+                "WHERE allowed_services_default IS NULL"
+            )
+        )
+        cx.execute(sa.text("ALTER TABLE organizations DROP COLUMN network_default"))
+    project_columns = (
+        {column["name"] for column in sa.inspect(cx).get_columns("projects")}
+        if "projects" in tables
+        else set()
+    )
+    if "network" in project_columns:
+        cx.execute(sa.text("ALTER TABLE projects DROP COLUMN network"))
+
+
 def _apply_upgrades_from(cx: sa.Connection, version: int, tables: set[str]) -> int:
     """Run each in-place upgrade from ``version`` on; return the version reached."""
     if version == 6:
@@ -172,6 +212,9 @@ def _apply_upgrades_from(cx: sa.Connection, version: int, tables: set[str]) -> i
     if version == 9:
         _apply_v9_to_v10(cx, set(sa.inspect(cx).get_table_names()))
         version = 10
+    if version == 10:
+        _apply_v10_to_v11(cx, set(sa.inspect(cx).get_table_names()))
+        version = 11
     return version
 
 
@@ -201,7 +244,7 @@ def _upgrade_identity_schema_to_current(
         version = markers[0].schema_version
         if version == SCHEMA_VERSION:
             return True
-        if version not in (6, 7, 8, 9):
+        if version not in (6, 7, 8, 9, 10):
             return False
         tables = set(sa.inspect(cx).get_table_names())
         if "users" not in tables:
@@ -241,7 +284,7 @@ def ensure_clean_control_plane_schema(
             version = markers[0].schema_version
             if version == SCHEMA_VERSION:
                 return
-            if version in (6, 7, 8, 9) and _upgrade_identity_schema_to_current(
+            if version in (6, 7, 8, 9, 10) and _upgrade_identity_schema_to_current(
                 engine, edition=edition
             ):
                 return

@@ -19,7 +19,8 @@ from urllib.parse import quote
 from frisket.authoring.action_metadata import action_available_in_edition
 from frisket.authoring.project_ask import default_project_ask_model
 from frisket.ai.embeddings.capabilities import resolve_embedding_capability
-from frisket.ai.models.metadata import provider_network_blocked
+from frisket.ai.models.metadata import REMOTE_PROVIDER_KINDS
+from frisket.project_service_access import model_call_allowed
 from frisket.contracts.http.selector_choices import (
     ActionSelectorSubject,
     ProjectAskSelectorSubject,
@@ -392,9 +393,8 @@ class SelectorChoiceService:
         catalog = build_provider_catalog(
             self._workspace.root,
             # Keep authored and exact composed models visible. The selector
-            # applies network policy to the resolved target below, preserving
+            # applies Allowed services to the resolved target below, preserving
             # the selected choice instead of filtering or reranking it.
-            network_off=False,
             local_endpoints=router.local_endpoints,
             local_endpoint_authority="instance"
             if self._edition == "solo"
@@ -629,7 +629,17 @@ class SelectorChoiceService:
             selection_kind="model",
             provider_spend_states=spend_by_provider,
         )
-        services_refusal = _services_refusal(project)
+        if project.allowed_services() != "all_services":
+            candidate_models = [
+                model
+                for model in candidate_models
+                if model_call_allowed(project, router, model)
+            ]
+            direct_models = [
+                model
+                for model in direct_models
+                if model_call_allowed(project, router, model)
+            ]
         return _response(
             project_id,
             subject={"kind": "project_ask"},
@@ -642,8 +652,7 @@ class SelectorChoiceService:
                     _recommendation_composition(composition),
                     candidate_models=candidate_models,
                     directly_runnable_models=direct_models,
-                    network_off=services_refusal is not None,
-                    allow_setup_fallback=services_refusal is None,
+                    allow_setup_fallback=True,
                 )
             ),
             server_labels=_server_labels(provider_catalog),
@@ -1689,8 +1698,9 @@ class SelectorChoiceService:
                 }
         target, destination = _embedding_target(row)
         services_refusal = _services_refusal(project)
-        if services_refusal is not None and provider_network_blocked(
-            str(row.get("provider_kind") or ""), network_off=True
+        if (
+            services_refusal is not None
+            and str(row.get("provider_kind") or "") in REMOTE_PROVIDER_KINDS
         ):
             status = "unavailable"
             setup = None

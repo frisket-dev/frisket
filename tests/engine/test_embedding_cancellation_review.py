@@ -127,7 +127,7 @@ def test_refresh_cancel_after_counts_before_terminal_receipt(
 
 
 def test_create_paid_probe_respects_network_off(project):
-    project.set_network_policy(mode="off")
+    project.set_allowed_services("approved_services", confirm_allowed_services=None)
     gateway = FakeProbeGateway(dim=1024)
     request = _create_action(
         project._sheet_id,
@@ -144,7 +144,7 @@ def test_create_paid_probe_respects_network_off(project):
     )
     assert gateway.calls == [], (result.status, gateway.calls)
     assert result.status == "failed"
-    assert result.errors[0].code == "network_disabled"
+    assert result.errors[0].code == "service_not_allowed"
 
 
 @pytest.mark.parametrize("interruption", INTERRUPTIONS)
@@ -179,7 +179,7 @@ def test_interrupted_early_repair_releases_claim_without_committing_counts(
 
 
 def test_network_off_still_allows_metadata_only_remote_creation(project):
-    project.set_network_policy(mode="off")
+    project.set_allowed_services("approved_services", confirm_allowed_services=None)
     gateway = PaidRemoteGateway()
     index_id = _create_remote_index(project, gateway=gateway)
     assert EmbeddingStore(project).get_index(index_id) is not None

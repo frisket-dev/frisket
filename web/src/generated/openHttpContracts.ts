@@ -346,15 +346,6 @@ export const HTTP_CONTRACT_ARTIFACT = {
       }
     },
     {
-      "id": "outer.update_project_network.patch",
-      "method": "PATCH",
-      "path": "/api/projects/{pid}/network",
-      "request": {
-        "mediaType": "application/json",
-        "required": true
-      }
-    },
-    {
       "id": "outer.validate_organization_key.post",
       "method": "POST",
       "path": "/api/organization/keys/validate",
@@ -1315,12 +1306,6 @@ export const HTTP_CONTRACT_ARTIFACT = {
       "id": "tenant.get_project_cloud_routing.get",
       "method": "GET",
       "path": "/api/projects/{pid}/cloud-routing",
-      "request": null
-    },
-    {
-      "id": "tenant.get_project_network.get",
-      "method": "GET",
-      "path": "/api/projects/{pid}/network",
       "request": null
     },
     {
@@ -12389,18 +12374,6 @@ export type HttpProjectModelRouteResponse = ({
   "route": ("cloud" | "own") & (string);
 });
 
-export type HttpProjectNetworkRequest = ({
-  "mode": (string);
-  [key: string]: JsonValue | (string);
-});
-
-export type HttpProjectNetworkResponse = ({
-  "effective": ("on" | "off") & (string);
-  "mode": ("inherit" | "on" | "off") & (string);
-  "organization_default": ((("on" | "off") & (string)) | ((null)));
-  "schemaVersion": ("frisket.project_network_policy.v1") & (string);
-});
-
 type HttpProjectProviderKeyCatalogResponse_ProjectProviderKey = ({
   "configured": (boolean);
   "hint": (((string)) | ((null)));
@@ -13332,6 +13305,7 @@ type HttpRuntimeConfigResponse_OIDCAuthMethod = ({
 export type HttpRuntimeConfigResponse = ({
   "allowance_editable": (boolean);
   "allowance_usd": (string);
+  "allowed_services_default": ("this_machine_only" | "approved_services" | "all_services") & (string);
   "allowed_services_offered": (Array<("this_machine_only" | "approved_services" | "all_services") & (string)>);
   "auth_methods": (HttpRuntimeConfigResponse_AuthMethods);
   "cache_mode": ("replay" | "fresh" | "replay_strict" | "off") & (string);
@@ -16297,20 +16271,6 @@ export type HttpContractOperationMap = {
       readonly "503": HttpError;
     };
   };
-  readonly "outer.update_project_network.patch": {
-    readonly pathParams: HttpInline_87cacc773db826e7;
-    readonly query: HttpInline_d746974fa9afd5e9;
-    readonly request: HttpProjectNetworkRequest;
-    readonly responses: {
-      readonly "200": HttpProjectNetworkResponse;
-      readonly "400": HttpError;
-      readonly "401": HttpError;
-      readonly "403": HttpError;
-      readonly "404": HttpError;
-      readonly "422": HttpError;
-      readonly "500": HttpError;
-    };
-  };
   readonly "outer.validate_organization_key.post": {
     readonly pathParams: HttpInline_d746974fa9afd5e9;
     readonly query: HttpInline_d746974fa9afd5e9;
@@ -18194,18 +18154,6 @@ export type HttpContractOperationMap = {
       readonly "200": HttpProjectCloudRoutingResponse;
       readonly "404": HttpError;
       readonly "409": HttpError;
-      readonly "500": HttpError;
-    };
-  };
-  readonly "tenant.get_project_network.get": {
-    readonly pathParams: HttpInline_87cacc773db826e7;
-    readonly query: HttpInline_d746974fa9afd5e9;
-    readonly request: undefined;
-    readonly responses: {
-      readonly "200": HttpProjectNetworkResponse;
-      readonly "401": HttpError;
-      readonly "403": HttpError;
-      readonly "404": HttpError;
       readonly "500": HttpError;
     };
   };

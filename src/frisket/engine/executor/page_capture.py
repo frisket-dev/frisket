@@ -65,6 +65,7 @@ from frisket.engine.store.media_blobs import (
     owned_media_metadata_document,
 )
 from frisket.engine.store.receipts import ReceiptStore
+from frisket.project_service_access import remote_service_refusal
 
 
 logger = logging.getLogger("frisket.executor")
@@ -317,14 +318,15 @@ def _web_capture_page_row_results(
 ) -> list[dict[str, Any]]:
     row_results: list[dict[str, Any]] = []
     for row_id in row_ids:
-        if project.remote_services_refused():
+        refusal = remote_service_refusal(project, "page capture")
+        if refusal is not None:
             row_results.append(
                 _web_capture_page_error_row(
                     row_id=row_id,
                     input_column=input_column,
                     value=values.get(row_id),
-                    error="Project network access is disabled",
-                    reason="network_disabled",
+                    error=str(refusal),
+                    reason=refusal.code,
                     value_ref=value_refs.get(row_id),
                 )
             )

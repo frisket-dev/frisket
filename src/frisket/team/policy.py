@@ -140,7 +140,6 @@ def compile_team_policies(
             ("create_project", "POST"),
             ("list_projects", "GET"),
             ("delete_project", "DELETE"),
-            ("update_project_network", "PATCH"),
             ("update_project_usage_data_sharing", "PATCH"),
         }
     )

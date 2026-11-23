@@ -143,7 +143,7 @@ def test_completed_direct_replay_does_not_require_current_network_or_key(
     receipt = ReceiptStore(project).parsed_by_id(queued["receipt_id"])
     assert receipt.status == "completed"
     monkeypatch.delenv("CENSUS_API_KEY", raising=False)
-    project.set_network_policy(mode="off")
+    project.set_allowed_services("approved_services", confirm_allowed_services=None)
     replay = run_action_spec(project, body, project_id=project_id)
     assert replay.status == "completed", replay.errors
     assert replay.receipt_id == queued["receipt_id"]
@@ -152,7 +152,7 @@ def test_completed_direct_replay_does_not_require_current_network_or_key(
         project, {**body, "idempotency_key": "new-census"}, project_id=project_id
     )
     assert fresh.status == "failed"
-    assert fresh.errors[0].code in {"missing_action_credential", "network_disabled"}
+    assert fresh.errors[0].code in {"missing_action_credential", "service_not_allowed"}
     assert len(calls) == 2
 
 

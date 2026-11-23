@@ -45,8 +45,6 @@ def test_project_config_routes_have_typed_successes_and_preserve_wire_rules(
     expected = {
         ("/api/projects/{pid}/retention", "get"),
         ("/api/projects/{pid}/retention", "patch"),
-        ("/api/projects/{pid}/network", "get"),
-        ("/api/projects/{pid}/network", "patch"),
         ("/api/projects/{pid}/settings", "get"),
         ("/api/projects/{pid}/settings", "patch"),
         ("/api/projects/{pid}/compact", "post"),
@@ -291,7 +289,7 @@ def test_project_settings_preserve_untouched_future_policy_fields(
     assert persisted["text_recipe"] is None
 
 
-def test_network_and_secret_conflict_responses_preserve_existing_wire_bytes(
+def test_secret_conflict_responses_preserve_existing_wire_bytes(
     client,
 ) -> None:
     pid = client.post("/api/projects", json={"name": "Config"}).json()["id"]
@@ -302,14 +300,6 @@ def test_network_and_secret_conflict_responses_preserve_existing_wire_bytes(
         ("weather-plugin", "WEATHER_API_KEY", None, "needs_resolution", "2026-01-02"),
     )
     project.db.commit()
-
-    # Local GET/PATCH retain the materialized (possibly null) organization default.
-    initial = client.get(f"/api/projects/{pid}/network")
-    assert initial.status_code == 200, initial.text
-    assert initial.json()["organization_default"] is None
-    updated = client.patch(f"/api/projects/{pid}/network", json={"mode": "off"})
-    assert updated.status_code == 200, updated.text
-    assert updated.json()["organization_default"] is None
 
     # This comes directly from the existing SQLite select and the Settings UI
     # already reads `plugin_id`; project-config must not silently camel-case it.
@@ -325,7 +315,7 @@ def test_network_and_secret_conflict_responses_preserve_existing_wire_bytes(
     ]
 
 
-def test_team_network_twin_and_validate_optionality(tmp_path) -> None:
+def test_team_allowed_services_default_and_validate_optionality(tmp_path) -> None:
     app = create_team_app(
         TeamConfig(
             database_url=f"sqlite:///{tmp_path / 'control.db'}",
@@ -337,16 +327,25 @@ def test_team_network_twin_and_validate_optionality(tmp_path) -> None:
         )
     )
     browser = claim_server(app)
-    pid = browser.post("/api/projects", json={"name": "Team Config"}).json()["id"]
-    browser.patch("/api/organization/network", json={"network_default": "off"})
-    response = browser.patch(f"/api/projects/{pid}/network", json={"mode": "inherit"})
-    assert response.status_code == 200, response.text
-    assert response.json() == {
-        "schemaVersion": "frisket.project_network_policy.v1",
-        "mode": "inherit",
-        "organization_default": "off",
-        "effective": "off",
-    }
+    before = browser.post("/api/projects", json={"name": "Before"}).json()
+    assert before["allowed_services"] == "all_services"
+    changed = browser.patch(
+        "/api/organization/allowed-services-default",
+        json={"allowed_services_default": "approved_services"},
+    )
+    assert changed.status_code == 200, changed.text
+    assert browser.get("/api/config").json()["allowed_services_default"] == (
+        "approved_services"
+    )
+    after = browser.post("/api/projects", json={"name": "After"}).json()
+    assert after["allowed_services"] == "approved_services"
+    chosen = browser.post(
+        "/api/projects", json={"name": "Chosen", "allowed_services": "all_services"}
+    ).json()
+    assert chosen["allowed_services"] == "all_services"
+    assert browser.get(f"/api/projects/{before['id']}").json()["allowed_services"] == (
+        "all_services"
+    )
 
     nullable = ProjectProviderKeyValidationResponse.model_validate(
         {

@@ -54,6 +54,7 @@ from frisket.engine.executor.action_reservations import (
 from frisket.engine.store.generated_column_claims import GeneratedColumnClaimStore
 from frisket.engine.store.result_generations import ResultGenerationStore
 from frisket.execution.attempt import StaleAttemptWriter
+from frisket.project_service_access import remote_service_refusal
 
 
 class AdmittedValueClusterer:
@@ -85,7 +86,6 @@ class AdmittedValueClusterer:
 
 def prepare_cluster_action(project, bound, *, router=None, admission=True):
     from frisket.ai.embeddings.backends import embedder_is_remote, resolve_embedder
-    from frisket.engine.runner.validation import NetworkDisabled
 
     from .selection_scope import resolve_action_selection
 
@@ -111,10 +111,9 @@ def prepare_cluster_action(project, bound, *, router=None, admission=True):
                 "Semantic clustering requires an embedding backend",
             )
         model = backend[1]
-        if embedder_is_remote(model) and project.remote_services_refused():
-            raise TypedMapRowsPlanError(
-                "network_disabled", str(NetworkDisabled("model:embed"))
-            )
+        refusal = remote_service_refusal(project, "remote embeddings")
+        if embedder_is_remote(model) and refusal is not None:
+            raise TypedMapRowsPlanError(refusal.code, str(refusal))
     state["embedding_model"] = model
     name = bound.request.output_names.get("canonical", "canonical")
     if name == state["source"]["name"]:

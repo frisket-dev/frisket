@@ -28,7 +28,7 @@ def test_direct_source_poll_checks_network_before_creating_source_or_dispatching
     )
     try:
         project = make_project("source")
-        project.set_network_policy(mode="off")
+        project.set_allowed_services("approved_services", confirm_allowed_services=None)
         result = run_action_spec(
             project,
             {
@@ -47,7 +47,7 @@ def test_direct_source_poll_checks_network_before_creating_source_or_dispatching
             project_id="test",
         )
         assert result.status == "failed"
-        assert result.errors[0].code == "network_disabled"
+        assert result.errors[0].code == "service_not_allowed"
         assert not calls
         assert project.db.execute("SELECT COUNT(*) FROM feeds").fetchone()[0] == 0
     finally:
@@ -59,7 +59,7 @@ def test_direct_source_poll_checks_network_before_creating_source_or_dispatching
 
 def test_network_off_still_allows_local_action(make_project):
     project = make_project("local")
-    project.set_network_policy(mode="off")
+    project.set_allowed_services("approved_services", confirm_allowed_services=None)
     assert (
         action_admission_error(project, ACTION_REGISTRY.get("resolve.fill_missing"))
         is None
@@ -154,7 +154,7 @@ def test_scratch_preview_declared_gate_precedes_media_probe(
     action_id = "media.ocr" if family == "ocr" else "media.transcribe"
     _declare_external(monkeypatch, action_id)
     project = make_project("scratch")
-    project.set_network_policy(mode="off")
+    project.set_allowed_services("approved_services", confirm_allowed_services=None)
     prepare = paid_ocr_scratch_plan if family == "ocr" else paid_transcribe_scratch_plan
     with pytest.raises(ComparePreviewError) as caught:
         prepare(
@@ -163,7 +163,7 @@ def test_scratch_preview_declared_gate_precedes_media_probe(
             payload={"engine": "local"},
             composition=None,
         )
-    assert caught.value.code == "network_disabled"
+    assert caught.value.code == "service_not_allowed"
 
 
 def test_refresh_checks_resolved_derive_action_before_read_or_publish(
@@ -173,7 +173,7 @@ def test_refresh_checks_resolved_derive_action_before_read_or_publish(
 
     project, _, _, child_id, _ = _build(make_project)
     _declare_external(monkeypatch, "derive.table_from_list")
-    project.set_network_policy(mode="off")
+    project.set_allowed_services("approved_services", confirm_allowed_services=None)
     before = tuple(project.db.iterdump())
     result = run_action_spec(
         project,
@@ -181,7 +181,7 @@ def test_refresh_checks_resolved_derive_action_before_read_or_publish(
         project_id="p-ref",
     )
     assert result.status == "failed"
-    assert result.errors[0].code == "network_disabled"
+    assert result.errors[0].code == "service_not_allowed"
     assert tuple(project.db.iterdump()) == before
 
 
@@ -222,5 +222,5 @@ def test_queued_cluster_rechecks_declared_requirements_after_admission(
         project = client.app.state.workspace.get(pid)
         envelope = queued_v1_payload_envelope(job.payload)
         _declare_external(monkeypatch, "cluster.values")
-        project.set_network_policy(mode="off")
-        assert envelope.pre_run_error(project).code == "network_disabled"
+        project.set_allowed_services("approved_services", confirm_allowed_services=None)
+        assert envelope.pre_run_error(project).code == "service_not_allowed"

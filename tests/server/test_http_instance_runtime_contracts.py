@@ -41,6 +41,7 @@ CONFIG_KEYS = [
     "plugins_available",
     "plugin_management_available",
     "product_telemetry_available",
+    "allowed_services_default",
     "allowed_services_offered",
 ]
 

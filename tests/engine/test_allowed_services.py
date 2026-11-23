@@ -142,8 +142,12 @@ def test_each_destination_under_each_setting_is_decided_before_any_request(
     plan = _classify_plan(project, MODELS[destination])
 
     def gate() -> None:
-        validation.assert_network_policy(
-            project, plan.program, plan.spec_dict(), router=runner.router
+        validation.assert_allowed_services(
+            project,
+            plan.program,
+            plan.spec_dict(),
+            router=runner.router,
+            selected_route=None,
         )
 
     if destination in EXPECTED[setting]:
@@ -185,8 +189,8 @@ def test_approving_a_self_hosted_api_does_not_allow_openai(project: Project) -> 
     router = _router(requests)
     plan = _classify_plan(project, MODELS["provider_api"])
     with pytest.raises(validation.ServiceRefused) as refused:
-        validation.assert_network_policy(
-            project, plan.program, plan.spec_dict(), router=router
+        validation.assert_allowed_services(
+            project, plan.program, plan.spec_dict(), router=router, selected_route=None
         )
     assert refused.value.capability == "api.openai.com"
     assert requests == []
@@ -274,8 +278,8 @@ def test_a_configured_model_server_is_approved_until_it_is_removed(
     plan = _classify_plan(project, model)
 
     def gate() -> None:
-        validation.assert_network_policy(
-            project, plan.program, plan.spec_dict(), router=router
+        validation.assert_allowed_services(
+            project, plan.program, plan.spec_dict(), router=router, selected_route=None
         )
 
     _set(project, "approved_services")

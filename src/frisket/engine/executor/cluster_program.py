@@ -33,6 +33,7 @@ from frisket.engine.store.writer_fence import WriterFence
 from frisket.execution.attempt import attempt_in_scope
 from frisket.ops.base import ActionProgramInvocationHalt
 from frisket.ops.cost_source import free_local_estimate, unknown_cost_estimate
+from frisket.project_service_access import remote_service_refusal
 
 
 CLUSTER_RESULT_SPEC_KEY = "value_clusters_result"
@@ -337,14 +338,12 @@ class _ClusterProgram(_TypedMapBatchProgram):
                         return
                     from frisket.ai.llm.types import provider_from_model_id
                     from frisket.engine.runner.validation import (
-                        NetworkDisabled,
                         assert_provider_spend_cap,
                     )
 
-                    if ctx.project.remote_services_refused():
-                        raise ActionProgramInvocationHalt(
-                            "network_disabled", str(NetworkDisabled("model:embed"))
-                        )
+                    refusal = remote_service_refusal(ctx.project, "remote embeddings")
+                    if refusal is not None:
+                        raise ActionProgramInvocationHalt(refusal.code, str(refusal))
                     assert_provider_spend_cap(
                         ctx.project, provider_from_model_id(model)
                     )

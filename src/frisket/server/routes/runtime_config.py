@@ -27,7 +27,10 @@ from pathlib import Path
 from fastapi import FastAPI, HTTPException
 
 from frisket.ai.llm import live_calls_possible
-from frisket.service_access import ALLOWED_SERVICES_VALUES, allowed_services_offered
+from frisket.service_access import (
+    ALLOWED_SERVICES_VALUES,
+    allowed_services_offered,
+)
 from frisket.authoring.workbench.plugin_runtime_shared import (
     active_plugin_composition_policy,
 )
@@ -92,6 +95,7 @@ def register_runtime_config_routes(
                 "plugins_available": plugin_policy.exposes_any_plugins,
                 "plugin_management_available": plugin_policy.nonbundled_enabled,
                 "product_telemetry_available": product_telemetry_available,
+                "allowed_services_default": workspace.allowed_services_default(),
                 "allowed_services_offered": [
                     value
                     for value in ALLOWED_SERVICES_VALUES

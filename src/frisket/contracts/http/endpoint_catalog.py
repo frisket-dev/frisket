@@ -174,9 +174,9 @@ _OUTER_ADMIN: tuple[RouteSpec, ...] = (
     ("admin_browser_revoke_invite", "DELETE"),
     ("admin_browser_update_user_role", "PATCH"),
     ("admin_browser_users", "GET"),
-    # Organization-wide network default: owner-only, like the other organization-shaping admin
-    # actions.
-    ("update_organization_network", "PATCH"),
+    # The organization's Allowed services default: owner-only, like the other
+    # organization-shaping admin actions.
+    ("update_organization_allowed_services_default", "PATCH"),
 )
 
 _OUTER_OAUTH_BROWSER: tuple[RouteSpec, ...] = (
@@ -197,7 +197,7 @@ _OUTER_SESSION: tuple[RouteSpec, ...] = (
     ("delete_organization_env_var", "DELETE"),
     ("delete_organization_key", "DELETE"),
     ("diagnostic_bundle", "POST"),
-    ("get_organization_network", "GET"),
+    ("get_organization_allowed_services_default", "GET"),
     ("get_project_blob", "GET"),
     ("list_members", "GET"),
     ("list_organization_env_vars", "GET"),
@@ -413,7 +413,6 @@ _TENANT_VIEWER: tuple[RouteSpec, ...] = (
     ("get_blob", "GET"),
     ("get_pdf_page_image", "GET"),
     ("get_project", "GET"),
-    ("get_project_network", "GET"),
     ("get_project_retention", "GET"),
     ("get_feed", "GET"),
     ("get_feed_health", "GET"),
@@ -522,13 +521,6 @@ _TENANT_OWNER: tuple[RouteSpec, ...] = (
     ),
     (
         "update_project_allowed_services",
-        "PATCH",
-    ),
-    # The network off-switch is a safety policy, owner-level like usage-data
-    # sharing; the team app overrides it with a control-plane-syncing twin,
-    # same as usage-data sharing.
-    (
-        "update_project_network",
         "PATCH",
     ),
     (
@@ -1015,7 +1007,6 @@ _BROWSER_CLIENT_IDS = (
             "tenant.ocr_compare_scratch_estimate.post",
             "tenant.citation_viewer.get",
             "tenant.get_project.get",
-            "tenant.get_project_network.get",
             "tenant.get_project_provider_keys.get",
             "tenant.get_project_retention.get",
             "tenant.get_project_secrets.get",
@@ -1089,9 +1080,6 @@ _BROWSER_CLIENT_IDS = (
             "tenant.sheet_graph.get",
             "tenant.delete_sheet.delete",
             "tenant.update_project.patch",
-            # The local policy owns browser membership; projection maps this
-            # Team/local twin to outer.update_project_network.patch.
-            "tenant.update_project_network.patch",
             "tenant.update_project_allowed_services.patch",
             "tenant.update_project_retention.patch",
             "tenant.set_project_provider_key.post",
