@@ -12,6 +12,7 @@ from fastapi.testclient import TestClient
 
 import frisket.team.app as team_app
 
+from frisket.server.workspace import Workspace
 from frisket.team.bootstrap import init_identity_schema
 from frisket.team.schema import metadata, project_creation_intents, projects
 from frisket.team.app import (
@@ -169,6 +170,49 @@ def test_v9_control_plane_adds_intent_settings_and_keeps_rows(
     engine.dispose()
 
 
+def test_v9_intent_completes_under_the_folded_organization_default(
+    tmp_path: Path,
+) -> None:
+    """A creation intent recorded before intents stored Allowed services
+    completes under the organization default the network setting folded
+    into, not All services."""
+    engine = sa.create_engine(f"sqlite:///{tmp_path / 'v9.db'}", future=True)
+    init_identity_schema(engine)
+    with engine.begin() as cx:
+        for name in ("allowed_services", "usage_data_sharing", "cover_seed"):
+            cx.exec_driver_sql(
+                f"ALTER TABLE project_creation_intents DROP COLUMN {name}"
+            )
+        cx.exec_driver_sql(
+            "ALTER TABLE organizations DROP COLUMN allowed_services_default"
+        )
+        cx.exec_driver_sql(
+            "ALTER TABLE organizations ADD COLUMN network_default VARCHAR"
+        )
+        cx.exec_driver_sql("ALTER TABLE projects ADD COLUMN network VARCHAR")
+        cx.exec_driver_sql("UPDATE schema_marker SET schema_version = 9 WHERE id = 1")
+        cx.exec_driver_sql(
+            "INSERT INTO organizations (id, name, network_default) "
+            "VALUES (1, 'Newsroom', 'off')"
+        )
+        cx.exec_driver_sql(
+            "INSERT INTO users (id, email) VALUES (1, 'owner@example.test')"
+        )
+        cx.exec_driver_sql(
+            "INSERT INTO project_creation_intents "
+            "(slug, organization_id, creator_user_id, name, sensitive) "
+            "VALUES ('old', 1, 1, 'Old', 0)"
+        )
+
+    init_identity_schema(engine)
+
+    workspace = Workspace(tmp_path / "workspace")
+    made = team_app._complete_project_intent(engine, workspace, slug="old")
+    assert made["allowed_services"] == "approved_services"
+    assert workspace.get("old").allowed_services() == "approved_services"
+    engine.dispose()
+
+
 def _columns(engine: sa.Engine, table: str) -> set[str]:
     return {column["name"] for column in sa.inspect(engine).get_columns(table)}
 
@@ -218,6 +262,12 @@ def test_v10_control_plane_keeps_cover_seeds_and_folds_network(
             "(slug, organization_id, creator_user_id, name, sensitive, cover_seed) "
             "VALUES ('seeded', 1, 1, 'Seeded', 0, 'k3x9')"
         )
+        cx.exec_driver_sql(
+            "INSERT INTO project_creation_intents "
+            "(slug, organization_id, creator_user_id, name, sensitive, "
+            "allowed_services) "
+            "VALUES ('chosen', 1, 1, 'Chosen', 0, 'all_services')"
+        )
 
     init_identity_schema(engine)
 
@@ -228,11 +278,15 @@ def test_v10_control_plane_keeps_cover_seeds_and_folds_network(
             ).scalar_one()
             == 11
         )
-        intent = cx.execute(sa.select(project_creation_intents)).one()
+        intents = {
+            row.slug: row for row in cx.execute(sa.select(project_creation_intents))
+        }
         default = cx.exec_driver_sql(
             "SELECT allowed_services_default FROM organizations WHERE id = 1"
         ).scalar_one()
-    assert intent.cover_seed == "k3x9"
+    assert intents["seeded"].cover_seed == "k3x9"
+    assert intents["seeded"].allowed_services == "approved_services"
+    assert intents["chosen"].allowed_services == "all_services"
     assert default == "approved_services"
     assert "network_default" not in _columns(engine, "organizations")
     assert "network" not in _columns(engine, "projects")

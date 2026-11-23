@@ -14,7 +14,8 @@ the organization tables and foreign-key columns to `organizations` /
 `organization_id`; v9 -> v10 adds the creator's Allowed services,
 usage-data choices and cover seed to project creation intents; v10 -> v11
 folds the network on/off defaults into Allowed services: an organization
-default of off becomes Approved services, and the network columns are
+default of off becomes Approved services, creation intents without their
+own Allowed services take that default, and the network columns are
 dropped).
 
 `ensure_clean_control_plane_schema` is that gate, and it is shared: an
@@ -165,7 +166,10 @@ def _apply_v10_to_v11(cx: sa.Connection, tables: set[str]) -> None:
     """Carry the organization network default into Allowed services.
 
     Off becomes Approved services and on becomes All services; an unset
-    default stays unset (All services). The project network column goes
+    default stays unset (All services). A creation intent without its own
+    Allowed services takes its organization's default, so a pending project
+    completes no looser than the organization allowed; an intent's own
+    choice stays. The project network column goes
     too: each bundle folds its own network setting when it is opened. Tables
     a database lacks come whole from ``create_all``.
     """
@@ -190,6 +194,15 @@ def _apply_v10_to_v11(cx: sa.Connection, tables: set[str]) -> None:
             )
         )
         cx.execute(sa.text("ALTER TABLE organizations DROP COLUMN network_default"))
+    if "project_creation_intents" in tables:
+        cx.execute(
+            sa.text(
+                "UPDATE project_creation_intents SET allowed_services = ("
+                "SELECT allowed_services_default FROM organizations "
+                "WHERE organizations.id = project_creation_intents.organization_id"
+                ") WHERE allowed_services IS NULL"
+            )
+        )
     project_columns = (
         {column["name"] for column in sa.inspect(cx).get_columns("projects")}
         if "projects" in tables
