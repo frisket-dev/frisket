@@ -11,7 +11,7 @@ from typing import Any
 from frisket.ai.llm.model_catalog import MODEL_ENTRIES
 from frisket.ai.models.metadata import is_remote_provider
 from frisket.ops import ytdlp
-from frisket.service_access import ALLOWED_SERVICES_LABELS
+from frisket.service_access import ALLOWED_SERVICES_LABELS, SERVICE_NOT_ALLOWED
 from frisket.actions.system import root_action_catalog_payload
 from frisket.contracts.actions.schemas._engines import (
     CENSUS_ENGINE_TABLE,
@@ -854,7 +854,7 @@ def _remote_engine_error(project: Project | None) -> str:
 
 
 def _apply_network_off_engine_hints(
-    engines: list[dict[str, Any]], error: str
+    engines: list[dict[str, Any]], error: str, error_code: str | None
 ) -> list[dict[str, Any]]:
     """Remote-tier engines read as
     unavailable with a policy reason instead of a credential one. The ``llm``
@@ -865,6 +865,9 @@ def _apply_network_off_engine_hints(
     for engine in engines:
         if engine.get("tier") == "remote" and engine.get("id") != "llm":
             engine = {**engine, "available": False, "error": error}
+            if error_code is not None:
+                # Allowed services hides the engine rather than disabling it.
+                engine["error_code"] = error_code
         out.append(engine)
     return out
 
@@ -1963,7 +1966,11 @@ def project_action_catalog_launcher_hints(
         if engines:
             if network_off:
                 engines = _apply_network_off_engine_hints(
-                    engines, _remote_engine_error(project)
+                    engines,
+                    _remote_engine_error(project),
+                    SERVICE_NOT_ALLOWED
+                    if _project_services_restricted(project)
+                    else None,
                 )
             hints["engines"] = engines
         pricing = _action_pricing(provider_name)
