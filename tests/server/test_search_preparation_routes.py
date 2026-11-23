@@ -20,7 +20,14 @@ from frisket.server.services import search_preparation as preparation_module
 from frisket.server.services import search_preparation_planning as planning_module
 from frisket.server.services.search_preparation import SearchPreparationService
 from frisket.server.services.action_runs import ActionRunResponse
+from frisket.ai.embeddings.runtime import EmbeddingRuntime
+from frisket.engine.jobs import HandlerRegistry, Worker
+from frisket.engine.jobs.search_index import register_search_index_handler
+from frisket.engine.store.search_index_work import read_dirty_scopes
+from frisket.retrieval.preparation import preparation_work_marker
+from frisket.search import drain_index
 from frisket.server.workspace import Workspace
+from tests.helpers import make_client
 from frisket.engine.jobs.search_preparation_store import SearchPreparationStore
 from tests.server.test_search_preparation_import_bridges import _pdf_bytes
 
@@ -198,7 +205,6 @@ def test_preparation_lists_independent_pdf_checkpoints_across_index_jobs(
     from frisket.retrieval.preparation import DEFAULT_TEXT_SPACE, PDF_PAGE_RECIPE_ID
     from frisket.retrieval.sources import blob_source_revision
     from frisket.retrieval.store import RetrievalStore
-    from frisket.search import drain_index
 
     monkeypatch.setattr(preparation_module, "_requirements", lambda: ())
     project_id = client.post("/api/projects", json={"name": "PDF progress"}).json()[
@@ -375,7 +381,6 @@ def test_pdf_progress_is_optional_and_skipped_when_indexing_is_idle(
 def test_indexing_sheet_names_follow_visible_explicit_lexical_scope(
     tmp_path, monkeypatch
 ) -> None:
-    from frisket.search import drain_index
 
     monkeypatch.setattr(preparation_module, "_requirements", lambda: ())
     workspace = Workspace(tmp_path / "workspace")
@@ -394,10 +399,10 @@ def test_indexing_sheet_names_follow_visible_explicit_lexical_scope(
     assert service.list(project_id).indexing.sheet_names == []
 
 
-def test_preparation_list_projects_durable_indexing_work(client, monkeypatch) -> None:
-    from frisket.search import drain_index
+def test_preparation_list_projects_durable_indexing_work(tmp_path, monkeypatch) -> None:
 
     monkeypatch.setattr(preparation_module, "_requirements", lambda: ())
+    client = make_client(tmp_path, embedding_runtime=_available_embedding_runtime())
     project_id = client.post("/api/projects", json={"name": "Indexing"}).json()["id"]
     project = client.app.state.workspace.get(project_id)
     sheet_id = project.add_sheet("Notes")
@@ -517,8 +522,6 @@ def test_search_recovers_index_work_without_a_queued_job(
     )
 
     # Use the production worker handler, not a mocked transition to "ready".
-    from frisket.engine.jobs import HandlerRegistry, Worker
-    from frisket.engine.jobs.search_index import register_search_index_handler
 
     registry = HandlerRegistry()
     register_search_index_handler(
@@ -546,8 +549,6 @@ def test_search_recovers_index_work_without_a_queued_job(
 
 
 def _available_embedding_runtime():
-    from frisket.ai.embeddings.runtime import EmbeddingRuntime
-
     def never_started(*, cancelled=None):
         raise AssertionError("indexing status must not start the encoder")
 
@@ -555,9 +556,6 @@ def _available_embedding_runtime():
 
 
 def _semantic_preparation_left_pending(client) -> str:
-    from frisket.retrieval.preparation import preparation_work_marker
-    from frisket.search import drain_index
-
     workspace = client.app.state.workspace
     project_id = client.post("/api/projects", json={"name": "Atlas"}).json()["id"]
     project = workspace.get(project_id)
@@ -571,6 +569,12 @@ def _semantic_preparation_left_pending(client) -> str:
     ):
         assert workspace.queue.cancel(job.id)
     assert preparation_work_marker(project.path) is not None
+    assert read_dirty_scopes(project.db, limit=1) == []
+    with sqlite3.connect(project.path / "project.retrieval.db") as retrieval:
+        states = set(
+            retrieval.execute("SELECT channel, status FROM preparation").fetchall()
+        )
+    assert states == {("lexical", "ready"), ("text", "pending")}
     return project_id
 
 
@@ -601,9 +605,6 @@ def test_semantic_preparation_no_encoder_can_run_is_not_reported_as_indexing(
 def test_worker_composed_without_an_encoder_leaves_no_perpetual_indexing(
     tmp_path, client, monkeypatch
 ):
-    from frisket.engine.jobs import HandlerRegistry, Worker
-    from frisket.engine.jobs.search_index import register_search_index_handler
-    from frisket.retrieval.preparation import preparation_work_marker
 
     monkeypatch.setenv("FRISKET_MODEL_RUNTIME_DIR", str(tmp_path / "model-runtime"))
     monkeypatch.setenv("HF_HUB_CACHE", str(tmp_path / "model-cache"))
@@ -634,7 +635,6 @@ def test_worker_composed_without_an_encoder_leaves_no_perpetual_indexing(
 def test_lost_semantic_preparation_enqueue_is_recovered_by_the_next_search(
     tmp_path, monkeypatch
 ):
-    from tests.helpers import make_client
 
     monkeypatch.setattr(preparation_module, "_requirements", lambda: ())
     client = make_client(tmp_path, embedding_runtime=_available_embedding_runtime())
@@ -1378,7 +1378,6 @@ def test_mixed_pdf_plan_preserves_good_work_and_skipped_source_scope(
     # Both producers target the one designated Text column. The ordinary
     # output claim therefore serializes their disjoint row scopes; completing
     # native extraction lets durable recovery admit OCR against the same id.
-    from frisket.engine.jobs import Worker
     from http_test_helpers import run_worker_until_job_terminal
 
     worker = Worker(workspace.queue, workspace.registry, worker_id="mixed-pdf-test")
