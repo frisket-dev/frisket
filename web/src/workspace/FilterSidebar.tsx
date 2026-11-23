@@ -335,7 +335,10 @@ export function FilterSidebar() {
       data-testid="filter-sidebar"
       aria-label="Filter and views"
       onKeyDown={(event) => {
-        if (event.key === 'Escape' && !event.defaultPrevented) {
+        // Dialogs and menus opened from the sidebar close themselves on Escape.
+        const target = event.target instanceof Element ? event.target : null;
+        const nested = target?.closest('dialog, [role="dialog"], [role="alertdialog"], [role="menu"], [role="listbox"], [popover]');
+        if (event.key === 'Escape' && !event.defaultPrevented && !nested) {
           event.preventDefault();
           close();
         }
