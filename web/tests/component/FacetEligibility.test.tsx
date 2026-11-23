@@ -1,8 +1,7 @@
 // @vitest-environment jsdom
-import { renderHook, waitFor } from '@testing-library/react';
+import { act, renderHook, waitFor } from '@testing-library/react';
 import type { ReactNode } from 'react';
 import { afterEach, expect, it, vi } from 'vitest';
-import type { ColumnValuesPreview } from '../../src/api/types';
 import { createProjectApi } from '../../src/api/real';
 import { WorkspaceStoresContext } from '../../src/bind/workspaceStoresContext';
 import { createWorkspaceStores } from '../../src/state/createWorkspaceStores';
@@ -22,26 +21,26 @@ const sheet = sheetMeta([
   columnDef({ id: '4', name: 'size', type: 'number' }),
 ], { id: '9', name: 'Filings', rowCount: 400 });
 
-function preview(inputColumn: string, distinct: number, omittedRows = 0): ColumnValuesPreview {
-  return {
-    sheetId: '9', columnId: '1', inputColumn, totalRows: 400, distinct, missing: 0, values: [],
-    offset: 0, limit: 1, truncated: distinct > 0, valueHash: null, search: null, distribution: null,
-    inventoryComplete: omittedRows === 0, omittedRows,
-  };
-}
-
 afterEach(() => vi.restoreAllMocks());
 
-it('asks the server for each column’s whole-column distinct count and leaves large ones to search', async () => {
-  const calls = vi.spyOn(api, 'columnValuesPreview').mockImplementation(async (input) => (
-    input.inputColumn === 'kind' ? preview('kind', 4)
-      : input.inputColumn === 'body' ? preview('body', 51)
-        : preview('ocr', 2, 6)
-  ));
+it('costs nothing until asked, then counts every column in one server request', async () => {
+  const counts = vi.spyOn(api, 'columnValueCounts').mockResolvedValue({
+    columns: [
+      { inputColumn: 'kind', distinct: 4, omittedRows: 0, listDistinct: null },
+      { inputColumn: 'body', distinct: 51, omittedRows: 0, listDistinct: null },
+      { inputColumn: 'ocr', distinct: 2, omittedRows: 6, listDistinct: null },
+    ],
+  });
+  const preview = vi.spyOn(api, 'columnValuesPreview');
   const { result } = renderHook(() => useFacetEligibility(sheet, 0), { wrapper });
-  expect(result.current.pending.has('kind')).toBe(true);
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  expect(counts).not.toHaveBeenCalled();
+  expect(result.current.pending.size).toBe(3);
+  act(() => result.current.ensure());
+  act(() => result.current.ensure());
   await waitFor(() => expect(result.current.pending.size).toBe(0));
+  expect(counts).toHaveBeenCalledTimes(1);
+  expect(counts).toHaveBeenCalledWith({ sheetId: '9', inputColumns: ['kind', 'body', 'ocr'] });
+  expect(preview).not.toHaveBeenCalled();
   expect([...result.current.searchOnly].sort()).toEqual(['body', 'ocr']);
-  expect(calls.mock.calls.map(([input]) => input.inputColumn).sort()).toEqual(['body', 'kind', 'ocr']);
-  expect(calls).toHaveBeenCalledWith(expect.objectContaining({ sheetId: '9', valueMode: 'bounded', limit: 1 }));
 });

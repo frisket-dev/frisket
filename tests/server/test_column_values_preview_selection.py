@@ -111,3 +111,29 @@ def test_selection_for_another_sheet_is_refused(client):
     response = _preview(client, pid, sheet, "kind", selection)
     assert response.status_code == 400
     assert "selection" in response.text
+
+
+def test_one_request_counts_distinct_values_for_many_columns(client):
+    pid, sheet, _ = _sheet(client)
+    response = client.post(
+        f"/api/projects/{pid}/column-values/v1/counts",
+        json={"sheet_id": sheet, "input_columns": ["kind", "size", "body"]},
+    )
+    assert response.status_code == 200, response.text
+    payload = response.json()
+    assert payload["schema_version"] == "frisket.column_value_counts.v1"
+    by_name = {item["input_column"]: item for item in payload["columns"]}
+    assert by_name["kind"]["distinct"] == 3
+    assert by_name["body"]["distinct"] == 6
+    assert by_name["size"]["distinct"] == 5
+    assert all(item["omitted_rows"] == 0 for item in payload["columns"])
+
+
+def test_counts_refuse_an_unknown_column(client):
+    pid, sheet, _ = _sheet(client)
+    response = client.post(
+        f"/api/projects/{pid}/column-values/v1/counts",
+        json={"sheet_id": sheet, "input_columns": ["kind", "nope"]},
+    )
+    assert response.status_code == 400
+    assert "nope" in response.text
