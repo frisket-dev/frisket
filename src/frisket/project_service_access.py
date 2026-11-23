@@ -152,4 +152,3 @@ def check_model_call(
     ):
         access.check_remote_service(provider_from_model_id(model))
     check_route(project, access, route, model_destination=destination)
-

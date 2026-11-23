@@ -56,9 +56,7 @@ def source_project(make_project):
     project = make_project("source")
     sheet = project.add_sheet("Sources")
     body = project.add_column(sheet, "body", type="text")
-    rows = project.add_rows(
-        sheet, [{"body": "First policy report."}], {"body": body}
-    )
+    rows = project.add_rows(sheet, [{"body": "First policy report."}], {"body": body})
     yield project, sheet, rows
 
 
@@ -139,7 +137,6 @@ def test_find_scan_model_is_decided_before_any_request(
         assert adapter.requests == []
         assert result.status == "failed"
         assert result.errors[0].code == "service_not_allowed"
-
 
 
 @pytest.mark.parametrize(
