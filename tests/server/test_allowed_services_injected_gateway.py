@@ -70,7 +70,9 @@ def test_injected_gateway_selector_and_gate_agree(
         )
 
     def organization_gateway() -> ModelsGatewayConnection:
-        return ModelsGatewayConnection(origin=origin, token="org-token", source="stored")
+        return ModelsGatewayConnection(
+            origin=origin, token="org-token", source="stored"
+        )
 
     router = ModelRouter(
         model_call_policy=LOCAL_PURCHASE_POLICY,
