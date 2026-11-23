@@ -285,3 +285,31 @@ async def test_datalab_dispatch_uses_inline_saved_key(setup_client, tmp_path, en
             assert markdown
             assert meta["model_calls"][0]["credential_source"] == "project_key"
     assert calls[0].method == "POST"
+
+
+@pytest.mark.parametrize("setting", ["this_machine_only", "approved_services"])
+def test_restricted_allowed_services_mark_remote_engines_for_hiding(
+    tmp_path, monkeypatch, setting
+):
+    monkeypatch.delenv("DATALAB_API_KEY", raising=False)
+    client = TestClient(
+        create_app(
+            tmp_path / "ws",
+            router=ModelRouter(
+                model_call_policy=LOCAL_PURCHASE_POLICY, use_env_keys=False
+            ),
+            selector_capabilities_for=lambda _request, _pid: SelectorCapabilities(),
+        )
+    )
+    pid = client.post(
+        "/api/projects", json={"name": "Restricted", "allowed_services": setting}
+    ).json()["id"]
+    with client.app.state.workspace.get(pid).transaction_scope():
+        write_project_settings(
+            client.app.state.workspace.get(pid),
+            ProjectSettings(model_execution_routes={"datalab": "own"}),
+        )
+    choice = _choice(client, pid, "media.ocr")
+    assert choice["status"] == "unavailable"
+    assert choice["blocker"]["code"] == "service_not_allowed"
+    assert "Allowed services" in choice["blocker"]["message"]

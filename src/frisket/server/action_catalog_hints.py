@@ -11,6 +11,7 @@ from typing import Any
 from frisket.ai.llm.model_catalog import MODEL_ENTRIES
 from frisket.ai.models.metadata import is_remote_provider
 from frisket.ops import ytdlp
+from frisket.service_access import ALLOWED_SERVICES_LABELS
 from frisket.actions.system import root_action_catalog_payload
 from frisket.contracts.actions.schemas._engines import (
     CENSUS_ENGINE_TABLE,
@@ -837,8 +838,23 @@ NETWORK_OFF_ENGINE_ERROR = (
 )
 
 
+def _project_services_restricted(project: Project | None) -> bool:
+    """Whether Allowed services, not the network setting, is the refusal."""
+    return project is not None and project.allowed_services() != "all_services"
+
+
+def _remote_engine_error(project: Project | None) -> str:
+    if project is not None and _project_services_restricted(project):
+        return (
+            "This project's Allowed services setting is "
+            f"{ALLOWED_SERVICES_LABELS[project.allowed_services()]}; this engine "
+            "calls an external service."
+        )
+    return NETWORK_OFF_ENGINE_ERROR
+
+
 def _apply_network_off_engine_hints(
-    engines: list[dict[str, Any]],
+    engines: list[dict[str, Any]], error: str
 ) -> list[dict[str, Any]]:
     """Remote-tier engines read as
     unavailable with a policy reason instead of a credential one. The ``llm``
@@ -848,7 +864,7 @@ def _apply_network_off_engine_hints(
     out: list[dict[str, Any]] = []
     for engine in engines:
         if engine.get("tier") == "remote" and engine.get("id") != "llm":
-            engine = {**engine, "available": False, "error": NETWORK_OFF_ENGINE_ERROR}
+            engine = {**engine, "available": False, "error": error}
         out.append(engine)
     return out
 
@@ -1946,7 +1962,9 @@ def project_action_catalog_launcher_hints(
         )
         if engines:
             if network_off:
-                engines = _apply_network_off_engine_hints(engines)
+                engines = _apply_network_off_engine_hints(
+                    engines, _remote_engine_error(project)
+                )
             hints["engines"] = engines
         pricing = _action_pricing(provider_name)
         if (
@@ -2086,6 +2104,7 @@ def _apply_network_policy_hints(
     authoritative check in ActionRunService._network_disabled_result."""
     if not _project_network_off(project):
         return
+    restricted = _project_services_restricted(project)
     for entry in actions:
         external = [
             str(capability)
@@ -2096,6 +2115,8 @@ def _apply_network_policy_hints(
             entry["ui_hints"] = {
                 **(entry.get("ui_hints") or {}),
                 "network_disabled": True,
+                # Allowed services hides the action rather than disabling it.
+                "service_not_allowed": restricted,
             }
 
 

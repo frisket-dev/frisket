@@ -14086,6 +14086,7 @@ type HttpSelectorChoicesResponse_SelectorResolvedTarget = ({
 });
 
 type HttpSelectorChoicesResponse_SelectorRouteOption = ({
+  "disabled_code"?: (((string)) | ((null)));
   "disabled_reason"?: (((string)) | ((null)));
   "id": ("cloud" | "own") & (string);
   "label": (string);

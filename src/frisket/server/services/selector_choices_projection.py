@@ -26,21 +26,45 @@ from frisket.execution.resolver import (
 from frisket.execution.targets import CAPABILITY_LLM, ExecutionTarget
 from frisket.ops.integrations.opus_mt import resolve_pair_codes
 from frisket.server.provider_config import PROVIDER_LABELS
+from frisket.service_access import ALLOWED_SERVICES_LABELS, SERVICE_NOT_ALLOWED
 
 _GROUP_STATUS_ORDER = {"ready": 0, "working": 1, "needs_setup": 2, "unavailable": 3}
 
 
-def _network_off(project: Any) -> bool:
-    return project.remote_services_refused()
+@dataclass(frozen=True)
+class ServicesRefusal:
+    """Why a project's settings refuse remote services: a stable code the web
+    filters on and a message naming the setting."""
+
+    code: str
+    message: str
+
+    def blocker(self) -> dict[str, Any]:
+        return {"code": self.code, "message": self.message, "field": None}
+
+
+def _services_refusal(project: Any) -> ServicesRefusal | None:
+    setting = project.allowed_services()
+    if setting != "all_services":
+        return ServicesRefusal(
+            SERVICE_NOT_ALLOWED,
+            f"This project's Allowed services setting is "
+            f"{ALLOWED_SERVICES_LABELS[setting]}; it does not allow this service.",
+        )
+    if project.effective_network_policy() == "off":
+        return ServicesRefusal(
+            "project_network_off", "This project's network setting is off."
+        )
+    return None
 
 
 def _network_policy_forbids_target(
-    network_off: bool, target: ExecutionTarget | None
+    services_refusal: ServicesRefusal | None, target: ExecutionTarget | None
 ) -> bool:
-    """Apply the runtime network policy to the exact selected venue."""
+    """Apply the project's service settings to the exact selected venue."""
 
     return (
-        network_off
+        services_refusal is not None
         and target is not None
         and target.egress_class not in {"none", "operator_lan"}
     )
@@ -145,7 +169,7 @@ def _default_action_model(
     choices: list[dict[str, Any]],
     composition: ExecutionComposition,
     *,
-    network_off: bool,
+    services_refusal: ServicesRefusal | None,
     options: Mapping[str, Any] | None = None,
 ) -> str | None:
     models = [
@@ -167,10 +191,10 @@ def _default_action_model(
         _recommendation_composition(composition).provider_for_resolution(),
         composition.facts,
         options=options,
-        allowed_egress_classes={"none", "operator_lan"} if network_off else None,
+        allowed_egress_classes={"none", "operator_lan"} if services_refusal else None,
         directly_runnable_engines=directly_runnable,
     )
-    if preferred is not None or network_off:
+    if preferred is not None or services_refusal:
         return preferred
     return next(
         (
@@ -428,7 +452,7 @@ def _route_option(
     options: Mapping[str, Any],
     route: ModelRoute,
     cloud_unknown: bool,
-    network_off: bool,
+    services_refusal: ServicesRefusal | None,
     cloud_eligible: bool = True,
     unsupported_cloud_provider: str | None = None,
 ) -> tuple[dict[str, Any], ExecutionTarget | None]:
@@ -462,14 +486,15 @@ def _route_option(
         else None
     )
     label = "Frisket Cloud" if route == "cloud" else _own_route_label(target)
-    if (network_off and route == "cloud") or _network_policy_forbids_target(
-        network_off, target
+    if services_refusal is not None and (
+        route == "cloud" or _network_policy_forbids_target(services_refusal, target)
     ):
         return {
             "id": route,
             "label": label,
             "status": "unavailable",
-            "disabled_reason": "This project's network setting is off.",
+            "disabled_reason": services_refusal.message,
+            "disabled_code": services_refusal.code,
         }, target
     if choice is None:
         if route == "cloud" and cloud_unknown:
@@ -551,7 +576,7 @@ def _route_selection(
     selected: ModelRoute,
     can_mutate: bool,
     cloud_unknown: bool,
-    network_off: bool,
+    services_refusal: ServicesRefusal | None,
     own_blocker: Mapping[str, Any] | None = None,
 ) -> dict[str, Any] | None:
     model_id = canonical_model_route_id(engine, capability)
@@ -564,7 +589,7 @@ def _route_selection(
         options=options,
         route="own",
         cloud_unknown=cloud_unknown,
-        network_off=network_off,
+        services_refusal=services_refusal,
     )
     if own_blocker is not None and own["disabled_reason"] is None:
         own = {
@@ -586,7 +611,7 @@ def _route_selection(
         options=options,
         route="cloud",
         cloud_unknown=cloud_unknown,
-        network_off=network_off,
+        services_refusal=services_refusal,
         cloud_eligible=(
             cloud_route_eligible(engine, capability)
             or _has_exact_cloud_route(
@@ -837,7 +862,7 @@ def _execution_presentation(
     balance_label: str | None = None,
     balance_url: str | None = None,
     settings_url: str | None = None,
-    network_off: bool = False,
+    services_refusal: ServicesRefusal | None = None,
     preserve_unbound_catalog: bool = False,
 ) -> _ExecutionPresentation:
     """Project one selected route without choosing or probing another payer."""
@@ -870,18 +895,16 @@ def _execution_presentation(
             credential_source=credential_source,
         )
 
-    if _network_policy_forbids_target(network_off, target):
+    if services_refusal is not None and _network_policy_forbids_target(
+        services_refusal, target
+    ):
         return _ExecutionPresentation(
             target,
             resolved_target,
             destination,
             route,
             "unavailable",
-            {
-                "code": "project_network_off",
-                "message": "This project's network setting is off.",
-                "field": None,
-            },
+            services_refusal.blocker(),
             None,
             None,
         )
