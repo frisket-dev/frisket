@@ -10,6 +10,7 @@ import {
   useState,
   type CSSProperties,
   type ReactNode,
+  type Ref,
   type RefObject,
   type SyntheticEvent,
 } from 'react';
@@ -105,7 +106,7 @@ interface DocumentReaderProps {
   canOpenDetail: boolean;
   onSplitPdf?(): void;
   onShowAlongside?(): void;
-  alongsideTriggerRef?: RefObject<HTMLButtonElement>;
+  alongsideTriggerRef?: Ref<HTMLButtonElement>;
   optionsOpen: boolean;
   onToggleOptions(): void;
   /** Render-prop (not a pre-built element): the caller (DocumentView.tsx)

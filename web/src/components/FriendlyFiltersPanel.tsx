@@ -524,6 +524,7 @@ function FriendlyQueryControls({
   const onSelectionChangeRef = useRef(onSelectionChange);
   const searchInputRef = useRef<HTMLInputElement>(null);
   const debounceTimerRef = useRef<number | null>(null);
+  const pendingSearchRef = useRef<string | null>(null);
 
   useEffect(() => {
     selectionRef.current = currentSelection;
@@ -534,13 +535,12 @@ function FriendlyQueryControls({
   }, [onSelectionChange]);
 
   const cancelPendingSearch = useCallback(() => {
+    pendingSearchRef.current = null;
     if (debounceTimerRef.current !== null) {
       window.clearTimeout(debounceTimerRef.current);
       debounceTimerRef.current = null;
     }
   }, []);
-
-  useEffect(() => () => cancelPendingSearch(), [cancelPendingSearch]);
 
   useEffect(() => {
     if (externalSearch === lastExternalSearchRef.current) return;
@@ -556,14 +556,21 @@ function FriendlyQueryControls({
     const nextSearch = trimmed ? { text: rawText } : undefined;
     if ((selection.search?.text ?? '') === (nextSearch?.text ?? '')) return;
     lastExternalSearchRef.current = nextSearch?.text ?? '';
-    onSelectionChangeRef.current({
+    const nextSelection: ViewSelection = {
       ...selection,
       search: nextSearch,
       order: !trimmed
         ? selection.order.filter((item) => !('score' in item && item.score === 'search'))
         : selection.order,
-    });
+    };
+    selectionRef.current = nextSelection;
+    onSelectionChangeRef.current(nextSelection);
   }, [cancelPendingSearch]);
+
+  useEffect(() => () => {
+    const pending = pendingSearchRef.current;
+    if (pending !== null) commitSearch(pending);
+  }, [commitSearch]);
 
   const handleSearchChange = (next: string) => {
     setSearchDraft(next);
@@ -572,8 +579,8 @@ function FriendlyQueryControls({
       commitSearch(next);
       return;
     }
+    pendingSearchRef.current = next;
     debounceTimerRef.current = window.setTimeout(() => {
-      debounceTimerRef.current = null;
       commitSearch(next);
     }, searchDebounceMs);
   };
@@ -629,6 +636,7 @@ function FriendlyQueryControls({
             placeholder="Search text…"
             value={searchDraft}
             onChange={(event) => handleSearchChange(event.currentTarget.value)}
+            onBlur={(event) => commitSearch(event.currentTarget.value)}
             onKeyDown={(event) => {
               if (event.key === 'Enter') {
                 event.preventDefault();
@@ -695,9 +703,9 @@ function FriendlyQueryControls({
           />
         </label>
       )}
-      {hasActiveSelection && onClearSelection && (
+      {onClearSelection && (
         <div className="friendly-query-actions">
-          <Button
+          {hasActiveSelection && <Button
             type="button"
             variant="link"
             className="friendly-query-reset"
@@ -705,7 +713,7 @@ function FriendlyQueryControls({
             onClick={handleShowAllRows}
           >
             Show all rows
-          </Button>
+          </Button>}
         </div>
       )}
     </div>

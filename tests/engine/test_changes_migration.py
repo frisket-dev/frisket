@@ -8,7 +8,11 @@ import sqlite3
 from contextlib import closing
 from pathlib import Path
 
+import pytest
+
+from frisket.contracts.action import Receipt
 from frisket.engine.executor import run_action_spec
+from frisket.engine.executor.action_receipts import _result_from_receipt
 from frisket.engine.store import Project
 from frisket.engine.store.changes import start_change
 from frisket.engine.store.consumed_sources import (
@@ -22,6 +26,7 @@ from frisket.engine.store.consumed_sources import (
     verify_bundle,
 )
 from frisket.engine.store.feeds import FeedStore
+from frisket.engine.store.effect_checkpoints import EffectCheckpointStore
 from frisket.engine.store.project_qa import ProjectQAStore
 from frisket.engine.store.receipts import ReceiptStore
 from frisket.engine.store.runs import RunResultStore
@@ -34,8 +39,355 @@ from frisket.upgrades.project._tip import CURRENT_CHAIN_TIP_DIGEST
 from frisket.upgrades.project.changes_migration import (
     CHANGES_FROM_DIGEST,
     CHANGES_TO_DIGEST,
+    _rewrite_locator,
+    _rewrite_receipt_body,
+    _rewrite_submission_draft,
 )
 from tests.engine.historical_schema import restore_pre_changes_schema
+
+
+@pytest.mark.parametrize("case", ["reserved", "returned", "provider_error"])
+def test_upgrade_retains_embedding_refresh_checkpoint_accounting_owner(
+    tmp_path: Path, case: str
+) -> None:
+    bundle_path = tmp_path / "embedding-refresh.frisket"
+    with closing(Project.create(bundle_path, name="Embedding refresh")) as seed:
+        sheet_id = seed.add_sheet("Records")
+        change_id = seed.append_change("embedding.index_refresh", {})
+        run_id = RunResultStore(seed).start_run(
+            change_id, sheet_id, "embedding.index_refresh", total_rows=1
+        )
+    # The pre-cutover producer stores accounting ownership in effect, for
+    # both the reservation and the durable provider response/error.
+    effect = {"op_id": change_id, "run_id": run_id, "attempt_id": "attempt-1"}
+    payload = {"effect": effect}
+    if case == "returned":
+        payload.update(
+            {
+                "result": {
+                    "provider_id": "openai",
+                    "provider_kind": "platform_api",
+                    "actual_model_id": "text-embedding-3-small",
+                    "vectors": [[0.1, 0.2]],
+                    "usage": {"input_count": 1},
+                    "extension": {"op_id": 81},
+                },
+                "provider_fact": {
+                    "id": f"embedding_refresh_{run_id}_batch",
+                    "provider": "openai",
+                    "provider_cost_usd": 0.01,
+                    "extension": {"op_id": 82},
+                },
+            }
+        )
+    elif case == "provider_error":
+        payload["error"] = {
+            "code": "embedding_provider_error",
+            "message": "Unavailable",
+        }
+    before = json.loads(json.dumps(payload))
+    state = "reserved" if case == "reserved" else "returned"
+    accounting_persisted = int(case == "returned")
+    raw = sqlite3.connect(bundle_path / "project.db")
+    try:
+        restore_pre_changes_schema(raw)
+        raw.execute(
+            "INSERT INTO effect_checkpoints "
+            "(id,family,group_key,unit_key,action_kind,identity,state,payload,accounting_persisted) "
+            "VALUES ('refresh','embedding_index_refresh','index:1','batch:1',"
+            "'embedding.index_refresh','identity',?,?,?)",
+            (state, json.dumps(payload), accounting_persisted),
+        )
+        raw.commit()
+    finally:
+        raw.close()
+    with closing(Project(bundle_path)) as upgraded:
+        checkpoint = EffectCheckpointStore(upgraded.db).find_unit(
+            family="embedding_index_refresh", group_key="index:1", unit_key="batch:1"
+        )
+        assert checkpoint is not None
+        saved = checkpoint["payload"]
+        assert saved["effect"] == {
+            "change_id": change_id,
+            "run_id": run_id,
+            "attempt_id": "attempt-1",
+        }
+        assert checkpoint["state"] == state
+        assert checkpoint["accounting_persisted"] == accounting_persisted
+        original_run = RunResultStore(upgraded).get_run(saved["effect"]["run_id"])
+        assert original_run is not None
+        assert original_run["change_id"] == saved["effect"]["change_id"]
+        assert {key: value for key, value in saved.items() if key != "effect"} == {
+            key: value for key, value in before.items() if key != "effect"
+        }
+
+
+def test_upgrade_rewrites_exported_metadata_without_entering_exported_user_values(
+    tmp_path: Path,
+) -> None:
+    bundle_path = tmp_path / "export-metadata.frisket"
+    with closing(Project.create(bundle_path, name="Export metadata")):
+        pass
+    user_schema = {"type": "object", "properties": {"op_id": {"type": "integer"}}}
+    nested = {
+        "receipt_id": "prior-python",
+        "action_kind": "convert.python",
+        "outputs": [
+            {
+                "name": "values",
+                "ref": {
+                    "kind": "named_result",
+                    "op_id": 5,
+                    "schema": user_schema,
+                },
+            }
+        ],
+        "records": [
+            {
+                "ref": {
+                    "kind": "typed_action_request",
+                    "op_id": 5,
+                    "action_id": "convert.python",
+                    "params": {"return_schema": user_schema},
+                }
+            }
+        ],
+    }
+    receipt = Receipt(
+        receipt_id="work-log",
+        project_id="project",
+        action_id="export-action",
+        action_kind="export.work_log",
+        status="completed",
+    ).model_dump(mode="json")
+    receipt["records"] = [
+        {
+            "ref": {
+                "kind": "exported_operations",
+                "operations": [
+                    {"op_id": 5, "kind": "convert.python", "status": "applied"},
+                ],
+            }
+        },
+        {"ref": {"kind": "exported_receipts", "receipts": [nested]}},
+    ]
+    raw = sqlite3.connect(bundle_path / "project.db")
+    try:
+        restore_pre_changes_schema(raw)
+        raw.execute(
+            "INSERT INTO receipts(id,action_kind,status,body) "
+            "VALUES ('work-log','export.work_log','completed',?)",
+            (json.dumps(receipt),),
+        )
+        raw.commit()
+    finally:
+        raw.close()
+    with closing(Project(bundle_path)) as upgraded:
+        saved = ReceiptStore(upgraded).require_parsed("work-log")
+        assert saved.records[0].ref["operations"] == [
+            {"change_id": 5, "kind": "convert.python", "status": "applied"}
+        ]
+        exported = saved.records[1].ref["receipts"][0]
+        assert exported["outputs"][0]["ref"]["change_id"] == 5
+        assert exported["outputs"][0]["ref"]["schema"] == user_schema
+        request = exported["records"][0]["ref"]
+        assert request["change_id"] == 5
+        assert request["params"] == {"return_schema": user_schema}
+
+
+def test_locator_upgrade_rewrites_source_identity_without_entering_user_data() -> None:
+    opaque = {"op_id": 9, "nested": [{"op_id": 10}]}
+    locator = {
+        "value_ref": {"op_id": 7},
+        "source_version": {"op_id": 7, "base_producer_id": 8},
+        "prepared_value_ref": {"op_id": 11},
+        "extension": opaque,
+    }
+    rewritten, changed = _rewrite_locator(locator, {"op_id": "change_id"})
+    assert changed
+    assert rewritten == {
+        "value_ref": {"change_id": 7},
+        "source_version": {"change_id": 7, "base_producer_id": 8},
+        "prepared_value_ref": {"change_id": 11},
+        "extension": opaque,
+    }
+
+
+def test_receipt_upgrade_visits_every_section_and_reconstructs_result() -> None:
+    before = {
+        "receipt_id": "undo-receipt",
+        "project_id": "project",
+        "action_id": "undo-action",
+        "action_kind": "operation.undo",
+        "status": "completed",
+        "op_ids": [7],
+        "inputs": [
+            {
+                "name": "target_operation",
+                "ref": {"kind": "target_operation", "op_id": 7},
+            }
+        ],
+        "outputs": [
+            {
+                "name": "undo.7",
+                "ref": {"kind": "operation_status_transition", "op_id": 7},
+            }
+        ],
+        "records": [
+            {"ref": {"kind": "operation_cursor", "op_id": 7}},
+            {"ref": {"kind": "operation_undo_info", "op_id": 7}},
+            {"ref": {"kind": "operation_snapshot", "op_id": 7}},
+        ],
+    }
+    raw, changed = _rewrite_receipt_body(json.dumps(before))
+    assert changed
+    receipt = Receipt.model_validate_json(raw)
+    assert receipt.inputs[0].ref == {"kind": "target_change", "change_id": 7}
+    assert [item.ref["kind"] for item in receipt.records] == [
+        "change_cursor",
+        "change_undo_info",
+        "change_snapshot",
+    ]
+    assert all(item.ref["change_id"] == 7 for item in receipt.records)
+    result = _result_from_receipt(receipt)
+    assert result.outputs[0].kind == "change"
+    assert result.outputs[0].ref == {"kind": "change_status_transition", "change_id": 7}
+
+
+@pytest.mark.parametrize(
+    "action_id, params",
+    [
+        (
+            "convert.python",
+            {
+                "return_schema": {
+                    "type": "object",
+                    "properties": {"op_id": {"type": "integer"}},
+                    "required": ["op_id"],
+                    "additionalProperties": False,
+                }
+            },
+        ),
+        (
+            "import.rows",
+            {"rows": [{"op_id": 7, "nested": {"copied_op_id": 8}}]},
+        ),
+        (
+            "custom.action",
+            {"op_id": 7, "extension": {"expected_op_id": 8}},
+        ),
+    ],
+)
+def test_action_drafts_preserve_opaque_params(
+    action_id: str, params: dict[str, object]
+) -> None:
+    draft = {"action_id": action_id, "params": params}
+    before = json.dumps(draft, sort_keys=True)
+    assert not _rewrite_submission_draft(draft)
+    assert json.dumps(draft, sort_keys=True) == before
+
+
+@pytest.mark.parametrize(
+    "action_id, old_key, new_key",
+    [
+        ("operation.undo", "expected_op_id", "expected_change_id"),
+        ("operation.restore", "op_id", "change_id"),
+        ("review.decision", "copied_op_id", "copied_change_id"),
+    ],
+)
+def test_action_drafts_rewrite_only_declared_metadata(
+    action_id: str, old_key: str, new_key: str
+) -> None:
+    opaque = {"op_id": 8, "copied_op_id": 9, "nested": [{"expected_op_id": 10}]}
+    draft = {
+        "action_id": action_id,
+        "params": {old_key: 7, "extension": opaque},
+    }
+    assert _rewrite_submission_draft(draft)
+    assert draft["params"] == {new_key: 7, "extension": opaque}
+
+
+def test_upgrade_preserves_user_json_in_specs_requests_and_receipts(
+    tmp_path: Path,
+) -> None:
+    bundle_path = tmp_path / "opaque-params.frisket"
+    with closing(Project.create(bundle_path, name="Opaque parameters")) as seed:
+        sheet_id = seed.add_sheet("Items")
+        change_id = seed.append_change("convert.python", {})
+        run_id = RunResultStore(seed).start_run(
+            change_id, sheet_id, "convert.python", total_rows=0
+        )
+    user_schema = {
+        "type": "object",
+        "properties": {"op_id": {"type": "integer"}},
+        "required": ["op_id"],
+        "additionalProperties": False,
+    }
+    params = {
+        "return_schema": user_schema,
+        "extension": {"op_id": 17, "nested": [{"op_ids": [18]}]},
+    }
+    request = {"action_id": "convert.python", "params": params}
+    spec = {"action_kind": "convert.python", "op_id": change_id, "params": params}
+    draft_json = _canonical_json(request)
+    draft_hash = hashlib.sha256(draft_json.encode()).hexdigest()
+    receipt = Receipt(
+        receipt_id="opaque-receipt",
+        project_id="project",
+        action_id="python-action",
+        action_kind="convert.python",
+        status="completed",
+        value={"op_id": 19},
+    ).model_dump(mode="json")
+    receipt["records"] = [
+        {
+            "ref": {
+                "kind": "typed_action_request",
+                "op_id": change_id,
+                **request,
+                "request": request,
+            }
+        }
+    ]
+    raw = sqlite3.connect(bundle_path / "project.db")
+    try:
+        restore_pre_changes_schema(raw)
+        raw.execute("UPDATE ops SET spec=? WHERE id=?", (json.dumps(spec), change_id))
+        raw.execute("UPDATE runs SET params=? WHERE id=?", (json.dumps(spec), run_id))
+        raw.execute(
+            "INSERT INTO action_submissions "
+            "(id,request_key,draft_hash,action_id,draft_json) VALUES (101,'opaque',?,'convert.python',?)",
+            (draft_hash, draft_json),
+        )
+        raw.execute(
+            "INSERT INTO receipts(id,action_kind,body,status) VALUES ('opaque-receipt','convert.python',?,'completed')",
+            (json.dumps(receipt),),
+        )
+        raw.commit()
+    finally:
+        raw.close()
+    with closing(Project(bundle_path)) as upgraded:
+        for table, field, identity in (
+            ("changes", "spec", change_id),
+            ("runs", "params", run_id),
+        ):
+            saved = json.loads(
+                upgraded.db.execute(
+                    f"SELECT {field} FROM {table} WHERE id=?", (identity,)
+                ).fetchone()[0]
+            )
+            assert saved["change_id"] == change_id
+            assert saved["params"] == params
+        submission = upgraded.db.execute(
+            "SELECT draft_json,draft_hash FROM action_submissions WHERE id=101"
+        ).fetchone()
+        assert tuple(submission) == (draft_json, draft_hash)
+        saved_receipt = ReceiptStore(upgraded).require_parsed("opaque-receipt")
+        assert saved_receipt.value == {"op_id": 19}
+        ref = saved_receipt.records[0].ref
+        assert ref["change_id"] == change_id
+        assert ref["params"] == params
+        assert ref["request"] == request
 
 
 def _seed_rich_bundle(bundle_path: Path) -> dict[str, int | str]:
@@ -559,13 +911,15 @@ def test_consumed_source_bundles_freshness_and_shared_inputs_survive_upgrade(
         raw.execute(
             "INSERT INTO effect_checkpoints "
             "(id, family, group_key, unit_key, action_kind, identity, state, payload) "
-            "VALUES ('chk-shared-1', 'map', ?, 'row:1', 'map.extract', 'id-1', 'returned', ?)",
+            "VALUES ('chk-shared-1', 'row_effect', ?, '1', 'map.extract', 'id-1', 'returned', ?)",
             (
                 f"run:{run_id}",
                 json.dumps(
                     {
-                        "op_id": run_change,
-                        "__consumed_sources": legacy_row_capture,
+                        "op_id": {
+                            "value": {"op_id": run_change},
+                            "__consumed_sources": legacy_row_capture,
+                        },
                     }
                 ),
             ),
@@ -581,16 +935,18 @@ def test_consumed_source_bundles_freshness_and_shared_inputs_survive_upgrade(
         sync = compute_sync_states(upgraded, sheet_ids=[derived_sheet])
         assert sync[derived_sheet]["sync_state"] == "synced"
 
-        # Shared bundle fingerprint + capture_key remapped and back-references updated.
+        # Aggregate hashes and opaque extension data retain their identities.
         shared_row = upgraded.db.execute(
             "SELECT capture_key, input_fingerprint, capture_json "
             "FROM consumed_source_bundles WHERE id=?",
             (shared_id,),
         ).fetchone()
         new_shared_fp = str(shared_row["input_fingerprint"])
-        assert new_shared_fp != old_shared_fp
+        assert new_shared_fp == old_shared_fp
         assert str(shared_row["capture_key"]).endswith(f":shared:{new_shared_fp}")
-        assert '"op_id"' not in str(shared_row["capture_json"])
+        assert json.loads(shared_row["capture_json"])["shared_meta"] == {
+            "op_id": run_change
+        }
 
         row_bundle = upgraded.db.execute(
             "SELECT input_fingerprint, capture_json FROM consumed_source_bundles WHERE id=?",
@@ -608,10 +964,11 @@ def test_consumed_source_bundles_freshness_and_shared_inputs_survive_upgrade(
                 "SELECT payload FROM effect_checkpoints WHERE id='chk-shared-1'"
             ).fetchone()[0]
         )
-        assert checkpoint["change_id"] == run_change
-        assert "op_id" not in checkpoint
-        assert checkpoint["__consumed_sources"]["shared_inputs"] == [new_shared_fp]
-        assert '"op_id"' not in json.dumps(checkpoint)
+        assert list(checkpoint) == ["op_id"]
+        assert checkpoint["op_id"]["value"] == {"op_id": run_change}
+        checkpoint_capture = checkpoint["op_id"]["__consumed_sources"]
+        assert checkpoint_capture["shared_inputs"] == [new_shared_fp]
+        assert '"op_id"' not in json.dumps(checkpoint_capture)
 
         # Mutating a source cell turns v1 aggregate stale; undoing restores fresh/synced.
         upgraded.apply_edits(
@@ -762,7 +1119,7 @@ def test_action_submissions_migration_draft_hash_and_collision_safety(
 
     legacy_redo_draft = {
         "action_id": "operation.redo",
-        "params": {"expected_op_id": 6, "copied_op_id": 2},
+        "params": {"expected_op_id": 6},
     }
     legacy_redo_json = _canonical_json(legacy_redo_draft)
     legacy_redo_hash = hashlib.sha256(legacy_redo_json.encode()).hexdigest()
@@ -800,7 +1157,7 @@ def test_action_submissions_migration_draft_hash_and_collision_safety(
         expected_clean_json = _canonical_json(
             {
                 "action_id": "change.redo",
-                "params": {"expected_change_id": 6, "copied_change_id": 2},
+                "params": {"expected_change_id": 6},
             }
         )
         assert clean["draft_json"] == expected_clean_json

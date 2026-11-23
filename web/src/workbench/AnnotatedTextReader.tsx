@@ -16,7 +16,7 @@ import { useLoader } from '../hooks/useLoader';
 // "which mention did I click" and puts the mark on the wrong "Ada" whenever a
 // name appears twice. This draws at the offsets the server returned, over the
 // exact string the server returned.
-import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode, type RefObject } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode, type Ref, type RefObject } from 'react';
 import { AlertTriangle, FileSearch, Settings2 } from 'lucide-react';
 import { useWorkspaceStores } from '../bind/useWorkspaceStores';
 import type { TextAnnotations } from '../api/types';
@@ -76,7 +76,7 @@ interface AnnotatedTextReaderProps {
   onOpenDetail(): void;
   canOpenDetail: boolean;
   onShowAlongside?(): void;
-  alongsideTriggerRef?: RefObject<HTMLButtonElement>;
+  alongsideTriggerRef?: Ref<HTMLButtonElement>;
   optionsOpen: boolean;
   onToggleOptions(): void;
   optionsPopover: OptionsPopoverRenderer | null;

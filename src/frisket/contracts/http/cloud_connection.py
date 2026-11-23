@@ -17,7 +17,7 @@ from frisket.contracts.transcription_sidecar import TranscriptionOptions
 
 
 # Bump only for breaking Desktop/Cloud execution protocol changes, not releases.
-CLOUD_PROTOCOL_REVISION = "1"
+CLOUD_PROTOCOL_REVISION = "2"
 
 
 CloudAccountKind = Literal["personal", "organization"]

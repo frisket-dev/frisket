@@ -159,6 +159,7 @@ jobs:
       - name: Install build dependencies
         shell: pwsh
         run: |
+          $PSNativeCommandUseErrorActionPreference = $true
           npm --prefix sdk ci
           npm --prefix sdk run build
           npm --prefix web ci
@@ -285,6 +286,7 @@ jobs:
       - name: Install build dependencies
         shell: pwsh
         run: |
+          $PSNativeCommandUseErrorActionPreference = $true
           npm --prefix sdk ci
           npm --prefix sdk run build
           npm --prefix web ci
