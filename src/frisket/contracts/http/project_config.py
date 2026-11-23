@@ -51,10 +51,6 @@ class ProjectRetentionRequest(CoerciveProjectConfigRequest):
     no_compact: bool | None = None
 
 
-class ProjectNetworkRequest(CoerciveProjectConfigRequest):
-    mode: str
-
-
 class ProjectSettingsRequest(CoerciveProjectConfigRequest):
     """Settings are the one strict body: misspellings must not be ignored."""
 
@@ -144,17 +140,6 @@ class ProjectRetentionResponse(WireModel):
     pin_evidence_by_default: bool
     no_compact: bool
     supported_default_evidence: list[Literal["compactable", "pinned", "materialized"]]
-
-
-class ProjectNetworkResponse(WireModel):
-    schema_version: Literal["frisket.project_network_policy.v1"] = Field(
-        alias="schemaVersion"
-    )
-    mode: Literal["inherit", "on", "off"]
-    # Materialized in every project bundle; None means the built-in organization
-    # default of "on" remains in effect.
-    organization_default: Literal["on", "off"] | None
-    effective: Literal["on", "off"]
 
 
 class ProjectSettingsResponse(WireModel):

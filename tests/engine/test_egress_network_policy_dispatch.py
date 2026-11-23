@@ -1,5 +1,5 @@
 """Egress gate dispatch tests: ``off`` rejects
-remote engines with a typed ``NetworkDisabled`` at validate/enqueue time, and
+remote engines with a typed ``ServiceRefused`` at validate/enqueue time, and
 the gate binds work that already ran — a stored remote-engine spec cannot be
 re-executed live after the project flips ``off``."""
 
@@ -23,7 +23,7 @@ from frisket.engine.executor.map_rows_action import (
     build_typed_map_rows_plan,
 )
 from frisket.engine.runner import validation
-from frisket.engine.runner.map_runner import MapRunner, NetworkDisabled
+from frisket.engine.runner.map_runner import MapRunner, ServiceRefused
 from frisket.engine.runner.network_policy import remote_capability_for_spec
 from frisket.engine.executor.queued_actions import queued_v1_action_request
 from frisket.engine.store import Project
@@ -69,10 +69,10 @@ def _router() -> ModelRouter:
 
 def test_off_rejects_deepl_translate_at_validate(project) -> None:
     sheet = _seed_statement_sheet(project)
-    project.set_network_policy(mode="off")
+    project.set_allowed_services("approved_services", confirm_allowed_services=None)
     runner = MapRunner(project, _router(), authority=UnroutedOnlyAuthority(project))
     plan = _plan(project, _translate_request(sheet, "deepl"))
-    with pytest.raises(NetworkDisabled) as excinfo:
+    with pytest.raises(ServiceRefused) as excinfo:
         validation.validate_spec(
             runner.project,
             runner.router,
@@ -89,7 +89,7 @@ def test_off_rejects_deepl_translate_at_validate(project) -> None:
 
 def test_off_rejects_remote_llm_provider_at_validate(project) -> None:
     sheet = _seed_statement_sheet(project)
-    project.set_network_policy(mode="off")
+    project.set_allowed_services("approved_services", confirm_allowed_services=None)
     runner = MapRunner(project, _router(), authority=UnroutedOnlyAuthority(project))
     plan = _plan(
         project,
@@ -111,7 +111,7 @@ def test_off_rejects_remote_llm_provider_at_validate(project) -> None:
             "idempotency_key": "network-classify",
         },
     )
-    with pytest.raises(NetworkDisabled) as excinfo:
+    with pytest.raises(ServiceRefused) as excinfo:
         validation.validate_spec(
             runner.project,
             runner.router,
@@ -152,16 +152,16 @@ def test_off_rejects_typed_api_call_at_validate_and_dispatch(
         project,
         BoundTypedActionRequest.bind(ACTION_REGISTRY.get("map.api_call"), request),
     )
-    project.set_network_policy(mode="off")
+    project.set_allowed_services("approved_services", confirm_allowed_services=None)
     with pytest.raises(TypedMapRowsPlanError) as plan_error:
         build_typed_map_rows_plan(
             project,
             BoundTypedActionRequest.bind(ACTION_REGISTRY.get("map.api_call"), request),
         )
-    assert plan_error.value.code == "network_disabled"
+    assert plan_error.value.code == "service_not_allowed"
     assert plan_error.value.details["capability"] == "external:api_call"
     # A plan prepared before the policy changed must also fail at dispatch.
-    with pytest.raises(NetworkDisabled) as excinfo:
+    with pytest.raises(ServiceRefused) as excinfo:
         validation.validate_spec(
             runner.project,
             runner.router,
@@ -178,7 +178,7 @@ def test_off_rejects_typed_api_call_at_validate_and_dispatch(
         project, request.model_dump(mode="json"), project_id="api-network-off"
     )
     assert result.status == "failed", result.errors
-    assert result.errors[0].code == "network_disabled"
+    assert result.errors[0].code == "service_not_allowed"
     assert result.errors[0].details["capability"] == "external:api_call"
     for table in ("runs", "changes", "results", "receipts"):
         assert (
@@ -248,7 +248,7 @@ def test_prepare_run_is_gated_too(project) -> None:
     """The queued enqueue path goes through prepare_run -> _prepare ->
     _validate_spec; the gate must fire before any op/run row exists."""
     sheet = _seed_statement_sheet(project)
-    project.set_network_policy(mode="off")
+    project.set_allowed_services("approved_services", confirm_allowed_services=None)
     runner = MapRunner(
         project,
         _router(),
@@ -256,7 +256,7 @@ def test_prepare_run_is_gated_too(project) -> None:
         allow_action_lifecycle_only_programs=True,
     )
     plan = _plan(project, _translate_request(sheet, "deepl"))
-    with pytest.raises(NetworkDisabled):
+    with pytest.raises(ServiceRefused):
         runner.prepare_run(plan.spec_dict(), program=plan.program, confirmed=True)
     assert project.db.execute("SELECT COUNT(*) FROM runs").fetchone()[0] == 0
 
@@ -306,9 +306,9 @@ def test_reexecution_of_a_stored_run_is_gated_after_policy_flip(
     assert result.status == "completed", result
     assert calls["n"] == 1  # the original run really egressed (mock)
 
-    project.set_network_policy(mode="off")
+    project.set_allowed_services("approved_services", confirm_allowed_services=None)
     replayer = MapRunner(project, _router(), authority=UnroutedOnlyAuthority(project))
-    with pytest.raises(NetworkDisabled):
+    with pytest.raises(ServiceRefused):
         asyncio.run(
             replayer.preview(
                 {**spec, "row_ids": list(project.visible_row_ids(sheet))},

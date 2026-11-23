@@ -35,6 +35,7 @@ from frisket.ops.integrations.hosted_error import HostedEngineError
 from frisket.ops.base import ActionContext, ActionProgram, ActionProgramInvocationHalt
 from frisket.redaction import safe_error
 from frisket.engine.runner import validation
+from frisket.project_service_access import SelectedRoute
 from frisket.engine.runner.grounding import grounding_enabled, unwrap_grounded_value
 from frisket.engine.runner.publication import (
     PUBLISH_ERROR,
@@ -542,12 +543,19 @@ async def _execute_row(
     )
     # This public entry point may be called without prior spec validation.
     admission = routed_admission_in_scope(ctx.extras or {})
-    validation.assert_network_policy(
+    validation.assert_allowed_services(
         project,
         program,
         spec,
-        selected_egress_class=(
-            admission.route.egress_class if admission is not None else None
+        router=router,
+        selected_route=(
+            SelectedRoute(
+                str(admission.route.target_snapshot["target_id"]),
+                admission.route.egress_class,
+                admission.binding.connection.base_url,
+            )
+            if admission is not None
+            else None
         ),
     )
     field_names = (

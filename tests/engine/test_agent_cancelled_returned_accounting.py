@@ -45,7 +45,7 @@ def test_queued_agent_interruption_during_schema_repair_keeps_each_paid_fact_onc
             expected_paid = 1 if kind == "research" else 2
             if len(calls) > expected_paid:
                 raise ActionProgramInvocationHalt(
-                    "network_disabled", "Network disabled during repair"
+                    "service_not_allowed", "Network disabled during repair"
                 )
             if interrupt == "stop" and len(calls) == expected_paid:
                 run_id = project.db.execute("SELECT MAX(id) FROM runs").fetchone()[0]

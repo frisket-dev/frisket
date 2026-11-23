@@ -11,6 +11,7 @@ from typing import Any
 from frisket.ai.llm.model_catalog import MODEL_ENTRIES
 from frisket.ai.models.metadata import is_remote_provider
 from frisket.ops import ytdlp
+from frisket.service_access import ALLOWED_SERVICES_LABELS
 from frisket.actions.system import root_action_catalog_payload
 from frisket.contracts.actions.schemas._engines import (
     CENSUS_ENGINE_TABLE,
@@ -812,43 +813,40 @@ def _configured_llm_providers(
         )
     except Exception:
         pass
-    if _project_network_off(project):
-        # A keyed remote provider is not usable under the project's network
-        # setting, so it must not make
-        # model-backed engines look launchable.
+    if _project_services_restricted(project):
+        # A keyed remote provider is not usable under the project's Allowed
+        # services, so it must not make model-backed engines look launchable.
         from frisket.ai.models.metadata import is_remote_provider
 
         providers = {p for p in providers if not is_remote_provider(p)}
     return providers
 
 
-def _project_network_off(project: Project | None) -> bool:
-    if project is None:
-        return False
-    try:
-        return project.effective_network_policy() == "off"
-    except Exception:
-        return False
+def _project_services_restricted(project: Project | None) -> bool:
+    """Whether the project's Allowed services refuses remote services."""
+    return project is not None and project.remote_services_refused()
 
 
-NETWORK_OFF_ENGINE_ERROR = (
-    "This project's network setting is off; this engine calls an external "
-    "service. Turn network on in the project settings to use it."
-)
+def _remote_engine_error(project: Project) -> str:
+    return (
+        "This project's Allowed services setting is "
+        f"{ALLOWED_SERVICES_LABELS[project.allowed_services()]}; this engine "
+        "calls an external service."
+    )
 
 
-def _apply_network_off_engine_hints(
-    engines: list[dict[str, Any]],
+def _apply_restricted_engine_hints(
+    engines: list[dict[str, Any]], error: str
 ) -> list[dict[str, Any]]:
     """Remote-tier engines read as
     unavailable with a policy reason instead of a credential one. The ``llm``
     pseudo-engine is skipped — its availability already flows from
-    ``_configured_llm_providers``, which drops remote providers under
-    ``off``. The authoritative gate stays at validate/dispatch."""
+    ``_configured_llm_providers``, which drops remote providers under a
+    restricted setting. The authoritative gate stays at validate/dispatch."""
     out: list[dict[str, Any]] = []
     for engine in engines:
         if engine.get("tier") == "remote" and engine.get("id") != "llm":
-            engine = {**engine, "available": False, "error": NETWORK_OFF_ENGINE_ERROR}
+            engine = {**engine, "available": False, "error": error}
         out.append(engine)
     return out
 
@@ -1861,7 +1859,7 @@ def project_action_catalog_launcher_hints(
 ) -> dict[str, dict[str, Any]]:
     """Project launcher hints only for requested actions when a filter is supplied."""
     launcher_hints: dict[str, dict[str, Any]] = {}
-    network_off = _project_network_off(project)
+    services_restricted = _project_services_restricted(project)
     from frisket.actions.registry import ACTION_REGISTRY
     from frisket.actions.core import ModelRows, ROUTED_CAPABILITIES, routed_capability
     from frisket.actions.media_download_types import MediaDownloader
@@ -1945,8 +1943,10 @@ def project_action_catalog_launcher_hints(
             hybrid_model_rows=action_kind in hybrid_routed_model_actions,
         )
         if engines:
-            if network_off:
-                engines = _apply_network_off_engine_hints(engines)
+            if services_restricted and project is not None:
+                engines = _apply_restricted_engine_hints(
+                    engines, _remote_engine_error(project)
+                )
             hints["engines"] = engines
         pricing = _action_pricing(provider_name)
         if (
@@ -2074,17 +2074,16 @@ def _apply_missing_credential_hints(
             }
 
 
-def _apply_network_policy_hints(
+def _apply_allowed_services_hints(
     project: Project,
     actions: list[dict[str, Any]],
 ) -> None:
-    """When the project's effective
-    network policy is off, every kind whose STATIC catalog
-    ``required_capabilities`` carries an ``external:*`` tag (the always-remote
-    class) gets ``ui_hints.network_disabled`` so the launcher can gray it out
-    with a policy reason before a run is attempted. Read-only mirror of the
-    authoritative check in ActionRunService._network_disabled_result."""
-    if not _project_network_off(project):
+    """When the project's Allowed services refuses remote services, every
+    kind whose STATIC catalog ``required_capabilities`` carries an
+    ``external:*`` tag (the always-remote class) gets
+    ``ui_hints.service_not_allowed`` so the launcher can hide it before a run
+    is attempted. Read-only mirror of the authoritative admission check."""
+    if not _project_services_restricted(project):
         return
     for entry in actions:
         external = [
@@ -2095,7 +2094,7 @@ def _apply_network_policy_hints(
         if external:
             entry["ui_hints"] = {
                 **(entry.get("ui_hints") or {}),
-                "network_disabled": True,
+                "service_not_allowed": True,
             }
 
 
@@ -2131,7 +2130,7 @@ def _apply_connected_account_hints(
     (raises `connected_account_not_found` there when the resolver is None or
     returns nothing) — this hint fires BEFORE that call is ever attempted,
     same "read-only mirror of an authoritative gate" pattern as
-    `_apply_missing_credential_hints`/`_apply_network_policy_hints` above."""
+    `_apply_missing_credential_hints`/`_apply_allowed_services_hints` above."""
     if connected_account_resolver_configured:
         return
     for entry in actions:
@@ -2173,7 +2172,7 @@ def project_action_catalog_payload_with_launcher_hints(
     ]
     payload["actions"] = sorted(payload["actions"], key=lambda entry: entry["kind"])
     _apply_missing_credential_hints(project, payload["actions"])
-    _apply_network_policy_hints(project, payload["actions"])
+    _apply_allowed_services_hints(project, payload["actions"])
     _apply_connected_account_hints(
         payload["actions"],
         connected_account_resolver_configured=connected_account_resolver_configured,

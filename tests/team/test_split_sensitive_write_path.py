@@ -3,10 +3,11 @@
 This gate intentionally freezes only the small public seams needed before the
 Product telemetry now uses a small closed browser event vocabulary:
 
-* ``POST /api/projects`` accepts canonical bundle metadata ``sensitive``;
-* ``PATCH /api/projects/{pid}/sensitivity`` is the sole mutation route and is
-  declared owner-only in the neutral endpoint catalog;
-* the project-bound telemetry route checks canonical sensitivity before egress;
+* ``POST /api/projects`` accepts the canonical ``usage_data_sharing`` override;
+  ``sensitive`` is its projection ("off" is sensitive);
+* ``PATCH /api/projects/{pid}/usage-data-sharing`` is the sole mutation route
+  and is declared owner-only in the neutral endpoint catalog;
+* the project-bound telemetry route checks the override before egress;
 * ``frisket.corrections.contribution`` owns the separately enabled, injected
   Frisket-directed correction contribution action.
 
@@ -78,7 +79,7 @@ def test_sensitive_is_canonical_create_metadata_and_bundle_round_trips(
     client = TestClient(create_app(workspace))
 
     made = client.post(
-        "/api/projects", json={"name": "Protected sources", "sensitive": True}
+        "/api/projects", json={"name": "Protected sources", "usage_data_sharing": "off"}
     )
     assert made.status_code == 200, made.text
     pid = made.json()["id"]
@@ -108,7 +109,7 @@ def test_only_catalog_declared_sensitivity_route_can_mutate_the_flag(
     from frisket.contracts.http.endpoint_catalog import BASE_ENDPOINT_CATALOG
 
     created = client.post(
-        "/api/projects", json={"name": "Ordinary", "sensitive": False}
+        "/api/projects", json={"name": "Ordinary", "usage_data_sharing": "inherit"}
     )
     assert created.status_code == 200, created.text
     pid = created.json()["id"]
@@ -122,14 +123,15 @@ def test_only_catalog_declared_sensitivity_route_can_mutate_the_flag(
     declared = [
         entry
         for entry in BASE_ENDPOINT_CATALOG
-        if entry.method == "PATCH" and entry.route_name == "update_project_sensitivity"
+        if entry.method == "PATCH"
+        and entry.route_name == "update_project_usage_data_sharing"
     ]
     assert len(declared) == 1
-    assert declared[0].route_name == "update_project_sensitivity"
+    assert declared[0].route_name == "update_project_usage_data_sharing"
     assert declared[0].project_role == "owner"
 
     explicit = client.patch(
-        f"/api/projects/{pid}/sensitivity", json={"sensitive": True}
+        f"/api/projects/{pid}/usage-data-sharing", json={"usage_data_sharing": "off"}
     )
     assert explicit.status_code == 200, explicit.text
     assert explicit.json()["sensitive"] is True
@@ -172,7 +174,9 @@ def test_team_viewer_is_denied_and_owner_updates_canonical_bundle(
     owner, viewer = TestClient(app), TestClient(app)
     _login(owner, app, "owner@example.com")
     _login(viewer, app, "viewer@example.com")
-    made = owner.post("/api/projects", json={"name": "Shared", "sensitive": True})
+    made = owner.post(
+        "/api/projects", json={"name": "Shared", "usage_data_sharing": "off"}
+    )
     assert made.status_code == 200, made.text
     assert made.json()["sensitive"] is True
     pid = made.json()["id"]
@@ -192,7 +196,9 @@ def test_team_viewer_is_denied_and_owner_updates_canonical_bundle(
                 ).scalar_one()
             )
 
-    denied = viewer.patch(f"/api/projects/{pid}/sensitivity", json={"sensitive": True})
+    denied = viewer.patch(
+        f"/api/projects/{pid}/usage-data-sharing", json={"usage_data_sharing": "off"}
+    )
     assert denied.status_code == 403, denied.text
 
     manifest = tmp_path / "data" / f"{pid}.frisket" / "manifest.json"
@@ -201,9 +207,10 @@ def test_team_viewer_is_denied_and_owner_updates_canonical_bundle(
     # column the hosted surfaces and intent recovery read. Asserting only the
     # bundle let the two diverge permanently for any project whose sensitivity
     # was set after creation.
-    for target in (False, True):
+    for value, target in (("inherit", False), ("off", True)):
         allowed = owner.patch(
-            f"/api/projects/{pid}/sensitivity", json={"sensitive": target}
+            f"/api/projects/{pid}/usage-data-sharing",
+            json={"usage_data_sharing": value},
         )
         assert allowed.status_code == 200, allowed.text
         assert allowed.json()["sensitive"] is target
@@ -240,13 +247,20 @@ def test_team_sensitive_create_intent_recovers_without_downgrading_or_losing_aud
 
     monkeypatch.setattr(team_app, "_complete_project_intent", crash_after_intent)
     crashed = client.post(
-        "/api/projects", json={"name": "Crash-safe sources", "sensitive": True}
+        "/api/projects",
+        json={
+            "name": "Crash-safe sources",
+            "usage_data_sharing": "off",
+            "allowed_services": "approved_services",
+        },
     )
     assert crashed.status_code == 500
 
     with app.state.control_engine.connect() as cx:
         intent = cx.execute(sa.select(project_creation_intents)).one()
     assert intent.sensitive is True
+    assert intent.usage_data_sharing == "off"
+    assert intent.allowed_services == "approved_services"
     slug = str(intent.slug)
 
     # A fresh composition must complete, rather than discard, the durable
@@ -254,7 +268,10 @@ def test_team_sensitive_create_intent_recovers_without_downgrading_or_losing_aud
     monkeypatch.setattr(team_app, "_complete_project_intent", original_complete)
     recovered = _team_app(tmp_path)
     manifest = tmp_path / "data" / f"{slug}.frisket" / "manifest.json"
-    assert json.loads(manifest.read_text())["sensitive"] is True
+    recovered_manifest = json.loads(manifest.read_text())
+    assert recovered_manifest["sensitive"] is True
+    assert recovered_manifest["usage_data_sharing"] == "off"
+    assert recovered_manifest["allowed_services"] == "approved_services"
     with recovered.state.control_engine.connect() as cx:
         projection = cx.execute(
             sa.select(projects.c.sensitive).where(projects.c.slug == slug)
@@ -289,7 +306,9 @@ def test_sensitive_blocks_telemetry_and_contribution_before_payload_build(
     destination = _Destination()
     app = create_app(workspace, product_telemetry_destination=destination)
     client = TestClient(app)
-    made = client.post("/api/projects", json={"name": "Protected", "sensitive": True})
+    made = client.post(
+        "/api/projects", json={"name": "Protected", "usage_data_sharing": "off"}
+    )
     assert made.status_code == 200
     pid = made.json()["id"]
     with closing(app.state.workspace.get(pid)) as project:
@@ -344,7 +363,7 @@ def test_turning_sensitive_off_does_not_opt_in_and_offline_export_is_truthful(
     Contributor, TrainingExporter = _correction_api()
     project = make_project("Toggle")
     destination, sender = _Destination(), _CorrectionSender()
-    project.set_project_sensitivity(True)
+    project.set_usage_data_sharing("off")
     project.set_meta("truthful_fixture", "before and after remain user-owned")
 
     # This explicit, user-owned local action remains available even while
@@ -366,7 +385,7 @@ def test_turning_sensitive_off_does_not_opt_in_and_offline_export_is_truthful(
     }
     assert sender.attempts == []
 
-    project.set_project_sensitivity(False)
+    project.set_usage_data_sharing("inherit")
 
     contributor = Contributor(
         enabled=False, sender=sender, project_lookup=lambda _pid: project

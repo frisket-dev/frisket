@@ -29,7 +29,6 @@ import type {
   HttpProjectMemberList,
   HttpProjectMemberRemove,
   HttpProjectMemberSet,
-  HttpProjectNetworkResponse,
   HttpProjectProviderKeyCatalogResponse,
   HttpProjectRetentionResponse,
   HttpProjectSecretCatalogResponse,
@@ -180,7 +179,6 @@ export type ProjectInviteResponse = HttpProjectInviteCreate;
 export type ProjectInvite = ProjectInviteResponse['invite'];
 
 export type ProjectRetentionPolicy = HttpProjectRetentionResponse;
-export type ProjectNetworkPolicy = HttpProjectNetworkResponse;
 
 export type ProjectRetrievalSettings = HttpProjectSettingsResponse['retrieval'];
 export type ProjectSettingsPatch = HttpProjectSettingsRequest & Record<string, unknown>;

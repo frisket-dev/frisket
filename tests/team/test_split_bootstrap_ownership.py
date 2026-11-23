@@ -374,7 +374,7 @@ def test_v5_marker_refuses_before_creating_auth_attempt_buckets(
     before = path.read_bytes()
 
     stale = sa.create_engine(f"sqlite:///{path}", future=True)
-    with pytest.raises(PreSplitSchemaError, match="version=9"):
+    with pytest.raises(PreSplitSchemaError, match="version=11"):
         init_identity_schema(stale)
     stale.dispose()
     assert path.read_bytes() == before
@@ -423,7 +423,7 @@ def test_v6_identity_schema_upgrades_user_allowance_without_reset(
             cx.exec_driver_sql(
                 "SELECT schema_version FROM schema_marker WHERE id = 1"
             ).scalar_one()
-            == 9
+            == 11
         )
         assert cx.exec_driver_sql(
             "SELECT email, name, allowance_usd, default_organization_id "
@@ -472,7 +472,7 @@ def test_v7_identity_schema_renames_user_allowance_without_data_loss(
             cx.exec_driver_sql(
                 "SELECT schema_version FROM schema_marker WHERE id = 1"
             ).scalar_one()
-            == 9
+            == 11
         )
         rows = cx.exec_driver_sql(
             "SELECT id, email, name, allowance_usd FROM users ORDER BY id"
@@ -946,11 +946,12 @@ def _assert_v9_upgraded_state(engine: sa.Engine) -> None:
             cx.exec_driver_sql(
                 "SELECT schema_version FROM schema_marker WHERE id = 1"
             ).scalar_one()
-            == 9
+            == 11
         )
         assert cx.exec_driver_sql(
-            "SELECT id, name, display_name, network_default FROM organizations WHERE id = 1"
-        ).one() == (1, "Newsroom", "Newsroom Desk", "off")
+            "SELECT id, name, display_name, allowed_services_default "
+            "FROM organizations WHERE id = 1"
+        ).one() == (1, "Newsroom", "Newsroom Desk", "approved_services")
         assert cx.exec_driver_sql(
             "SELECT email, default_organization_id FROM users WHERE id = 1"
         ).one() == ("owner@example.test", 1)

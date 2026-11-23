@@ -45,6 +45,12 @@ from frisket.server.provider_config import build_provider_catalog
 from frisket.server.services.project_ask_defaults import project_ask_inventory
 from frisket.server.thread_worker import await_thread_worker
 from frisket.server.workspace import Workspace
+from frisket.project_service_access import (
+    check_model_call,
+    model_call_allowed,
+    project_service_access,
+)
+from frisket.service_access import ServiceNotAllowed
 from frisket.server.project_qa_runtime import ProjectQATurnRuntime
 from frisket.cloud_llm_checkpoint import CloudLLMCheckpointCoordinator
 from frisket.server.services.project_qa_authority import BackgroundAskContext
@@ -130,6 +136,35 @@ def _last_turn_activity(
             outstanding[tool] -= 1
     pending = [tool for tool, count in outstanding.items() for _ in range(count)]
     return last_event, pending[0] if len(pending) == 1 else None
+
+
+class AskServiceNotAllowed(ProjectQAConflictError):
+    """Ask was submitted with no model the project's Allowed services allows."""
+
+    def __init__(self, refusal: ServiceNotAllowed) -> None:
+        super().__init__(str(refusal))
+        self.code = refusal.code
+
+    def detail(self) -> dict[str, str]:
+        return {"code": self.code, "message": str(self)}
+
+
+def _require_ask_model_allowed(
+    project: Project, router: Any, model: str | None
+) -> None:
+    """Refuse at submit, before any model call, what Allowed services refuses.
+
+    ``None`` means no candidate model is allowed at all.
+    """
+    try:
+        if model is None:
+            project_service_access(project).check_remote_service("any Ask model")
+        else:
+            check_model_call(
+                project, model, destination=router.destination_for_model(model)
+            )
+    except ServiceNotAllowed as exc:
+        raise AskServiceNotAllowed(exc) from None
 
 
 class ProjectQAService:
@@ -589,8 +624,10 @@ class ProjectQAService:
                 values["scope"] = body.scope.model_dump(exclude_none=True)
                 validate_scope(project, values["scope"])
                 default_model = None
-                if not values.get("model"):
-                    router = self.workspace.router_for(project)
+                router = self.workspace.router_for(project)
+                if values.get("model"):
+                    _require_ask_model_allowed(project, router, values["model"])
+                else:
                     composition = self.workspace.execution_composition_for(
                         project,
                         router,
@@ -600,7 +637,6 @@ class ProjectQAService:
                     )
                     provider_catalog = build_provider_catalog(
                         self.workspace.root,
-                        network_off=False,
                         local_endpoints=router.local_endpoints,
                         local_endpoint_authority=(
                             "instance"
@@ -615,19 +651,30 @@ class ProjectQAService:
                             project=project,
                         )
                     )
-                    network_off = project.effective_network_policy() == "off"
+                    if project.allowed_services() != "all_services":
+                        candidate_models = [
+                            model
+                            for model in candidate_models
+                            if model_call_allowed(project, router, model)
+                        ]
+                        direct_models = [
+                            model
+                            for model in direct_models
+                            if model_call_allowed(project, router, model)
+                        ]
+                        if not candidate_models:
+                            _require_ask_model_allowed(project, router, None)
                     default_model = default_project_ask_model(
                         router,
                         composition,
                         candidate_models=candidate_models,
                         directly_runnable_models=direct_models,
-                        network_off=network_off,
-                        allow_setup_fallback=not network_off,
+                        allow_setup_fallback=True,
                     )
                     if default_model is None:
                         raise ProjectQAConflictError(
                             "No runnable Project Ask model is available. Choose a "
-                            "model or change the project's network setting."
+                            "model or change the project's Allowed services."
                         )
                 setup = (
                     self._research_setup(

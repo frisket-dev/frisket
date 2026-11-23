@@ -92,7 +92,7 @@ def test_product_navigation_and_preview_events_reach_destination(tmp_path) -> No
     assert len(destination.signals) == len(cases)
 
     sensitive = client.post(
-        "/api/projects", json={"name": "Sensitive", "sensitive": True}
+        "/api/projects", json={"name": "Sensitive", "usage_data_sharing": "off"}
     ).json()["id"]
     assert (
         client.post(
@@ -203,10 +203,10 @@ def test_routes_add_trusted_fields_and_sensitive_projects_send_nothing(
     assert destination.signals[0]["payload"]["Frisket.edition"] == "solo"
 
     ordinary = client.post(
-        "/api/projects", json={"name": "Ordinary", "sensitive": False}
+        "/api/projects", json={"name": "Ordinary", "usage_data_sharing": "inherit"}
     ).json()["id"]
     sensitive = client.post(
-        "/api/projects", json={"name": "Protected", "sensitive": True}
+        "/api/projects", json={"name": "Protected", "usage_data_sharing": "off"}
     ).json()["id"]
     project_opened = _body("Project.opened", {})
     assert (
@@ -453,7 +453,7 @@ def test_sample_origin_is_persisted_and_project_events_are_enriched(
         {"action": "map.extract", "walkthrough": "none", "walkthroughState": "active"},
     ]:
         assert client.post(path, json=_body("Action.opened", props)).status_code == 422
-    project.set_project_sensitivity(True)
+    project.set_usage_data_sharing("off")
     previous = len(destination.signals)
     assert (
         client.post(

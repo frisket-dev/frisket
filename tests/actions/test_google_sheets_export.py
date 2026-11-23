@@ -312,7 +312,7 @@ def test_worker_rechecks_network_and_terminal_replay_skips_fresh_admission(expor
     project, bound, deps, prepared, calls = export_case
     bound = _confirmed(project, bound, deps)
     envelope = prepare_google_sheets_action_job(project, "project", bound, deps=deps)
-    project.set_network_policy(mode="off")
+    project.set_allowed_services("approved_services", confirm_allowed_services=None)
 
     def execute(current, intent, *, execution):
         return run_google_sheets_action_job(
@@ -325,10 +325,12 @@ def test_worker_rechecks_network_and_terminal_replay_skips_fresh_admission(expor
         executor_lookup=lambda kind: execute,
     )
     assert refused.status == "failed"
-    assert refused.errors[0].code == "network_disabled"
+    assert refused.errors[0].code == "service_not_allowed"
     assert not calls
     # A terminal receipt is returned without admitting any new external effect.
-    project.set_network_policy(mode="on")
+    project.set_allowed_services(
+        "all_services", confirm_allowed_services="all_services"
+    )
     replay = run_action_run_job(
         project,
         {"action_job": envelope.to_json()},

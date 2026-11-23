@@ -15,7 +15,6 @@ const projectApi = createProjectApi('alpha');
 const getProjectRetention = vi.spyOn(projectApi, 'getProjectRetention');
 const updateProjectRetention = vi.spyOn(projectApi, 'updateProjectRetention');
 const getProjectSettings = vi.spyOn(projectApi, 'getProjectSettings');
-const getProjectNetworkPolicy = vi.spyOn(projectApi, 'getProjectNetworkPolicy');
 const compactProject = vi.spyOn(projectApi, 'compactProject');
 
 const { render } = createWorkspaceTestHarness({
@@ -69,12 +68,6 @@ function stubLoaders() {
         stride_seconds: null,
       },
     },
-  });
-  getProjectNetworkPolicy.mockResolvedValue({
-    schemaVersion: 'frisket.project_network_policy.v1',
-    mode: 'inherit',
-    organization_default: null,
-    effective: 'on',
   });
 }
 

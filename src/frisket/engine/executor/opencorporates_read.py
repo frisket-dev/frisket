@@ -28,6 +28,7 @@ from frisket.engine.jobs.rate_limiter import (
     SqliteRateLimiter,
     sqlite_rate_limit_db,
 )
+from frisket.project_service_access import remote_service_refusal
 
 CAPABILITY = "external:opencorporates"
 TOKEN_NAME = "OPENCORPORATES_API_TOKEN"
@@ -84,10 +85,9 @@ class AdmittedOpenCorporates:
             raise RowError(
                 "preview_unsupported", "OpenCorporates requires a confirmed run."
             )
-        if ctx.project.effective_network_policy() == "off":
-            raise RowError(
-                "network_disabled", "OpenCorporates requires network access."
-            )
+        refusal = remote_service_refusal(ctx.project, "OpenCorporates")
+        if refusal is not None:
+            raise RowError(refusal.code, str(refusal))
         cancelled = ctx.extras.get("cancelled")
         if callable(cancelled) and cancelled():
             raise asyncio.CancelledError

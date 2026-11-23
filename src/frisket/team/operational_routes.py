@@ -60,6 +60,10 @@ from frisket.team.admin_browser_service import (
     AdminMembershipNotFound,
     AdminMembershipService,
 )
+from frisket.server.routes.approved_endpoints import (
+    ApprovedEndpointAccess,
+    register_approved_endpoint_routes,
+)
 from frisket.team.control_plane import ORGANIZATION_KEY_PROVIDERS
 from frisket.team.db import atomic_upsert, locked_transaction
 from frisket.team.diagnostics import sanitize_text
@@ -115,6 +119,17 @@ def register_operational_routes(
         if membership_role(int(user["id"]), organization_id) is None:
             raise HTTPException(403, "organization membership required")
         return user
+
+    register_approved_endpoint_routes(
+        app,
+        workspace_root=workspace.root,
+        access=ApprovedEndpointAccess(
+            path="/api/organization/approved-endpoints",
+            name_prefix="organization_",
+            require_reader=require_member,
+            require_manager=require_owner,
+        ),
+    )
 
     def require_owner_in_transaction(cx: sa.Connection, actor: dict[str, Any]) -> None:
         role = cx.execute(

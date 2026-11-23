@@ -1,7 +1,6 @@
 import type { HttpContractOperationMap } from '../generated/openHttpContracts';
 import { httpContract, type RequestOptions } from './httpContract';
 import type {
-  ProjectNetworkPolicy,
   ProjectRetentionPolicy,
   ProjectSettings,
   ProjectSettingsPatch,
@@ -31,30 +30,6 @@ export function createProjectDataManagementApi(projectId: string) {
         {
           pathParams: { pid: projectId },
           body: input as RetentionPatch,
-          signal: options.signal,
-        },
-      );
-    },
-
-    getProjectNetworkPolicy(options: RequestOptions = {}): Promise<ProjectNetworkPolicy> {
-      return httpContract(
-        'tenant.get_project_network.get',
-        {
-          pathParams: { pid: projectId },
-          signal: options.signal,
-        },
-      );
-    },
-
-    updateProjectNetworkPolicy(
-      input: { mode: string },
-      options: RequestOptions = {},
-    ): Promise<ProjectNetworkPolicy> {
-      return httpContract(
-        'outer.update_project_network.patch',
-        {
-          pathParams: { pid: projectId },
-          body: { mode: input.mode },
           signal: options.signal,
         },
       );

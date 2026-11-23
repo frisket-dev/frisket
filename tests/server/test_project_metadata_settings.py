@@ -18,7 +18,8 @@ def test_project_metadata_settings_patch_updates_manifest(client) -> None:
         "name": "Metadata renamed",
         "description": "Tracked in settings",
         "sensitive": False,
-        # Shell/Home flags (workbench-ia-shell-v1): default False, unchanged here.
+        "usage_data_sharing": "inherit",
+        "allowed_services": "all_services",
         "starred": False,
         "archived": False,
     }
@@ -34,12 +35,11 @@ def test_project_metadata_settings_patch_updates_manifest(client) -> None:
 def test_project_metadata_settings_reject_sensitive_flag_without_mutating(
     client,
 ) -> None:
-    created = client.post("/api/projects", json={"name": "Sensitive"}).json()
+    created = client.post(
+        "/api/projects", json={"name": "Sensitive", "usage_data_sharing": "off"}
+    ).json()
     pid = created["id"]
     manifest_path = client.app.state.workspace.root / f"{pid}.frisket" / "manifest.json"
-    manifest = json.loads(manifest_path.read_text())
-    manifest["sensitive"] = True
-    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
 
     response = client.patch(
         f"/api/projects/{pid}",

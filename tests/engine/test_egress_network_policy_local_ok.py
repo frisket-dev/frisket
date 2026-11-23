@@ -150,12 +150,12 @@ def test_always_remote_kinds_classify_from_the_catalog() -> None:
 
 def test_off_project_still_validates_local_translate_run(make_project) -> None:
     """End-to-end: _validate_spec under ``off`` lets a local engine through
-    (any failure must not be NetworkDisabled)."""
+    (any failure must not be ServiceRefused)."""
     project = make_project("p")
     sheet = project.add_sheet("data")
     cols = {"statement": project.add_column(sheet, "statement")}
     project.add_rows(sheet, [{"statement": "Hello"}], cols)
-    project.set_network_policy(mode="off")
+    project.set_allowed_services("approved_services", confirm_allowed_services=None)
     runner = MapRunner(
         project,
         ModelRouter(
@@ -189,7 +189,7 @@ def test_off_project_any_canonical_ollama_run_never_cost_gates(make_project) -> 
     sheet = project.add_sheet("data")
     cols = {"text": project.add_column(sheet, "text")}
     project.add_rows(sheet, [{"text": "Hello"}], cols)
-    project.set_network_policy(mode="off")
+    project.set_allowed_services("approved_services", confirm_allowed_services=None)
     runner = MapRunner(
         project,
         ModelRouter(
@@ -218,4 +218,4 @@ def test_off_project_any_canonical_ollama_run_never_cost_gates(make_project) -> 
         resume_run_id=None,
         pricing_policy=runner.pricing_policy,
         composition=runner.execution_composition,
-    )  # must not raise ClaimsGate or NetworkDisabled
+    )  # must not raise ClaimsGate or ServiceRefused

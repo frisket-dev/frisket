@@ -83,7 +83,7 @@ from frisket.engine.runner.map_runner import (
     InvalidTargetRows,
     InvalidTargetSheet,
     ProviderKeyRefusal,
-    NetworkDisabled,
+    ServiceRefused,
     PreviewColumn,
     PreviewEffectRequiresRun,
     PreviewResult,
@@ -789,7 +789,7 @@ class ActionPreviewRunService:
         except (
             BatchRowLimitExceeded,
             ProviderKeyRefusal,
-            NetworkDisabled,
+            ServiceRefused,
             InvalidTargetSheet,
             InvalidTargetRows,
             EmptyInputColumns,

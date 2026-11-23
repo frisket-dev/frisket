@@ -64,6 +64,16 @@ from frisket.server.route_errors import RouteError
 from frisket.server.services.table_imports import run_table_analysis
 from frisket.engine.store import BundleSchemaMismatch, Project, delete_bundle
 from frisket.engine.store.blob_backend import ProjectBlobStore
+from frisket.engine.store.project_meta import (
+    UNREADABLE_ALLOWED_SERVICES,
+)
+from frisket.project_settings import DEFAULT_USAGE_DATA_SHARING, UsageDataSharing
+from frisket.service_access import (
+    ALLOWED_SERVICES_VALUES,
+    DEFAULT_ALLOWED_SERVICES,
+    AllowedServices,
+    register_workspace_edition,
+)
 from frisket.authoring.workbench.plugin_runtime import (
     bootstrap_project_bundled_plugins,
 )
@@ -118,6 +128,14 @@ class ImportChildAdmissionPort(Protocol):
 
 class DataRootUnwritable(RuntimeError):
     """The configured data root exists but this process cannot write to it."""
+
+
+def _manifest_allowed_services(manifest: dict[str, Any]) -> AllowedServices:
+    stored = manifest.get("allowed_services", DEFAULT_ALLOWED_SERVICES)
+    for value in ALLOWED_SERVICES_VALUES:
+        if stored == value:
+            return value
+    return UNREADABLE_ALLOWED_SERVICES
 
 
 def ensure_writable_data_root(root: Path) -> None:
@@ -196,6 +214,9 @@ class Workspace:
         project_qa_runtime_port: ProjectQARuntimePort | None = None,
         plugin_composition_policy: PluginCompositionPolicy | None = None,
         edition: str = "solo",
+        allowed_services_default: Callable[[], AllowedServices] = lambda: (
+            DEFAULT_ALLOWED_SERVICES
+        ),
         cloud_connection_store: Any | None = None,
         cloud_connection_client: Any | None = None,
         cloud_execution_transport: Any | None = None,
@@ -214,7 +235,11 @@ class Workspace:
         self.search_index_semantic_preparation = search_index_semantic_preparation
         self.root = root
         self.edition = str(edition).strip().lower()
+        # The Allowed services a new project starts from: the organization's
+        # default on Team, otherwise All services.
+        self.allowed_services_default = allowed_services_default
         self.root.mkdir(parents=True, exist_ok=True)
+        register_workspace_edition(self.root, self.edition)
         ensure_writable_data_root(self.root)
         self._projects: dict[str, Project] = {}
         self._metadata_enqueue_pending: set[str] = set()
@@ -1004,6 +1029,7 @@ class Workspace:
                     "name": manifest.get("name", p.stem),
                     "description": manifest.get("description", ""),
                     "sensitive": bool(manifest.get("sensitive", False)),
+                    "allowed_services": _manifest_allowed_services(manifest),
                     "updated_at": updated_at,
                     "pending_review_count": manifest.get("pending_review_count", 0),
                     # Shell/Home project flags: read
@@ -1175,17 +1201,24 @@ class Workspace:
         name: str,
         *,
         project_id: str | None = None,
-        sensitive: bool = False,
+        allowed_services: AllowedServices = DEFAULT_ALLOWED_SERVICES,
+        usage_data_sharing: UsageDataSharing = DEFAULT_USAGE_DATA_SHARING,
     ) -> dict:
         with self.plugin_package_lifecycle():
-            return self._create_locked(name, project_id=project_id, sensitive=sensitive)
+            return self._create_locked(
+                name,
+                project_id=project_id,
+                allowed_services=allowed_services,
+                usage_data_sharing=usage_data_sharing,
+            )
 
     def _create_locked(
         self,
         name: str,
         *,
         project_id: str | None,
-        sensitive: bool,
+        allowed_services: AllowedServices,
+        usage_data_sharing: UsageDataSharing,
     ) -> dict:
         if project_id is not None:
             # An explicit caller-supplied project_id must fail validation
@@ -1221,7 +1254,11 @@ class Workspace:
             else None
         )
         project = Project.create(
-            path, name=name, sensitive=sensitive, blob_store=blob_store
+            path,
+            name=name,
+            allowed_services=allowed_services,
+            usage_data_sharing=usage_data_sharing,
+            blob_store=blob_store,
         )
         with project.transaction_scope():
             write_project_settings(project, ProjectSettings(model_execution_routes={}))
@@ -1241,7 +1278,9 @@ class Workspace:
             "id": path.stem,
             "name": name,
             "description": "",
-            "sensitive": sensitive,
+            "sensitive": usage_data_sharing == "off",
+            "usage_data_sharing": usage_data_sharing,
+            "allowed_services": allowed_services,
         }
 
     def delete(self, project_id: str) -> None:

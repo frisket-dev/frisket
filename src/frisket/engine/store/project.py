@@ -52,9 +52,14 @@ from .cells import (
     COLUMN_FORMATS as COLUMN_FORMATS,
     COLUMN_TYPES as COLUMN_TYPES,
 )
+from frisket.project_settings import DEFAULT_USAGE_DATA_SHARING, UsageDataSharing
+from frisket.service_access import DEFAULT_ALLOWED_SERVICES, AllowedServices
+
 from .project_meta import (
+    ALLOWED_SERVICES_META_KEY,
     PROJECT_SCHEMA_VERSION as PROJECT_SCHEMA_VERSION,
     RETENTION_POLICY_META_KEY,
+    USAGE_DATA_SHARING_META_KEY,
     STORAGE_ID_META_KEY,
     SUPPORTED_RETENTION_VALUES as SUPPORTED_RETENTION_VALUES,
     _normalize_retention_policy,
@@ -304,7 +309,8 @@ class Project:
         bundle_path: str | Path,
         name: str | None = None,
         *,
-        sensitive: bool = False,
+        allowed_services: AllowedServices = DEFAULT_ALLOWED_SERVICES,
+        usage_data_sharing: UsageDataSharing = DEFAULT_USAGE_DATA_SHARING,
         blob_store: ProjectBlobStore | None = None,
     ) -> "Project":
         path = Path(bundle_path)
@@ -327,17 +333,18 @@ class Project:
         db.execute(
             "INSERT INTO meta (key, value) VALUES "
             "('format_version', ?), ('name', ?), ('change_cursor', '0'), "
-            "('sensitive', ?), ('project_kind', 'regular'), (?, ?), (?, ?), (?, ?)",
+            "('project_kind', 'regular'), (?, ?), (?, ?), (?, ?), (?, ?), (?, ?)",
             (
                 str(FORMAT_VERSION),
                 name or path.stem,
-                # Written here as well as to the manifest, on the same terms as
-                # ``set_project_sensitivity``: the manifest is an externalized
-                # summary and can be rebuilt from the db, never the reverse. A
-                # project created sensitive whose manifest is lost would
-                # otherwise come back not-sensitive and resume the telemetry
-                # its owner had switched off.
-                "true" if sensitive else "false",
+                # Written here as well as to the manifest: the manifest is an
+                # externalized summary rebuilt from the db, never the reverse,
+                # so a lost manifest cannot resume sharing a project's owner
+                # switched off or widen its allowed services.
+                USAGE_DATA_SHARING_META_KEY,
+                usage_data_sharing,
+                ALLOWED_SERVICES_META_KEY,
+                allowed_services,
                 RETENTION_POLICY_META_KEY,
                 json.dumps(retention_policy, sort_keys=True),
                 STORAGE_ID_META_KEY,
@@ -351,9 +358,9 @@ class Project:
         cls._write_initial_manifest(
             path,
             name or path.stem,
-            retention_policy,
             storage_id=storage_id,
-            sensitive=sensitive,
+            allowed_services=allowed_services,
+            usage_data_sharing=usage_data_sharing,
         )
         return cls(path, blob_store=blob_store)
 
@@ -361,13 +368,13 @@ class Project:
     def _write_initial_manifest(
         path: Path,
         name: str,
-        retention_policy: dict[str, Any] | None = None,
         *,
         storage_id: str,
-        sensitive: bool = False,
+        allowed_services: AllowedServices,
+        usage_data_sharing: UsageDataSharing,
     ) -> None:
         """Create-time manifest (no Project instance exists yet)."""
-        retention = _normalize_retention_policy(retention_policy)
+        retention = _normalize_retention_policy()
         manifest = {
             "format": "frisket-bundle",
             "schema_version": PROJECT_SCHEMA_VERSION,
@@ -375,7 +382,9 @@ class Project:
             "project_id": path.stem,
             "storage_id": storage_id,
             "name": name,
-            "sensitive": sensitive,
+            "sensitive": usage_data_sharing == "off",
+            "usage_data_sharing": usage_data_sharing,
+            "allowed_services": allowed_services,
             "retention": retention,
         }
         # Same atomic publish as every later write (project_meta), so a crash
@@ -451,18 +460,20 @@ class Project:
             )
         return value
 
-    # ---------- project_meta: manifest, metadata, retention, network policy ----------
+    # ---------- project_meta: manifest, metadata, retention, allowed services ----------
     _write_manifest = project_meta._write_manifest
     refresh_pending_review_summary = project_meta.refresh_pending_review_summary
     project_metadata = project_meta.project_metadata
     set_project_metadata = project_meta.set_project_metadata
-    set_project_sensitivity = project_meta.set_project_sensitivity
+    usage_data_sharing = project_meta.usage_data_sharing
+    set_usage_data_sharing = project_meta.set_usage_data_sharing
+    shares_usage_data = project_meta.shares_usage_data
+    allowed_services = project_meta.allowed_services
+    set_allowed_services = project_meta.set_allowed_services
     _ensure_retention_policy = project_meta._ensure_retention_policy
     retention_policy = project_meta.retention_policy
     set_retention_policy = project_meta.set_retention_policy
-    network_policy = project_meta.network_policy
-    set_network_policy = project_meta.set_network_policy
-    effective_network_policy = project_meta.effective_network_policy
+    remote_services_refused = project_meta.remote_services_refused
 
     # ---------- credentials: provider keys / secrets ----------
     provider_key_catalog_rows = credentials.provider_key_catalog_rows

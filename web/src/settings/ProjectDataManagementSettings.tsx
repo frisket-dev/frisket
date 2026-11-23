@@ -4,7 +4,6 @@ import { type FormEvent, useState } from 'react';
 import { AlertTriangle, Archive, Database, Download } from 'lucide-react';
 import {
   type ProjectInfo,
-  type ProjectNetworkPolicy,
   type ProjectRetentionPolicy,
   type ProjectSettings,
   type ProjectSettingsPatch,
@@ -49,7 +48,6 @@ export function ProjectDataManagementSettings({ project }: { project?: ProjectIn
   const { projectApi: api, chromePreferences: { projectId } } = useWorkspaceStores();
   const retention = useLoader<ProjectRetentionPolicy>(() => api.getProjectRetention(), []);
   const settings = useLoader<ProjectSettings>(() => api.getProjectSettings(), []);
-  const network = useLoader<ProjectNetworkPolicy>(() => api.getProjectNetworkPolicy(), []);
   const [notice, setNotice] = useState<string | null>(null);
   const [mutationError, setMutationError] = useState<string | null>(null);
   const [compactConfirm, setCompactConfirm] = useState('');
@@ -87,17 +85,6 @@ export function ProjectDataManagementSettings({ project }: { project?: ProjectIn
       setMutationError(errorMessage(caught));
     }
   };
-  const patchNetwork = async (mode: string) => {
-    if (!canMutate) return;
-    setMutationError(null);
-    try {
-      network.setData(await api.updateProjectNetworkPolicy({ mode }));
-      setNotice('Network setting saved');
-    } catch (caught) {
-      setNotice(null);
-      setMutationError(errorMessage(caught));
-    }
-  };
   const compact = async (event: FormEvent) => {
     event.preventDefault();
     if (!canMutate || policy?.no_compact || compactConfirm !== 'COMPACT') return;
@@ -123,8 +110,8 @@ export function ProjectDataManagementSettings({ project }: { project?: ProjectIn
   return (
     <div className="content-stack" data-testid="project-data-management-settings">
       <InlineStatus
-        error={retention.error ?? settings.error ?? network.error ?? mutationError}
-        loading={retention.loading || settings.loading || network.loading}
+        error={retention.error ?? settings.error ?? mutationError}
+        loading={retention.loading || settings.loading}
         notice={notice}
       />
       {!canMutate && (
@@ -211,39 +198,6 @@ export function ProjectDataManagementSettings({ project }: { project?: ProjectIn
             <span>Disable manual compaction</span>
           </label>
           </div>
-        </section>
-      )}
-      {network.data && (
-        <section className="content-stack" data-testid="project-network-section">
-          <div className="settings-section-subhead">
-            <h2>Network</h2>
-            <p>
-              Control whether project actions may contact outside services such as
-              cloud AI providers, web search, geocoding, and public URLs. Turn this
-              off for offline or especially sensitive work. Local tools and your
-              configured local model servers still work.
-            </p>
-          </div>
-          <FormField label="Network access" >
-
-            <PanelSelect
-              data-testid="project-network-mode"
-              value={network.data.mode}
-              disabled={!canMutate}
-              onChange={(event) => void patchNetwork(event.currentTarget.value)}
-            >
-              <option value="inherit">
-                {`Inherit (currently ${network.data.organization_default ?? 'on'})`}
-              </option>
-              <option value="on">On</option>
-              <option value="off">Off</option>
-            </PanelSelect>
-            <small className="form-hint">
-              {`Currently ${network.data.effective}. “Inherit” follows your organization’s
-              setting. Plugins, notifications, and scheduled feed checks have their own
-              network behavior.`}
-            </small>
-          </FormField>
         </section>
       )}
       {projectSettings?.retrieval && (

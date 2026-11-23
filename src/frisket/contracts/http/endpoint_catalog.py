@@ -174,9 +174,9 @@ _OUTER_ADMIN: tuple[RouteSpec, ...] = (
     ("admin_browser_revoke_invite", "DELETE"),
     ("admin_browser_update_user_role", "PATCH"),
     ("admin_browser_users", "GET"),
-    # Organization-wide network default: owner-only, like the other organization-shaping admin
-    # actions.
-    ("update_organization_network", "PATCH"),
+    # The organization's Allowed services default: owner-only, like the other
+    # organization-shaping admin actions.
+    ("update_organization_allowed_services_default", "PATCH"),
 )
 
 _OUTER_OAUTH_BROWSER: tuple[RouteSpec, ...] = (
@@ -197,7 +197,7 @@ _OUTER_SESSION: tuple[RouteSpec, ...] = (
     ("delete_organization_env_var", "DELETE"),
     ("delete_organization_key", "DELETE"),
     ("diagnostic_bundle", "POST"),
-    ("get_organization_network", "GET"),
+    ("get_organization_allowed_services_default", "GET"),
     ("get_project_blob", "GET"),
     ("list_members", "GET"),
     ("list_organization_env_vars", "GET"),
@@ -214,6 +214,8 @@ _OUTER_SESSION: tuple[RouteSpec, ...] = (
     ("set_member", "POST"),
     ("set_organization_env_var", "POST"),
     ("set_organization_key", "POST"),
+    ("list_organization_approved_endpoints", "GET"),
+    ("replace_organization_approved_endpoints", "PUT"),
     ("validate_organization_key", "POST"),
 )
 
@@ -269,6 +271,8 @@ _TENANT_LOCAL_PROVIDERS: tuple[RouteSpec, ...] = (
 
 _TENANT_LOCAL_RUNTIME_SETTINGS: tuple[RouteSpec, ...] = (
     ("update_runtime_config", "PATCH"),
+    ("list_approved_endpoints", "GET"),
+    ("replace_approved_endpoints", "PUT"),
 )
 
 _TENANT_LOCAL_CLOUD_CONNECTION: tuple[RouteSpec, ...] = (
@@ -409,7 +413,6 @@ _TENANT_VIEWER: tuple[RouteSpec, ...] = (
     ("get_blob", "GET"),
     ("get_pdf_page_image", "GET"),
     ("get_project", "GET"),
-    ("get_project_network", "GET"),
     ("get_project_retention", "GET"),
     ("get_feed", "GET"),
     ("get_feed_health", "GET"),
@@ -513,14 +516,11 @@ _TENANT_REVIEWER: tuple[RouteSpec, ...] = (
 
 _TENANT_OWNER: tuple[RouteSpec, ...] = (
     (
-        "update_project_sensitivity",
+        "update_project_usage_data_sharing",
         "PATCH",
     ),
-    # The network off-switch is a safety policy, owner-level like sensitivity;
-    # the team app overrides it with a control-plane-syncing twin, same as
-    # sensitivity.
     (
-        "update_project_network",
+        "update_project_allowed_services",
         "PATCH",
     ),
     (
@@ -1007,7 +1007,6 @@ _BROWSER_CLIENT_IDS = (
             "tenant.ocr_compare_scratch_estimate.post",
             "tenant.citation_viewer.get",
             "tenant.get_project.get",
-            "tenant.get_project_network.get",
             "tenant.get_project_provider_keys.get",
             "tenant.get_project_retention.get",
             "tenant.get_project_secrets.get",
@@ -1081,9 +1080,7 @@ _BROWSER_CLIENT_IDS = (
             "tenant.sheet_graph.get",
             "tenant.delete_sheet.delete",
             "tenant.update_project.patch",
-            # The local policy owns browser membership; projection maps this
-            # Team/local twin to outer.update_project_network.patch.
-            "tenant.update_project_network.patch",
+            "tenant.update_project_allowed_services.patch",
             "tenant.update_project_retention.patch",
             "tenant.set_project_provider_key.post",
             "tenant.set_project_secret.post",
@@ -1125,6 +1122,8 @@ _BROWSER_CLIENT_IDS = (
             "outer.list_tokens.get",
             "outer.revoke_token.delete",
             "outer.set_organization_key.post",
+            "outer.list_organization_approved_endpoints.get",
+            "outer.replace_organization_approved_endpoints.put",
             "outer.set_organization_env_var.post",
             "outer.validate_organization_key.post",
             "outer.delete_organization_key.delete",

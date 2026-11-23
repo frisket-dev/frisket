@@ -75,7 +75,6 @@ from frisket.ai.embeddings.capabilities import (
     embedding_model_size_budget_gb,
     estimate_embedding_cost,
 )
-from frisket.ai.models.metadata import provider_network_blocked
 from frisket.ai.embeddings.gateway import (
     ExecutionEmbeddingGateway,
     provider_normalization,
@@ -173,6 +172,7 @@ from frisket.engine.executor.embedding_export import (
     embedding_export_dir,
     run_index_export,
 )
+from frisket.project_service_access import remote_service_refusal
 
 logger = logging.getLogger("frisket.executor")
 
@@ -1175,18 +1175,17 @@ def _validate_refresh_remote_policy(
     provider_policy = _json_obj(index["provider_policy_json"])
     remote = provider_kind in REMOTE_PROVIDER_KINDS
     automatic = _is_automatic_refresh(req.params)
-    if provider_network_blocked(
-        provider_kind, network_off=project.effective_network_policy() == "off"
-    ):
+    refusal = (
+        remote_service_refusal(project, f"provider:{provider_kind}")
+        if provider_kind in REMOTE_PROVIDER_KINDS
+        else None
+    )
+    if refusal is not None:
         return _error(
             req.action,
             req.project_id,
-            "network_disabled",
-            (
-                f"this project's network setting is off; it blocks "
-                f"provider:{provider_kind}. Turn network on in the project "
-                "settings to refresh this remote-backed index."
-            ),
+            refusal.code,
+            str(refusal),
             field="params.index_id",
             details={"capability": f"provider:{provider_kind}"},
         )
@@ -1363,15 +1362,17 @@ def _validate_create_probe_policy(
             "a dimension-discovery probe embeds a row, so it requires a sheet_id",
             field="params.sheet_id",
         )
-    if provider_network_blocked(
-        cap["provider_kind"],
-        network_off=project.effective_network_policy() == "off",
-    ):
+    refusal = (
+        remote_service_refusal(project, f"provider:{cap['provider_kind']}")
+        if cap["provider_kind"] in REMOTE_PROVIDER_KINDS
+        else None
+    )
+    if refusal is not None:
         return _error(
             req.action,
             req.project_id,
-            "network_disabled",
-            "Project network policy blocks the remote embedding dimension probe.",
+            refusal.code,
+            str(refusal),
             field="params.provider",
             details={"capability": f"provider:{cap['provider_kind']}"},
         )

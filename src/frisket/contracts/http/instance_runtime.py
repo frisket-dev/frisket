@@ -14,6 +14,8 @@ bare dicts did; edition-only fields are declared last and omitted when unset.
 
 from __future__ import annotations
 
+from frisket.service_access import AllowedServices
+
 from typing import Literal
 
 from pydantic import JsonValue
@@ -49,6 +51,13 @@ class RuntimeConfigResponse(WireModel):
     # controls, so this is deliberately distinct from ``plugins_available``.
     plugin_management_available: bool
     product_telemetry_available: bool
+    # The Allowed services choices this edition offers, in strictness order.
+    # Frisket Cloud leaves out "this_machine_only": projects already live on
+    # Frisket's servers, so the UI hides that choice rather than disabling it.
+    # The choice the new project dialog starts from: the organization's
+    # default on Team, otherwise All services.
+    allowed_services_default: AllowedServices
+    allowed_services_offered: list[AllowedServices]
 
 
 class OIDCAuthMethod(WireModel):

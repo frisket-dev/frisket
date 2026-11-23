@@ -116,7 +116,7 @@ def test_remote_cluster_exact_consent_accounting_and_cache(
 @pytest.mark.parametrize("method", ["fingerprint", "ngram_fingerprint", "semantic"])
 def test_network_off_keeps_local_clustering(cluster_project, monkeypatch, method):
     project, sheet, source, execute = cluster_project
-    monkeypatch.setattr(project, "effective_network_policy", lambda: "off")
+    project.set_allowed_services("approved_services", confirm_allowed_services=None)
 
     def embed(texts):
         return [[1.0, 0.0] for _ in texts]
@@ -135,11 +135,11 @@ def test_network_off_refuses_remote_before_any_call(cluster_project, monkeypatch
 
     project, sheet, source, execute = cluster_project
     monkeypatch.setenv("FRISKET_DISABLE_LOCAL_EMBED", "1")
-    monkeypatch.setattr(project, "effective_network_policy", lambda: "off")
+    project.set_allowed_services("approved_services", confirm_allowed_services=None)
     router, adapter = _remote_embedding_router()
     result = execute(router=router, options={"method": "semantic"})
     assert result.status == "failed", result.model_dump()
-    assert result.errors[0].code == "network_disabled"
+    assert result.errors[0].code == "service_not_allowed"
     assert adapter.calls == []
     assert [column["name"] for column in project.columns(sheet)] == ["name"]
 

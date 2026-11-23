@@ -77,7 +77,7 @@ from frisket.engine.runner.validation import EmptyInputColumns as EmptyInputColu
 from frisket.engine.runner.validation import InvalidTargetRows as InvalidTargetRows
 from frisket.engine.runner.validation import InvalidTargetSheet as InvalidTargetSheet
 from frisket.engine.runner.validation import MissingProviderKey as MissingProviderKey
-from frisket.engine.runner.validation import NetworkDisabled as NetworkDisabled
+from frisket.engine.runner.validation import ServiceRefused as ServiceRefused
 from frisket.engine.runner.validation import OutputColumnExists as OutputColumnExists
 from frisket.engine.runner.validation import ProviderKeyRefusal as ProviderKeyRefusal
 from frisket.engine.runner.validation import (
@@ -1873,7 +1873,7 @@ class MapRunner:
                             required_output_field_names=required_output_field_names,
                             managed_publication=True,
                         )
-                except NetworkDisabled:
+                except ServiceRefused:
                     if checkpoint_created:
                         assert checkpoint_ref is not None
                         self.run_store.discard_reserved_row_effect_checkpoint(
