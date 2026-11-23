@@ -23,9 +23,7 @@ from frisket.service_access import (
 )
 from frisket.team.bootstrap import init_identity_schema
 from frisket.upgrades.project import upgrade_project
-from frisket.upgrades.project.network_policy_migration import (
-    NetworkFoldDecisionPending,
-)
+from frisket.engine.store.project_meta import AllowedServicesConfirmationRequired
 
 ALLOWED: tuple[AllowedServices | None, ...] = (
     None,
@@ -132,22 +130,65 @@ def test_a_stricter_allowed_services_survives_network_off(tmp_path: Path) -> Non
     project.close()
 
 
-def test_cloud_network_off_project_waits_for_its_mapping(tmp_path: Path) -> None:
-    """Approved services allows Frisket's own processing on Cloud, which
-    network off refused, so the fold does not decide this case."""
+@pytest.mark.parametrize(
+    "network",
+    [
+        {"mode": "off", "organization_default": None},
+        {"mode": "inherit", "organization_default": "off"},
+    ],
+)
+def test_cloud_network_off_project_stores_this_machine_only(
+    tmp_path: Path, network: dict[str, str | None]
+) -> None:
+    """On Cloud, Approved services would allow Frisket's own processing,
+    which network off refused, so the project stores This machine only:
+    nothing loosens, and the owner chooses an offered option to go further."""
     bundle = _legacy_bundle(
-        tmp_path,
-        network={"mode": "off", "organization_default": None},
-        allowed=None,
-        manifest_state="stale",
+        tmp_path, network=network, allowed=None, manifest_state="stale"
     )
     register_workspace_edition(tmp_path, "cloud")
     try:
-        with pytest.raises(NetworkFoldDecisionPending):
-            Project(bundle)
+        project = Project(bundle)
+        upgrade_project(project)
+        upgrade_project(project)
+        assert project.allowed_services() == "this_machine_only"
+        assert "network_policy" not in _meta(bundle)
+        access = project_service_access(project)
+        with pytest.raises(ServiceNotAllowed):
+            check_route(
+                project, access, SelectedRoute("frisket-cloud", "frisket_shared")
+            )
+        with pytest.raises(AllowedServicesConfirmationRequired):
+            project.set_allowed_services(
+                "approved_services", confirm_allowed_services=None
+            )
+        project.set_allowed_services(
+            "approved_services", confirm_allowed_services="approved_services"
+        )
+        check_route(
+            project,
+            project_service_access(project),
+            SelectedRoute("frisket-cloud", "frisket_shared"),
+        )
+        assert project.history()[-1]["kind"] == "allowed_services"
+        project.close()
     finally:
         register_workspace_edition(tmp_path, "solo")
-    assert "network_policy" in _meta(bundle)
+
+
+def test_cloud_still_refuses_choosing_this_machine_only(tmp_path: Path) -> None:
+    from fastapi.testclient import TestClient
+
+    from frisket.server.app import create_app
+
+    client = TestClient(create_app(tmp_path / "cloud", edition="cloud"))
+    pid = client.post("/api/projects", json={"name": "Cloud"}).json()["id"]
+    refused = client.patch(
+        f"/api/projects/{pid}/allowed-services",
+        json={"allowed_services": "this_machine_only"},
+    )
+    assert refused.status_code == 400, refused.text
+    register_workspace_edition(tmp_path / "cloud", "solo")
 
 
 # Each destination class with what network off allowed in the previous
