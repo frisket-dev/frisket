@@ -139,14 +139,18 @@ def test_a_stricter_allowed_services_survives_network_off(tmp_path: Path) -> Non
         {"mode": "inherit", "organization_default": "off"},
     ],
 )
+@pytest.mark.parametrize("allowed", ALLOWED)
 def test_cloud_network_off_project_stores_this_machine_only(
-    tmp_path: Path, network: dict[str, str | None]
+    tmp_path: Path,
+    network: dict[str, str | None],
+    allowed: AllowedServices | None,
 ) -> None:
     """On Cloud, Approved services would allow Frisket's own processing,
-    which network off refused, so the project stores This machine only:
-    nothing loosens, and the owner chooses an offered option to go further."""
+    which network off refused, so the project stores This machine only
+    whatever Allowed services it stored: nothing loosens, and the owner
+    chooses an offered option to go further."""
     bundle = _legacy_bundle(
-        tmp_path, network=network, allowed=None, manifest_state="stale"
+        tmp_path, network=network, allowed=allowed, manifest_state="stale"
     )
     register_workspace_edition(tmp_path, "cloud")
     try:

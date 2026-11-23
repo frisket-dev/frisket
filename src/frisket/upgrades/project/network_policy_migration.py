@@ -8,8 +8,9 @@ manifest is rewritten from the Allowed services value actually stored.
 
 On Frisket Cloud, Approved services allows Frisket's own processing, which
 network off refused, so a network-off Cloud project stores This machine only
-even though Cloud does not offer it for selection: nothing loosens, and its
-owner chooses an offered option, with the usual confirmation, to go further.
+whatever Allowed services it stored, even though Cloud does not offer it for
+selection: nothing loosens, and its owner chooses an offered option, with the
+usual confirmation, to go further.
 """
 
 from __future__ import annotations
@@ -56,15 +57,13 @@ def upgrade_network_policy(project: Any) -> None:
         if NETWORK_POLICY_META_KEY not in rows:
             return
         allowed = rows.get(ALLOWED_SERVICES_META_KEY)
-        if _network_was_off(rows[NETWORK_POLICY_META_KEY]) and allowed in (
-            None,
-            "all_services",
-        ):
-            folded = (
-                "this_machine_only"
-                if workspace_edition(project.path.parent) == "cloud"
-                else "approved_services"
-            )
+        folded: str | None = None
+        if _network_was_off(rows[NETWORK_POLICY_META_KEY]):
+            if workspace_edition(project.path.parent) == "cloud":
+                folded = "this_machine_only"
+            elif allowed in (None, "all_services"):
+                folded = "approved_services"
+        if folded is not None and folded != allowed:
             project.db.execute(
                 "INSERT INTO meta (key, value) VALUES (?, ?) "
                 "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
