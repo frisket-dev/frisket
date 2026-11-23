@@ -1,5 +1,6 @@
 import '../grid/SheetGrid.css';
 import { Suspense, useCallback, useEffect, useMemo, useState, useSyncExternalStore } from 'react';
+import { useLimitNote } from './useLimitNote';
 import type { CellValue, ColumnDef, HistoryState, ProjectInfo, Row } from '../api/open';
 import { subscribeMapPointsMeta } from '../api/mapPointsMeta';
 import { PreviewTable } from '../components/PreviewTable';
@@ -70,6 +71,14 @@ const EMPTY_ROW_CACHE_SNAPSHOT = { key: '', scopeKey: '', version: 0, totalRows:
 const subscribeNoop = () => () => undefined;
 const getEmptyRowCacheSnapshot = () => EMPTY_ROW_CACHE_SNAPSHOT;
 
+/** The row just added from the toolbar: highlighted, announced, undoable. */
+interface AddedRow {
+  sheetId: string;
+  rowId: string;
+  changeId: string | null;
+  rowNumber: number;
+}
+
 export function useWorkspaceModel({
   project,
   routeSheetId,
@@ -124,7 +133,6 @@ export function useWorkspaceModel({
   }, [project.id, projectApi]);
 
   const provenanceOpen = useSelector(chrome.store, (s) => s.provenanceOpen);
-  const overflowMenuOpen = useSelector(chrome.store, (s) => s.overflowMenuOpen);
 
   const selectedColumnId = useSelector(selection.store, (s) => s.selectedColumnId);
   const selectedRows = useSelector(selection.store, (s) => s.selectedRows);
@@ -286,12 +294,12 @@ export function useWorkspaceModel({
     project, sheet, chromeState, refreshHistory, refreshSheets, showError,
   });
   const {
-    activeGridFilter, activeGridSort, scopeRowIds, rowHeight, wrapText, columnGroupsVersion,
+    activeGridFilter, activeGridSort, scopeRowIds, wrapText, columnGroupsVersion,
     activeColumnOrder, activeHiddenColumns, hiddenColumnNames, currentViewColumns,
     activeChildFilter, activeFrozenColumnCount, changeColumnOrder, revealColumns,
     applyGridFilterForColumn, applyGridBboxFilter, applyGridFilterSpec, applyGridFailedFilter,
     applyGridEntityFilter, sortHeaderColumn, clearGridFilter, openGridHeaderMenu, closeHeaderMenu,
-    openAddColumnPrompt, closeAddColumnPrompt, submitAddColumn,
+    openAddColumnPrompt, closeAddColumnPrompt, submitAddColumn, applyRowLimit,
   } = grid;
   const mapViewDescriptor = useMemo<WorkbenchViewDescriptor | null>(
     () =>
@@ -404,18 +412,27 @@ export function useWorkspaceModel({
     [projectApi, projectData, refreshHistory, showError],
   );
 
+  const [addedRow, setAddedRow] = useState<AddedRow | null>(null);
   const appendRow = useCallback(() => {
     if (!sheet) return;
     void projectApi
       .addRow(sheet.id)
-      .then(() => {
+      .then((added) => {
         projectData.invalidate();
         detail.closeDrawers({ clearChildFilter: true });
         void refreshSheets();
         void refreshHistory();
+        setAddedRow({ sheetId: sheet.id, rowId: added.rowId, changeId: added.changeId, rowNumber: added.total });
       })
       .catch((e: Error) => showError(e.message));
   }, [detail, projectApi, projectData, refreshHistory, refreshSheets, sheet, showError]);
+  const dismissAddedRow = useCallback(() => setAddedRow(null), []);
+  /** Reverts exactly the row-add change, not whatever change is newest. */
+  const undoAddedRow = useCallback(() => {
+    const changeId = addedRow?.changeId;
+    setAddedRow(null);
+    if (changeId) void doRevert(changeId);
+  }, [addedRow, doRevert]);
 
   const requestDeleteRows = useCallback(() => {
     if (!sheet) return;
@@ -442,6 +459,13 @@ export function useWorkspaceModel({
   const viewController = useWorkspaceViewsController({
     project, sheet, currentViewColumns, chromeState, visibility, showError,
   });
+  const showAllMatchingRows = useCallback(() => applyRowLimit(null), [applyRowLimit]);
+  const gridLimitNote = useLimitNote(
+    sheet,
+    viewController.currentDefinition?.selection ?? null,
+    dataVersion,
+    showAllMatchingRows,
+  );
   const {
     openNewView,
   } = viewController;
@@ -954,14 +978,14 @@ export function useWorkspaceModel({
           importPageReading={importPageReading}
           pendingImportRowCount={pendingImportRowCount}
           importRowRefreshKey={importRowRefreshKey}
-          rowHeight={rowHeight}
           wrapText={wrapText}
+          highlightRowId={addedRow?.rowId ?? null}
+          limitNote={gridLimitNote}
           columnGroupsStorageScope={project.id}
           columnGroupsVersion={columnGroupsVersion}
           hiddenColumnNames={hiddenColumnNames}
           userHiddenColumnNames={activeHiddenColumns}
           onRevealColumns={revealColumns}
-          onAddColumnAtEnd={openAddColumnPrompt}
           childSheet={childSheet}
           parentRowFilter={
             activeChildFilter
@@ -1036,8 +1060,9 @@ export function useWorkspaceModel({
     importPageReading,
     pendingImportRowCount,
     importRowRefreshKey,
-    rowHeight,
     wrapText,
+    addedRow,
+    gridLimitNote,
     project.id,
     columnGroupsVersion,
     hiddenColumnNames,
@@ -1102,10 +1127,9 @@ export function useWorkspaceModel({
       requestDeleteRows,
       selectedRowIdsForSheet,
       visibleRowCount,
-      overflowMenuOpen,
-      setOverflowMenuOpen: chrome.setOverflowMenuOpen,
-      provenanceOpen,
-      toggleProvenanceWithDrawers,
+      addedRow: addedRow?.sheetId === sheet?.id ? addedRow : null,
+      dismissAddedRow,
+      undoAddedRow,
       consumeViewsPublication: viewsStore.consumePublication,
       cancelViewsConfirmation: viewsStore.cancelConfirmation,
       cancelViewEditor: viewsStore.cancelEditor,
@@ -1154,10 +1178,9 @@ export function useWorkspaceModel({
       requestDeleteRows,
       selectedRowIdsForSheet,
       visibleRowCount,
-      overflowMenuOpen,
-      chrome,
-      provenanceOpen,
-      toggleProvenanceWithDrawers,
+      addedRow,
+      dismissAddedRow,
+      undoAddedRow,
       viewsStore,
       clearChildFilter,
       closeCitationViewer,
@@ -1250,6 +1273,7 @@ export function useWorkspaceModel({
 
   return {
     openView: viewController.openView,
+    toggleProvenanceWithDrawers,
     askNavigation,
     project,
     projectApi,

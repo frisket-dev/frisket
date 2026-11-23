@@ -97,6 +97,19 @@
   --preview-ink: #5b4b9a;
   --preview-muted: #8a7fb8;
   --preview-btn: #6d5bb8;
+  /* Row filtering: active-filter chip border, focused/active control border,
+     disabled primary fill, histogram bars, search-match highlight and the
+     just-added row tint. */
+  --accent-border: #c9cbf5;
+  --accent-focus-border: #9c9eeb;
+  --accent-disabled: #a9aaee;
+  --histogram-current: #8b8deb;
+  --histogram-outside: #d9d3cd;
+  --search-highlight: #fbe7a1;
+  --row-added-bg: #fffbea;
+  --toast-bg: #211c19;
+  --toast-text: #ffffff;
+  --toast-action: #c9cbf5;
 }
 
 :root[data-frisket-theme="dark"] {
@@ -152,6 +165,16 @@
   --preview-ink: #d4c8f6;
   --preview-muted: #a79cc8;
   --preview-btn: #9587d2;
+  --accent-border: #464a8c;
+  --accent-focus-border: #6c71d0;
+  --accent-disabled: #4a4d7f;
+  --histogram-current: #7a7fe0;
+  --histogram-outside: #4a4539;
+  --search-highlight: #6b5a1f;
+  --row-added-bg: #3a3420;
+  --toast-bg: #ece9e2;
+  --toast-text: #1d1b17;
+  --toast-action: #3a41c4;
 }
 
 * { box-sizing: border-box; }

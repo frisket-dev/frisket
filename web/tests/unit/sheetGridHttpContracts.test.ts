@@ -612,6 +612,7 @@ describe('sheet and grid HTTP contracts', () => {
         project_id: 'grid-owner-project',
         run_id: null,
         receipt_id: null,
+        change_ids: [21],
         outputs: [{
           kind: 'rows', name: 'added_rows', row_ids: [11], ref: { total: 4 },
         }],
@@ -625,7 +626,7 @@ describe('sheet and grid HTTP contracts', () => {
     await expect(api.addRow('7', {
       9: 'Ada',
       10: { nested: ['JSON', { valid: true }] },
-    })).resolves.toEqual({ rowId: '11', total: 4 });
+    })).resolves.toEqual({ rowId: '11', total: 4, changeId: '21' });
     expect(requests).toEqual([{
       path: '/api/projects/grid-owner-project/actions/v1/run',
       body: expect.objectContaining({
@@ -760,7 +761,7 @@ describe('sheet and grid HTTP contracts', () => {
     const sparse: unknown[] = [];
     sparse[1] = 'present';
 
-    await expect(api.addRow('7', { 9: nested })).resolves.toEqual({ rowId: '11', total: 1 });
+    await expect(api.addRow('7', { 9: nested })).resolves.toEqual({ rowId: '11', total: 1, changeId: null });
     expect((bodies[0]?.params as { cells: Record<string, unknown> }).cells['9']).toEqual(nested);
     await expect(api.addRow('7', { 9: { when: new Date() } })).rejects.toThrow(
       'Row cell values must be JSON-compatible',

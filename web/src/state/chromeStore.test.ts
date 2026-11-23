@@ -21,12 +21,11 @@ describe('createChromeStore', () => {
     expect(store.get()).toEqual(createChromeState(PROJECT_ID));
   });
 
-  it('starts with commandPaletteQuery, provenanceOpen, and overflowMenuOpen at their local-state defaults', () => {
+  it('starts with commandPaletteQuery and provenanceOpen at their local-state defaults', () => {
     const { store } = createChromeStore(PROJECT_ID);
     const s = store.get();
     expect(s.commandPaletteQuery).toBe('');
     expect(s.provenanceOpen).toBe(false);
-    expect(s.overflowMenuOpen).toBe(false);
   });
 
   // --- actionPanelOpen: NEVER restores from storage --------------------------
@@ -134,7 +133,7 @@ describe('createChromeStore', () => {
     ]);
   });
 
-  // --- setters: commandPaletteQuery / provenanceOpen / overflowMenuOpen --
+  // --- setters: commandPaletteQuery / provenanceOpen --------------------
   // --- (fields moved in from a sibling reducer) ---------------------------
 
   it('setCommandPaletteQuery sets; closeCommandPaletteAndReset clears the query AND closes the palette in one call', () => {
@@ -160,13 +159,6 @@ describe('createChromeStore', () => {
     expect(store.get().provenanceOpen).toBe(false);
   });
 
-  it('setOverflowMenuOpen sets explicitly', () => {
-    const { store, setOverflowMenuOpen } = createChromeStore(PROJECT_ID);
-    setOverflowMenuOpen(true);
-    expect(store.get().overflowMenuOpen).toBe(true);
-    setOverflowMenuOpen(false);
-    expect(store.get().overflowMenuOpen).toBe(false);
-  });
 
   // --- everyday reducer-parity actions -------------------------------------
 

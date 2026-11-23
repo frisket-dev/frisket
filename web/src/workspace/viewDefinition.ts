@@ -45,8 +45,22 @@ export function sameViewDefinition(a: ViewDefinitionInput, b: ViewDefinitionInpu
   return canonicalViewValue(a) === canonicalViewValue(b);
 }
 
+function withoutAbsentFields(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(withoutAbsentFields);
+  if (value !== null && typeof value === 'object') {
+    return Object.fromEntries(
+      Object.entries(value)
+        .filter(([, child]) => child !== undefined)
+        .map(([key, child]) => [key, withoutAbsentFields(child)]),
+    );
+  }
+  return value;
+}
+
+/** A saved view is the current one when its selection deep-equals the
+ *  current selection; a field left out and a field set to `undefined` agree. */
 export function sameViewSelection(a: ViewSelection, b: ViewSelection): boolean {
-  return canonicalViewValue(a) === canonicalViewValue(b);
+  return canonicalViewValue(withoutAbsentFields(a)) === canonicalViewValue(withoutAbsentFields(b));
 }
 
 /** Layout references are IDs on disk; grid-local names are resolved only at the boundary. */

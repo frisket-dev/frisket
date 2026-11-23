@@ -2,10 +2,10 @@ import './PanelPrimitives.css';
 import './IconButton.css';
 import './FriendlyFiltersPanel.css';
 import './EntityFacetsPanel.css';
-import { FormField, TextInput } from './FormControls';
+import { FormField } from './FormControls';
 import { Button } from './Button';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ChevronDown, Filter, RefreshCw, Search, X } from 'lucide-react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { ChevronDown, RefreshCw, Search, X } from 'lucide-react';
 import type {
   ColumnDef,
   ColumnDistribution,
@@ -19,7 +19,8 @@ import type {
 } from '../api/open';
 import { useWorkspaceStores } from '../bind/useWorkspaceStores';
 import { facetBehaviorFor } from '../grid/typeRegistry';
-import { filterConditionFromDraft, gridFilterLabel } from '../workspace/gridColumnState';
+import { facetColumnsOf, facetCondition, selectionWithoutFacet, withColumnFacet } from '../workspace/rowFiltering';
+import { filterConditionFromDraft } from '../workspace/gridColumnState';
 import { filterOperatorOptions } from '../workspace/workspaceState';
 import { entityTypeName } from './action-panel/nerLabelModel';
 import { testIdKey } from './panelPrimitivesModel';
@@ -30,7 +31,6 @@ const ENUM_LIMIT = 20;
 const SEARCH_LIMIT = 50;
 const MAX_SELECTED_VALUES = 100;
 const SEARCH_DEBOUNCE_MS = 250;
-const SHEET_SEARCH_DEBOUNCE_MS = 180;
 const MONTHS = Array.from({ length: 12 }, (_, index) => ({
   value: String(index + 1),
   label: new Intl.DateTimeFormat(undefined, { month: 'long', timeZone: 'UTC' }).format(
@@ -291,22 +291,13 @@ export interface FriendlyFiltersPanelProps {
   /** Atomic replacement is important: a series of single-column callbacks
    *  would race React's readback and lose one of two facets clicked quickly. */
   onApplyFilterSpec?(filter: GridFilterSpec | null): void;
+  /** The sheet's current selection. Each facet counts its values within it,
+   *  minus that facet's own condition. */
   currentSelection?: ViewSelection | null;
-  activeViewId?: number | null;
-  onSelectionChange?(selection: ViewSelection): void;
-  onClearSelection?(): void;
-  searchDebounceMs?: number;
-}
-
-function withColumnCondition(
-  filter: GridFilterSpec | null | undefined,
-  columnName: string,
-  condition: FilterCondition | null,
-): GridFilterSpec | null {
-  const next: GridFilterSpec = { ...(filter ?? {}) };
-  if (condition && Object.keys(condition).length > 0) next[columnName] = condition;
-  else delete next[columnName];
-  return Object.keys(next).length > 0 ? next : null;
+  /** The facet a chip or column menu asked to open and highlight. */
+  focusFacet?: string | null;
+  /** Rendered above the column facets (the sheet sidebar's Rows section). */
+  rowsSection?: ReactNode;
 }
 
 function selectedValues(condition: FilterCondition | undefined): string[] {
@@ -373,43 +364,19 @@ export function FriendlyFiltersPanel({
   dataVersion = 0,
   onApplyFilterSpec,
   currentSelection = null,
-  activeViewId = null,
-  onSelectionChange,
-  onClearSelection,
-  searchDebounceMs = SHEET_SEARCH_DEBOUNCE_MS,
+  focusFacet = null,
+  rowsSection = null,
 }: FriendlyFiltersPanelProps) {
   const activeSheet = sheets.find((sheet) => sheet.id === activeSheetId) ?? null;
   const [reloadSeq, setReloadSeq] = useState(0);
   const facetColumns = useMemo(
-    () => [...(activeSheet?.columns ?? [])]
-      .filter((column) => {
-        const behavior = facetBehaviorFor(column.type);
-        return behavior?.kind === 'range'
-          || behavior?.kind === 'collection'
-          || (behavior?.kind === 'categorical' && behavior.operator === 'eq');
-      })
-      .sort((left, right) =>
-        Number(facetBehaviorFor(right.type)?.preferred === true)
-        - Number(facetBehaviorFor(left.type)?.preferred === true)),
+    () => facetColumnsOf(activeSheet?.columns ?? []),
     [activeSheet],
-  );
-  const activeEntries = Object.entries(gridFilter ?? {});
-  const hasScopedRows =
-    currentSelection?.scope.kind === 'sheet' && currentSelection.scope.row_ids != null;
-  const hasActiveSelection = Boolean(
-    activeEntries.length > 0 ||
-    (currentSelection?.filters.length ?? 0) > 0 ||
-    currentSelection?.search ||
-    currentSelection?.similarity ||
-    currentSelection?.limit != null ||
-    (currentSelection?.order.length ?? 0) > 0 ||
-    hasScopedRows ||
-    activeViewId !== null,
   );
 
   const updateColumn = useCallback(
     (columnName: string, condition: FilterCondition | null) => {
-      onApplyFilterSpec?.(withColumnCondition(gridFilter, columnName, condition));
+      onApplyFilterSpec?.(withColumnFacet(gridFilter, columnName, condition));
     },
     [gridFilter, onApplyFilterSpec],
   );
@@ -424,8 +391,9 @@ export function FriendlyFiltersPanel({
 
   return (
     <section className="sidebar-facets friendly-filters" data-testid="friendly-filters">
-      <div className="friendly-filter-intro">
-        <strong>Filter {activeSheet.name}</strong>
+      {rowsSection}
+      <div className="filter-section-heading">
+        <span className="filter-section-label">Columns</span>
         <button
           type="button"
           className="icon-btn facets-refresh"
@@ -437,26 +405,16 @@ export function FriendlyFiltersPanel({
           <RefreshCw size={13} />
         </button>
       </div>
-
-      {currentSelection && onSelectionChange && (
-        <FriendlyQueryControls
-          key={activeSheet.id}
-          currentSelection={currentSelection}
-          hasActiveSelection={hasActiveSelection}
-          onSelectionChange={onSelectionChange}
-          onClearSelection={onClearSelection}
-          searchDebounceMs={searchDebounceMs}
-        />
-      )}
-
       <div className="friendly-facet-stack" data-testid="friendly-filters-panel">
         {facetColumns.map((column, index) => (
           <FacetCard
             key={column.id}
             sheet={activeSheet}
             column={column}
-            condition={gridFilter?.[column.name]}
-            defaultOpen={index < 4 || Boolean(gridFilter?.[column.name])}
+            condition={facetCondition(gridFilter?.[column.name]) ?? undefined}
+            countSelection={currentSelection ? selectionWithoutFacet(currentSelection, Number(column.id)) : null}
+            defaultOpen={index < 4 || Boolean(facetCondition(gridFilter?.[column.name]))}
+            focused={focusFacet === column.name}
             reloadKey={`${dataVersion}:${reloadSeq}`}
             canFilter={Boolean(onApplyFilterSpec)}
             onChange={(condition) => updateColumn(column.name, condition)}
@@ -466,249 +424,7 @@ export function FriendlyFiltersPanel({
           <div className="facets-empty">This sheet has no columns that can be faceted.</div>
         )}
       </div>
-
-      {activeEntries.length > 0 && (
-        <div className="friendly-active-filters" data-testid="facets-active-filters">
-          <div className="friendly-active-heading">
-            <span>{activeEntries.length} active {activeEntries.length === 1 ? 'filter' : 'filters'}</span>
-            <button
-              type="button"
-              disabled={!onApplyFilterSpec}
-              onClick={() => onApplyFilterSpec?.(null)}
-            >
-              Clear all
-            </button>
-          </div>
-          {activeEntries.map(([column, condition]) => (
-            <div className="facets-active-filter" key={column} data-testid="facets-active-filter">
-              <Filter size={11} aria-hidden />
-              <span className="facets-active-filter-label">
-                {gridFilterLabel({ [column]: condition })}
-              </span>
-              <button
-                type="button"
-                className="facets-active-filter-clear"
-                data-testid={`facets-clear-${testIdKey(column)}`}
-                aria-label={`Clear ${column} filter`}
-                title={`Clear ${column} filter`}
-                disabled={!onApplyFilterSpec}
-                onClick={() => updateColumn(column, null)}
-              >
-                <X size={13} aria-hidden />
-              </button>
-            </div>
-          ))}
-        </div>
-      )}
     </section>
-  );
-}
-
-function FriendlyQueryControls({
-  currentSelection,
-  hasActiveSelection,
-  onSelectionChange,
-  onClearSelection,
-  searchDebounceMs,
-}: {
-  currentSelection: ViewSelection;
-  hasActiveSelection: boolean;
-  onSelectionChange(selection: ViewSelection): void;
-  onClearSelection?(): void;
-  searchDebounceMs: number;
-}) {
-  const externalSearch = currentSelection.search?.text ?? '';
-  const [searchDraft, setSearchDraft] = useState(externalSearch);
-  const lastExternalSearchRef = useRef(externalSearch);
-  const selectionRef = useRef(currentSelection);
-  const onSelectionChangeRef = useRef(onSelectionChange);
-  const searchInputRef = useRef<HTMLInputElement>(null);
-  const debounceTimerRef = useRef<number | null>(null);
-
-  useEffect(() => {
-    selectionRef.current = currentSelection;
-  }, [currentSelection]);
-
-  useEffect(() => {
-    onSelectionChangeRef.current = onSelectionChange;
-  }, [onSelectionChange]);
-
-  const cancelPendingSearch = useCallback(() => {
-    if (debounceTimerRef.current !== null) {
-      window.clearTimeout(debounceTimerRef.current);
-      debounceTimerRef.current = null;
-    }
-  }, []);
-
-  useEffect(() => () => cancelPendingSearch(), [cancelPendingSearch]);
-
-  useEffect(() => {
-    if (externalSearch === lastExternalSearchRef.current) return;
-    lastExternalSearchRef.current = externalSearch;
-    cancelPendingSearch();
-    setSearchDraft(externalSearch);
-  }, [cancelPendingSearch, externalSearch]);
-
-  const commitSearch = useCallback((rawText: string) => {
-    cancelPendingSearch();
-    const selection = selectionRef.current;
-    const trimmed = rawText.trim();
-    const nextSearch = trimmed ? { text: rawText } : undefined;
-    if ((selection.search?.text ?? '') === (nextSearch?.text ?? '')) return;
-    lastExternalSearchRef.current = nextSearch?.text ?? '';
-    onSelectionChangeRef.current({
-      ...selection,
-      search: nextSearch,
-      order: !trimmed
-        ? selection.order.filter((item) => !('score' in item && item.score === 'search'))
-        : selection.order,
-    });
-  }, [cancelPendingSearch]);
-
-  const handleSearchChange = (next: string) => {
-    setSearchDraft(next);
-    cancelPendingSearch();
-    if (next.trim() === '' || searchDebounceMs <= 0) {
-      commitSearch(next);
-      return;
-    }
-    debounceTimerRef.current = window.setTimeout(() => {
-      debounceTimerRef.current = null;
-      commitSearch(next);
-    }, searchDebounceMs);
-  };
-
-  const handleClearSearch = () => {
-    setSearchDraft('');
-    commitSearch('');
-    searchInputRef.current?.focus();
-  };
-
-  const handleShowAllRows = () => {
-    cancelPendingSearch();
-    lastExternalSearchRef.current = '';
-    setSearchDraft('');
-    onClearSelection?.();
-  };
-
-  const hasScoreSort = Boolean(currentSelection.search || currentSelection.similarity);
-  const scoreOrderValue = currentSelection.order[0] && 'score' in currentSelection.order[0]
-    ? currentSelection.order[0].score
-    : currentSelection.order.length
-      ? 'column'
-      : 'rows';
-  const sortOptions = [
-    ...(currentSelection.order.some((item) => 'column_id' in item)
-      ? [{ value: 'column', label: 'Current column sort', disabled: true }]
-      : []),
-    { value: 'rows', label: 'Row order' },
-    ...(currentSelection.search
-      ? [{ value: 'search', label: 'Search score, highest first' }]
-      : []),
-    ...(currentSelection.similarity
-      ? [{ value: 'similarity', label: 'Similarity score, highest first' }]
-      : []),
-  ];
-
-  return (
-    <div
-      className="friendly-query-controls"
-      data-testid="sheet-filter-controls"
-      role="search"
-      aria-label="Search and limit rows"
-    >
-      <div className="friendly-query-row">
-        <div className="friendly-query-search">
-          <Search size={12} className="friendly-query-search-icon" aria-hidden />
-          <input
-            ref={searchInputRef}
-            type="text"
-            className="friendly-query-search-input"
-            data-testid="sheet-filter-search"
-            aria-label="Search text"
-            placeholder="Search text…"
-            value={searchDraft}
-            onChange={(event) => handleSearchChange(event.currentTarget.value)}
-            onKeyDown={(event) => {
-              if (event.key === 'Enter') {
-                event.preventDefault();
-                commitSearch(searchDraft);
-              } else if (event.key === 'Escape' && searchDraft) {
-                event.preventDefault();
-                handleClearSearch();
-              }
-            }}
-          />
-          {searchDraft && (
-            <button
-              type="button"
-              className="friendly-query-search-clear"
-              data-testid="sheet-filter-search-clear"
-              aria-label="Clear search"
-              onClick={handleClearSearch}
-            >
-              <X size={12} aria-hidden />
-            </button>
-          )}
-        </div>
-        <label className="friendly-query-field friendly-query-limit-field">
-          <span className="friendly-query-field-label">Limit</span>
-          <TextInput
-            className="friendly-query-limit-input"
-            density="compact"
-            fullWidth={false}
-            data-testid="sheet-filter-limit"
-            aria-label="Limit"
-            type="number"
-            min={1}
-            inputMode="numeric"
-            placeholder="All"
-            value={currentSelection.limit ?? ''}
-            onChange={(event) => {
-              const raw = event.currentTarget.value;
-              const limit = raw === '' ? null : Number(raw);
-              if (limit === null || (Number.isInteger(limit) && limit > 0)) {
-                onSelectionChange({ ...currentSelection, limit });
-              }
-            }}
-          />
-        </label>
-      </div>
-      {hasScoreSort && (
-        <label className="friendly-query-field friendly-query-sort-field">
-          <span className="friendly-query-field-label">Sort results</span>
-          <PanelSelect
-            className="friendly-query-sort-select"
-            testId="sheet-filter-sort"
-            ariaLabel="Sort results"
-            value={scoreOrderValue}
-            options={sortOptions}
-            onValueChange={(nextValue) =>
-              onSelectionChange({
-                ...currentSelection,
-                order:
-                  nextValue === 'rows'
-                    ? []
-                    : [{ score: nextValue as 'search' | 'similarity', dir: 'desc' }],
-              })
-            }
-          />
-        </label>
-      )}
-      {hasActiveSelection && onClearSelection && (
-        <div className="friendly-query-actions">
-          <Button
-            type="button"
-            variant="link"
-            className="friendly-query-reset"
-            data-testid="sheet-filter-show-all"
-            onClick={handleShowAllRows}
-          >
-            Show all rows
-          </Button>
-        </div>
-      )}
-    </div>
   );
 }
 
@@ -716,7 +432,9 @@ function FacetCard({
   sheet,
   column,
   condition,
+  countSelection,
   defaultOpen,
+  focused,
   reloadKey,
   canFilter,
   onChange,
@@ -724,7 +442,10 @@ function FacetCard({
   sheet: SheetMeta;
   column: ColumnDef;
   condition?: FilterCondition;
+  /** Counts are taken within this selection; null counts the whole sheet. */
+  countSelection: ViewSelection | null;
   defaultOpen: boolean;
+  focused: boolean;
   reloadKey: string;
   canFilter: boolean;
   onChange(condition: FilterCondition | null): void;
@@ -733,8 +454,14 @@ function FacetCard({
   const [open, setOpen] = useState(defaultOpen);
   const [searchDraft, setSearchDraft] = useState('');
   const [search, setSearch] = useState('');
+  const cardRef = useRef<HTMLElement>(null);
+  const countSelectionRef = useRef(countSelection);
+  useEffect(() => {
+    countSelectionRef.current = countSelection;
+  }, [countSelection]);
+  const selectionKey = countSelection ? JSON.stringify(countSelection) : '';
   const scopeKey = `${sheet.id}:${column.id}:${column.name}:${column.type}`;
-  const requestKey = `${scopeKey}:${reloadKey}:${search.trim()}`;
+  const requestKey = `${scopeKey}:${reloadKey}:${search.trim()}:${selectionKey}`;
   const [result, setResult] = useState<{
     key: string;
     scopeKey: string;
@@ -757,10 +484,16 @@ function FacetCard({
     return () => window.clearTimeout(timer);
   }, [searchDraft, search]);
 
+  if (focused && !open) setOpen(true);
+  useEffect(() => {
+    if (focused) cardRef.current?.scrollIntoView?.({ block: 'nearest' });
+  }, [focused]);
+
   useEffect(() => {
     if (!open) return;
     let alive = true;
     const query = search.trim();
+    const selection = countSelectionRef.current;
     void projectApi
       .columnValuesPreview({
         sheetId: sheet.id,
@@ -768,6 +501,7 @@ function FacetCard({
         valueMode: 'bounded',
         limit: query ? SEARCH_LIMIT : ENUM_LIMIT + 1,
         ...(query ? { search: query } : {}),
+        ...(selection ? { selection } : {}),
       })
       .then((result) => {
         if (!alive) return;
@@ -785,11 +519,13 @@ function FacetCard({
     return () => {
       alive = false;
     };
-  }, [column.name, open, projectApi, requestKey, scopeKey, search, sheet.id]);
+  }, [column.name, open, projectApi, requestKey, scopeKey, search, selectionKey, sheet.id]);
 
   return (
     <section
+      ref={cardRef}
       className={`friendly-facet-card${operator ? ' is-active' : ''}`}
+      data-focused={focused ? 'true' : undefined}
       data-testid={`friendly-facet-${testIdKey(column.name)}`}
     >
       <div className="friendly-facet-header">
@@ -841,6 +577,7 @@ function FacetCard({
             <RangeFacet
               key={`range:${column.id}:${column.type}:${preview.valueHash}`}
               column={column}
+              scopedCounts={preview.scope?.distributionCounts ?? null}
               distribution={
                 facetBehavior?.kind === 'range'
                 && preview.distribution?.kind === facetBehavior.valueKind
@@ -866,6 +603,9 @@ function FacetCard({
             <CategoricalFacet
               column={column}
               preview={preview}
+              scopedCounts={preview.scope
+                ? new Map(preview.scope.values.map((entry) => [entry.value, entry.count]))
+                : null}
               condition={condition}
               search={searchDraft}
               loading={status === 'loading'}
@@ -905,7 +645,7 @@ interface FacetChoice {
 
 function FacetChecklist({
   column, preview, inventory, choices, selection, search, loading, canFilter,
-  onSearch, onAddSearchFilter, emptyMessage,
+  onSearch, emptyMessage,
 }: {
   column: ColumnDef;
   preview: ColumnValuesPreview;
@@ -916,7 +656,6 @@ function FacetChecklist({
   loading: boolean;
   canFilter: boolean;
   onSearch(value: string): void;
-  onAddSearchFilter?(value: string): void;
   emptyMessage: string;
 }) {
   const searchable = inventory.distinct > ENUM_LIMIT || Boolean(inventory.search)
@@ -942,26 +681,21 @@ function FacetChecklist({
         onClick={() => { if (canSelectShown) selection.selectAll(); }}>
         Select all shown
       </button>
-      {onAddSearchFilter && acceptedSearch && (
-        <button type="button" disabled={!canFilter || actionsStale}
-          onClick={() => {
-            if (canFilter && !actionsStale && acceptedSearch) onAddSearchFilter(acceptedSearch);
-          }}>
-          Add “{acceptedSearch}” filter
-        </button>
-      )}
     </div>
     <div id={bulkNoteId} className="friendly-facet-note" data-loading={loading ? 'true' : undefined}>
-      {actionsStale ? 'Updating shown values… · ' : ''}
-      {inventory.truncated ? `Showing first ${selection.shownCount.toLocaleString()} matches · ` : ''}
-      {(inventory.missing ?? 0) > 0 ? `${(inventory.missing ?? 0).toLocaleString()} blank · ` : ''}
-      {(preview.omittedRows ?? 0) > 0 ? 'counts exclude omitted cells' : 'counts across the full sheet'}
+      {[
+        actionsStale ? 'Updating shown values…' : '',
+        inventory.truncated ? `Showing first ${selection.shownCount.toLocaleString()} matches` : '',
+        (inventory.missing ?? 0) > 0 ? `${(inventory.missing ?? 0).toLocaleString()} blank` : '',
+        (preview.omittedRows ?? 0) > 0 ? 'counts exclude omitted cells' : '',
+      ].filter(Boolean).join(' · ')}
     </div>
     <div className={`friendly-checkbox-list${searchable ? ' is-searchable' : ''}`}
       data-testid={`facet-values-${testIdKey(column.name)}`}
       data-loading={loading ? 'true' : undefined} aria-busy={loading || undefined}>
       {choices.map((choice) => (
-        <div key={choice.key} className="friendly-checkbox-row">
+        <div key={choice.key} className="friendly-checkbox-row"
+          data-empty={choice.count === 0 && !choice.selected ? 'true' : undefined}>
           <label className="friendly-checkbox-choice">
             <input type="checkbox" checked={choice.selected} aria-label={choice.ariaLabel}
               disabled={!canFilter || (!choice.selected && selection.count >= MAX_SELECTED_VALUES)}
@@ -982,7 +716,7 @@ function FacetChecklist({
               )}
             </span>
           )}
-          <small>{choice.count > 0 ? choice.count.toLocaleString() : 'selected'}</small>
+          <small>{choice.count.toLocaleString()}</small>
         </div>
       ))}
       {choices.length === 0 && <div className="facets-empty">{emptyMessage}</div>}
@@ -1057,9 +791,12 @@ function CollectionFacet({ column, preview, condition, onChange, ...display }: V
       : facet.search ? `No values match “${facet.search}”.` : 'No list values in this column.'} />;
 }
 
-/** Scalar snapshots replace the existing selection; only/add-search actions
- * remain scalar operations, never list-membership filters. */
-function CategoricalFacet({ column, preview, condition, onChange, ...display }: ValueFacetProps) {
+/** Scalar snapshots replace the existing selection; the only action remains
+ * a scalar operation, never a list-membership filter. Counts come from the
+ * preview's scope when it carries one, so they reflect the other filters. */
+function CategoricalFacet({ column, preview, condition, onChange, scopedCounts, ...display }: ValueFacetProps & {
+  scopedCounts: Map<string, number> | null;
+}) {
   const selected = selectedValues(condition);
   const selectedSet = new Set(selected);
   const shownValues = preview.values.map((entry) => entry.value);
@@ -1078,9 +815,9 @@ function CategoricalFacet({ column, preview, condition, onChange, ...display }: 
       allShown: (typeof condition?.eq === 'string' || Array.isArray(condition?.in))
         && selected.length === shownValues.length && shownValues.every((value) => selectedSet.has(value)),
       selectAll: () => onChange(shownValues.length === 1 ? { eq: shownValues[0] } : { in: shownValues }) }}
-    onAddSearchFilter={(value) => onChange({ contains: value })}
     choices={visible.map((entry) => ({
-      key: entry.value, label: entry.value, count: entry.count,
+      key: entry.value, label: entry.value,
+      count: scopedCounts ? scopedCounts.get(entry.value) ?? 0 : entry.count,
       selected: selectedSet.has(entry.value),
       testId: `facet-check-${testIdKey(column.name)}-${testIdKey(entry.value) || 'blank'}`,
       toggle: () => toggle(entry.value), only: () => onChange({ eq: entry.value }),
@@ -1118,12 +855,16 @@ function histogramBinExcluded(
     && (binEnd < selectedStart || binStart > selectedEnd);
 }
 
+/** Faint bars are the full sheet; foreground bars are the current results,
+ * coloured by whether the bin lies inside the selected range. */
 function Histogram({
   distribution,
+  scopedCounts,
   start,
   end,
 }: {
   distribution: ColumnDistribution;
+  scopedCounts: number[] | null;
   start: string;
   end: string;
 }) {
@@ -1132,13 +873,23 @@ function Histogram({
     <div className="friendly-histogram" aria-label="Value distribution">
       {distribution.bins.map((bin, index) => {
         const excluded = histogramBinExcluded(distribution, bin, start, end);
+        const current = scopedCounts?.[index] ?? bin.count;
         return (
           <span
             key={`${bin.start}:${bin.end}:${index}`}
-            data-excluded={excluded ? 'true' : undefined}
-            style={{ height: `${Math.max(4, (bin.count / max) * 100)}%` }}
-            title={`${bin.start} – ${bin.end}: ${bin.count.toLocaleString()}`}
-          />
+            className="friendly-histogram-bin"
+            title={`${bin.start} – ${bin.end}: ${current.toLocaleString()} of ${bin.count.toLocaleString()}`}
+          >
+            <span
+              className="friendly-histogram-ghost"
+              style={{ height: `${Math.max(4, (bin.count / max) * 100)}%` }}
+            />
+            <span
+              className="friendly-histogram-current"
+              data-excluded={excluded ? 'true' : undefined}
+              style={{ height: current > 0 ? `${Math.max(4, (current / max) * 100)}%` : '0' }}
+            />
+          </span>
         );
       })}
     </div>
@@ -1166,12 +917,15 @@ function sliderPosition(value: number, minimum: number, maximum: number): number
 function RangeFacet({
   column,
   distribution,
+  scopedCounts,
   condition,
   canFilter,
   onChange,
 }: {
   column: ColumnDef;
   distribution: ColumnDistribution | null;
+  /** Each bin's count within the other filters, aligned to `distribution.bins`. */
+  scopedCounts: number[] | null;
   condition?: FilterCondition;
   canFilter: boolean;
   onChange(condition: FilterCondition | null): void;
@@ -1281,7 +1035,7 @@ function RangeFacet({
 
   return (
     <>
-      <Histogram distribution={distribution} start={start} end={end} />
+      <Histogram distribution={distribution} scopedCounts={scopedCounts} start={start} end={end} />
       <div className="friendly-range-inputs">
         <label>
           <span>Min</span>

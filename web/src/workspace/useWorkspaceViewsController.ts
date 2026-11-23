@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef } from 'react';
-import type { ProjectInfo, View, SheetMeta, GridSortDirection } from '../api/open';
+import type { ProjectInfo, View, SheetMeta } from '../api/open';
 import { canEditProject } from '../api/projectRole';
 import { useCurrentViewSelection } from '../bind/useCurrentViewSelection';
 import { useDetailHandle } from '../bind/useDetailHandle';
@@ -11,7 +11,7 @@ import { useSelector } from '../bind/useSelector';
 import { useAlertCheckLinkHandle } from '../bind/useAlertCheckLinkHandle';
 import { useWorkspaceStores } from '../bind/useWorkspaceStores';
 import { applyViewTransition, clearViewSelectionTransition } from '../state/workspaceTransitions';
-import { VIEWS_CONTRIBUTION_ID, ALERTS_CONTRIBUTION_ID } from './contributionIds';
+import { ALERTS_CONTRIBUTION_ID } from './contributionIds';
 import {
   normalizeGridFilterSpec, normalizeGridSortSpec, normalizeColumnOrder,
   exactViewHiddenColumns, columnOrderKey, hiddenColumnsKey,
@@ -111,17 +111,12 @@ export function useWorkspaceViewsController({
     [canCreateView, viewsStore],
   );
 
-  const revealViewsContribution = useCallback(() => {
-    if (isContributionHidden(VIEWS_CONTRIBUTION_ID)) {
-      revealContribution(VIEWS_CONTRIBUTION_ID);
-    }
-  }, [isContributionHidden, revealContribution]);
 
+  /** Views live in the sheet's Filter sidebar. */
   const openViews = useCallback(() => {
-    revealViewsContribution();
-    openDiscover('Views');
+    gridView.openSidebar('views');
     void ensureViewsLoaded();
-  }, [ensureViewsLoaded, openDiscover, revealViewsContribution]);
+  }, [ensureViewsLoaded, gridView]);
 
   const openNewView = useCallback(
     (defaultName = '') => {
@@ -285,14 +280,6 @@ export function useWorkspaceViewsController({
         localStorage.setItem(columnOrderKey(project.id, sheet.id), JSON.stringify(columns));
         localStorage.setItem(hiddenColumnsKey(project.id, sheet.id), JSON.stringify(hiddenColumns));
       }
-      const firstColumnName = sheet.columns[0]?.name ?? '';
-      let draftSortColumn = firstColumnName;
-      let draftSortDirection: GridSortDirection = 'asc';
-      if (sort?.[0]) {
-        draftSortColumn = sort[0].column;
-        draftSortDirection = sort[0].dir;
-      }
-
       applyViewTransition({ gridView, detail, selection }, sheet.id, {
         viewId: view.id,
         sheetId: sheet.id,
@@ -300,8 +287,6 @@ export function useWorkspaceViewsController({
         selection: view.spec.selection,
         filter,
         sort,
-        draftSortColumn,
-        draftSortDirection,
         columns,
         hiddenColumns,
         columnGroupSpecs: groups,

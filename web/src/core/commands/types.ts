@@ -22,8 +22,9 @@ import type { Store } from '../store/types';
  * rowHeight.cycle, viewsStore.toggle, provenance.toggle, palette.open) were
  * deleted, the same disposition the reachability discriminator
  * (reachability.test.ts) earlier forced for `workView.set`. Their FEATURES
- * all live via other paths (toolbar wrap button, ⋯ overflow menu, ⌘K palette
- * via chrome.openCommandPalette, WorkViewSwitcher) — only the
+ * all live via other paths (toolbar wrap button, the sheet's Filter
+ * sidebar, the project menu, ⌘K palette via chrome.openCommandPalette,
+ * WorkViewSwitcher) — only the
  * never-dispatched command indirection was removed.
  */
 export type WorkspaceCommand =
@@ -69,10 +70,8 @@ export interface RouteHandle {
   openActionRoute(actionKind?: string): void;
 }
 export interface GridViewHandle {
-  // toggleWrap/cycleRowHeight removed with the dead wrap.toggle/rowHeight.cycle
-  // commands — the live paths are the toolbar wrap button and the ⋯
-  // overflow's row-height select, which call the hook's own composed
-  // closures directly.
+  // The toolbar wrap button calls the hook's own composed closure directly;
+  // no command dispatches it.
   readonly store: Store<unknown>;
 }
 export interface ChromeHandle {

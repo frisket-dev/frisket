@@ -16,6 +16,7 @@ export type WorkspaceViewModel = ReturnType<typeof useWorkspaceModel>;
 
 export interface WorkspaceShellHandle {
   askNavigation: WorkspaceViewModel['askNavigation'];
+  toggleProvenanceWithDrawers: WorkspaceViewModel['toggleProvenanceWithDrawers'];
   project: WorkspaceViewModel['project'];
   projectApi: WorkspaceViewModel['projectApi'];
 

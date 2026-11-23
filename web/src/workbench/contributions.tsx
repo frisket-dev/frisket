@@ -628,10 +628,8 @@ export function FriendlyFiltersWorkbenchPanel({
   sheets,
   hostContext,
   currentSelection,
-  activeViewId,
-  onSelectionChange,
-  onClearSelection,
-  searchDebounceMs,
+  focusFacet,
+  rowsSection,
 }: FriendlyFiltersWorkbenchPanelProps) {
   const descriptor = FRIENDLY_FILTERS_DESCRIPTOR;
   const placement = placementForHost(descriptor, host);
@@ -656,10 +654,8 @@ export function FriendlyFiltersWorkbenchPanel({
         dataVersion={hostContext?.gridState.dataVersion ?? 0}
         onApplyFilterSpec={applySpec}
         currentSelection={currentSelection}
-        activeViewId={activeViewId ?? hostContext?.gridState.viewId ?? null}
-        onSelectionChange={onSelectionChange}
-        onClearSelection={onClearSelection}
-        searchDebounceMs={searchDebounceMs}
+        focusFacet={focusFacet}
+        rowsSection={rowsSection}
       />
     </WorkbenchContributionFrame>
   );

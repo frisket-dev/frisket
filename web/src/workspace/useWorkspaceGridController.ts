@@ -3,8 +3,10 @@ import { gridFromPresentation } from './viewDefinition';
 import { groupManagedHiddenColumnNames } from './workspaceColumnVisibility';
 import type {
   ColumnDef, GridFilterBboxValue, GridFilterEntityValue, GridFilterOperator,
-  GridFilterSpec, GridSortDirection, ProjectInfo, SheetMeta,
+  GridFilterSpec, GridSortDirection, ProjectInfo, SheetMeta, ViewSelection,
 } from '../api/open';
+import { useCurrentViewSelection } from '../bind/useCurrentViewSelection';
+import { withSearch, type RowSearch } from './rowFiltering';
 import { useActSurfaceHandle } from '../bind/useActSurfaceHandle';
 import { useDetailHandle } from '../bind/useDetailHandle';
 import { useGridViewHandle } from '../bind/useGridViewHandle';
@@ -56,39 +58,22 @@ export function useWorkspaceGridController({
   const addColumnPrompt = useSelector(actSurface.store, (state) => state.addColumnPrompt);
   const activePromotedKey = useSelector(workView.store, (state) => state.activePromotedKey);
   const { setOpenSplit, setDocumentView, setPromotedViews, promotedViews } = chromeState;
+  const currentSelection = useCurrentViewSelection(sheet);
   const closeHeaderMenu = useCallback(() => detail.closeHeaderMenu(), [detail]);
-  const draftSortColumn = useSelector(gridView.store, (s) => s.draft.sortColumn);
-  const draftSortDirection = useSelector(gridView.store, (s) => s.draft.sortDirection);
   const activeGridFilter = useSelector(gridView.store, (s) => s.applied.filter);
   const activeGridSort = useSelector(gridView.store, (s) => s.applied.sort);
   const scopeRowIds = useSelector(gridView.store, (s) => s.applied.scopeRowIds ?? null);
-  const rowHeight = useSelector(gridView.store, (s) => s.rowHeight);
   const wrapText = useSelector(gridView.store, (s) => s.wrapText);
   const columnGroupSpecs = useSelector(gridView.store, (s) => s.columnGroupSpecs);
   const columnOrderBySheet = useSelector(gridView.store, (s) => s.columnOrderBySheet);
   const frozenColumnCountBySheet = useSelector(gridView.store, (s) => s.frozenColumnCountBySheet);
   const hiddenColumnsBySheet = useSelector(gridView.store, (s) => s.hiddenColumnsBySheet);
   const columnGroupsVersion = useSelector(gridView.store, (s) => s.columnGroupsVersion);
-  const changeRowHeight = useCallback(
-    (n: number) => {
-      gridView.setRowHeight(n);
-      localStorage.setItem('frisket:row-height', String(n));
-    },
-    [gridView],
-  );
   const toggleWrapText = useCallback(() => {
-    const before = gridView.store.get();
     gridView.toggleWrap();
-    const after = gridView.store.get();
-    localStorage.setItem('frisket:wrap-text', after.wrapText ? '1' : '0');
-    if (after.rowHeight !== before.rowHeight) {
-      localStorage.setItem('frisket:row-height', String(after.rowHeight));
-    }
+    localStorage.setItem('frisket:wrap-text', gridView.store.get().wrapText ? '1' : '0');
   }, [gridView]);
 
-  const effectiveSortColumn = sheet?.columns.some((column) => column.name === draftSortColumn)
-    ? draftSortColumn
-    : sheet?.columns[0]?.name ?? '';
   const activeColumnOrder = useMemo(
     () => (sheet
       ? normalizeColumnOrder(
@@ -320,8 +305,6 @@ export function useWorkspaceGridController({
       if (!sheet || !columnName) return;
 
       applyGridSortTransition({ gridView, detail, selection }, sheet.id, {
-        column: columnName,
-        direction,
         sort: [{ column: columnName, dir: direction }],
       });
     },
@@ -337,35 +320,12 @@ export function useWorkspaceGridController({
     [activeGridSort, applyGridSortForColumn],
   );
 
-  const applyInlineFilter = useCallback(
-    (columnName: string, rawValue: string) => {
-      if (!sheet || !columnName) return;
-      const value = rawValue;
-      const base: GridFilterSpec = { ...(activeGridFilter ?? {}) };
-      if (value.trim() === '') delete base[columnName];
-      else base[columnName] = { contains: value };
-
-      if (Object.keys(base).length === 0) {
-        clearGridFilterTransition({ gridView, selection }, sheet.id);
-      } else {
-        applyGridFilterTransition({ gridView, detail, selection }, sheet.id, {
-          filter: base,
-        });
-      }
-    },
-    [detail, gridView, selection, sheet, activeGridFilter],
-  );
-
   const openGridHeaderMenu = useCallback(
     ({ column, columnIndex, bounds }: HeaderMenuState) => {
       detail.openHeaderMenu({ column, columnIndex, bounds });
     },
     [detail],
   );
-
-  const applyGridSort = useCallback(() => {
-    applyGridSortForColumn(effectiveSortColumn, draftSortDirection);
-  }, [applyGridSortForColumn, draftSortDirection, effectiveSortColumn]);
 
   const clearGridFilter = useCallback(() => {
 
@@ -375,6 +335,48 @@ export function useWorkspaceGridController({
   const clearGridSort = useCallback(() => {
     clearGridSortTransition({ gridView, selection }, sheet?.id);
   }, [gridView, selection, sheet]);
+
+  const replaceSelection = useCallback(
+    (patch: (current: ViewSelection) => Partial<ViewSelection>) => {
+      if (!currentSelection) return;
+      gridView.setSelection({ ...currentSelection, ...patch(currentSelection) });
+    },
+    [currentSelection, gridView],
+  );
+
+  const applyRowSearch = useCallback(
+    (search: RowSearch) => {
+      const next = withSearch({ selection: currentSelection, filter: gridView.store.get().applied.filter }, search);
+      applyGridFilterSpec(next.filter);
+      replaceSelection((current) => ({
+        search: next.selectionSearch,
+        order: next.selectionSearch
+          ? current.order
+          : current.order.filter((item) => !('score' in item && item.score === 'search')),
+      }));
+    },
+    [applyGridFilterSpec, currentSelection, gridView, replaceSelection],
+  );
+
+  const applyRowLimit = useCallback(
+    (limit: number | null) => replaceSelection(() => ({ limit })),
+    [replaceSelection],
+  );
+
+  /** Row order: a column sort, a relevance score, or none (the sheet's own order). */
+  const applyRowOrder = useCallback(
+    (order: { column: string; dir: GridSortDirection } | { score: 'search' | 'similarity' } | null) => {
+      if (order && 'column' in order) {
+        applyGridSortForColumn(order.column, order.dir);
+        return;
+      }
+      clearGridSortTransition({ gridView, selection }, sheet?.id);
+      replaceSelection((current) => ({
+        order: order ? [{ score: order.score, dir: 'desc' }] : current.order.filter((item) => !('score' in item)),
+      }));
+    },
+    [applyGridSortForColumn, gridView, replaceSelection, selection, sheet],
+  );
 
   const headerMenuActiveSort = useMemo(() => {
     if (!headerMenu) return null;
@@ -562,26 +564,26 @@ export function useWorkspaceGridController({
   );
 
   return useMemo(() => ({
-    activeGridFilter, activeGridSort, scopeRowIds, rowHeight, wrapText, columnGroupSpecs,
+    activeGridFilter, activeGridSort, scopeRowIds, wrapText, columnGroupSpecs,
     columnGroupsVersion, activeColumnOrder, activeHiddenColumns, hiddenColumnNames,
-    currentViewColumns, visibleHeaderMenu, activeChildFilter, effectiveSortColumn,
+    currentViewColumns, visibleHeaderMenu, activeChildFilter,
     activeFrozenColumnCount, visibleOrderedColumns, headerMenuActiveSort, headerMenuActiveFilter,
-    headerMenuAdjacentHidden, changeRowHeight, toggleWrapText, changeColumnOrder,
+    headerMenuAdjacentHidden, toggleWrapText, changeColumnOrder,
     changeFrozenColumnCount, hideColumn, revealColumns, revealAllHiddenColumns, setRowTitleColumn,
     applyGridFilterForColumn, applyGridBboxFilter, applyGridFilterSpec, applyGridFailedFilter,
-    applyGridEntityFilter, applyGridSortForColumn, sortHeaderColumn, applyInlineFilter,
-    applyGridSort, clearGridFilter, clearGridSort, openGridHeaderMenu, closeHeaderMenu,
+    applyGridEntityFilter, applyGridSortForColumn, sortHeaderColumn,
+    applyRowSearch, applyRowLimit, applyRowOrder, clearGridFilter, clearGridSort, openGridHeaderMenu, closeHeaderMenu,
     openAddColumnPrompt, closeAddColumnPrompt, insertColumnBeside, submitAddColumn,
   }), [
-    activeGridFilter, activeGridSort, scopeRowIds, rowHeight, wrapText, columnGroupSpecs,
+    activeGridFilter, activeGridSort, scopeRowIds, wrapText, columnGroupSpecs,
     columnGroupsVersion, activeColumnOrder, activeHiddenColumns, hiddenColumnNames,
-    currentViewColumns, visibleHeaderMenu, activeChildFilter, effectiveSortColumn,
+    currentViewColumns, visibleHeaderMenu, activeChildFilter,
     activeFrozenColumnCount, visibleOrderedColumns, headerMenuActiveSort, headerMenuActiveFilter,
-    headerMenuAdjacentHidden, changeRowHeight, toggleWrapText, changeColumnOrder,
+    headerMenuAdjacentHidden, toggleWrapText, changeColumnOrder,
     changeFrozenColumnCount, hideColumn, revealColumns, revealAllHiddenColumns, setRowTitleColumn,
     applyGridFilterForColumn, applyGridBboxFilter, applyGridFilterSpec, applyGridFailedFilter,
-    applyGridEntityFilter, applyGridSortForColumn, sortHeaderColumn, applyInlineFilter,
-    applyGridSort, clearGridFilter, clearGridSort, openGridHeaderMenu, closeHeaderMenu,
+    applyGridEntityFilter, applyGridSortForColumn, sortHeaderColumn,
+    applyRowSearch, applyRowLimit, applyRowOrder, clearGridFilter, clearGridSort, openGridHeaderMenu, closeHeaderMenu,
     openAddColumnPrompt, closeAddColumnPrompt, insertColumnBeside, submitAddColumn,
   ]);
 }

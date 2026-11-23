@@ -29,6 +29,7 @@ function WorkspaceView({ model }: { model: WorkspaceViewModel }) {
   const shell = useMemo<WorkspaceShellHandle>(
     () => ({
       askNavigation: model.askNavigation,
+      toggleProvenanceWithDrawers: model.toggleProvenanceWithDrawers,
       project: model.project,
       projectApi: model.projectApi,
       runActCommand: model.runActCommand,
@@ -132,6 +133,7 @@ function WorkspaceView({ model }: { model: WorkspaceViewModel }) {
       model.selectBottomDockTab,
       model.bottomDockPluginPanelDescriptors,
       model.hideContribution,
+      model.toggleProvenanceWithDrawers,
     ],
   );  const actHandle = useMemo<WorkspaceActHandle>(
     () => ({

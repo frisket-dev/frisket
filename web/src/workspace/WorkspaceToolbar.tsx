@@ -1,24 +1,18 @@
-import './ViewsPanel.css';
 import './WorkspaceToolbar.css';
 import { Button } from '../components/Button';
-import { TextInput } from '../components/FormControls';
 import { ActionPreviewBanner } from '../components/ActionPreviewBanner';
-import { useCallback, useLayoutEffect, useRef, useState, type RefObject } from 'react';
-import { PanelSelect } from '../components/PanelSelect';
-import { BookOpen, Eye, FileText, Images, LayoutGrid, ListFilter, MapPin, MessageSquareQuote, MoreHorizontal, Network, Plus, Rows3, ShieldCheck, WrapText, type LucideIcon } from 'lucide-react';
-import { useNativePopover } from '../hooks/useNativePopover';
-import { useAnchoredPosition } from '../hooks/useAnchoredPosition';
-import { countLabel } from '../format';
+import { useEffect, useRef, useState } from 'react';
+import { ChevronDown, Columns3, Eye, FileText, Images, LayoutGrid, ListFilter, MapPin, MessageSquareQuote, Network, Plus, Rows3, WrapText, X, type LucideIcon } from 'lucide-react';
+import { AnchoredMenu } from '../components/MenuPop';
 import { SegmentedToggle } from '../components/PanelPrimitives';
 import { type WorkViewKind } from './useWorkspaceChromeState';
 import { DeleteRowsButton } from '../components/TabStripButtons';
-import { ROW_HEIGHTS } from './workspaceState';
-import { GridSortPanel } from './GridSortPanel';
-import { SheetFilterBar } from './SheetFilterBar';
 import { useGridViewHandle } from '../bind/useGridViewHandle';
-import { selectInlineFilterColumn, selectInlineFilterOpen } from '../state/gridViewStore';
+import { useCurrentViewSelection } from '../bind/useCurrentViewSelection';
 import { useSelector } from '../bind/useSelector';
 import { useMainViewModel } from './WorkspaceContext';
+import { FILTER_SIDEBAR_ID, FILTER_TOGGLE_TEST_ID } from './FilterSidebar';
+import { deriveRowFilterChips, sheetCountLabel, withColumnFacet, type RowFilterChip } from './rowFiltering';
 
 const WORK_VIEW_SWITCH: Array<{ kind: WorkViewKind; label: string; Icon: LucideIcon }> = [
   { kind: 'grid', label: 'Grid', Icon: LayoutGrid },
@@ -72,78 +66,93 @@ function WorkViewSwitcher({
   );
 }
 
-export function WorkspaceInlineFilterRow() {
-  const {
-    applyInlineFilter,
-    sheet,
-  } = useMainViewModel();
+function useRowFilterChips(): RowFilterChip[] {
+  const { sheet } = useMainViewModel();
   const gridView = useGridViewHandle();
-  const activeGridFilter = useSelector(gridView.store, (s) => s.applied.filter);
-  const inlineFilterOpen = useSelector(gridView.store, (s) =>
-    selectInlineFilterOpen(s, sheet?.id),
-  );
-  const inlineFilterColumn = useSelector(gridView.store, (s) =>
-    selectInlineFilterColumn(s, sheet?.id),
-  );
-  if (!sheet) return null;
-  const column = inlineFilterColumn || sheet.columns[0]?.name || '';
-  const activeEntry = activeGridFilter?.[column]?.contains;
+  const applied = useSelector(gridView.store, (s) => s.applied);
+  const selection = useCurrentViewSelection(sheet);
+  return deriveRowFilterChips({
+    selection,
+    filter: applied.filter,
+    filterValueLabel: applied.filterValueLabel,
+    sort: applied.sort,
+    scopeRowIds: applied.scopeRowIds ?? null,
+  });
+}
 
-  const activeText = typeof activeEntry === 'string' ? activeEntry : '';
-  if (!inlineFilterOpen) return null;
+function AddMenu() {
+  const { appendRow, openAddColumnPrompt } = useMainViewModel();
+  const [open, setOpen] = useState(false);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!open) return undefined;
+    const frame = requestAnimationFrame(() => {
+      menuRef.current?.querySelector<HTMLElement>('[role="menuitem"]')?.focus();
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [open]);
   return (
-    <div className="inline-filter-row" data-testid="inline-filter-row">
-      <span className="inline-filter-label mono">Filter</span>
-      <PanelSelect
-        className="row-height-select"
-        data-testid="inline-filter-column"
-        aria-label="Filter column"
-        value={column}
-        onChange={(event) => {
-          gridView.setInlineFilterColumn(sheet.id, event.target.value);
-        }}
-      >
-        {sheet.columns.map((col) => (
-          <option key={col.id} value={col.name}>
-            {col.name}
-          </option>
-        ))}
-      </PanelSelect>
-      <input
-        className="inline-filter-input"
-        data-testid="inline-filter-input"
-        aria-label="Filter value"
-        placeholder="contains…"
-        value={activeText}
-        onChange={(event) => {
-          applyInlineFilter(column, event.target.value);
-        }}
-      />
+    <>
       <button
         type="button"
-        className="pill-btn"
-        data-testid="inline-filter-clear"
-        onClick={() => {
-          applyInlineFilter(column, '');
-        }}
+        ref={triggerRef}
+        className={`btn sheet-toolbar-button${open ? ' is-open' : ''}`}
+        data-testid="add-menu-button"
+        aria-label="Add"
+        aria-haspopup="menu"
+        aria-expanded={open}
+        onClick={() => setOpen((value) => !value)}
       >
-        clear
+        <Plus size={15} aria-hidden />
+        <ChevronDown size={12} aria-hidden />
       </button>
-      <button
-        type="button"
-        className="pill-btn"
-        data-testid="inline-filter-done"
-        onClick={gridView.closeInlineFilter}
-      >
-        done
-      </button>
-    </div>
+      {open && (
+        <AnchoredMenu
+          anchorRef={triggerRef}
+          menuRef={menuRef}
+          onClose={() => setOpen(false)}
+          width={170}
+          align="right"
+          className="sheet-add-menu"
+          aria-label="Add"
+          data-testid="add-menu"
+        >
+          <button
+            type="button"
+            role="menuitem"
+            className="menu-item"
+            data-testid="add-row-button"
+            onClick={() => {
+              setOpen(false);
+              appendRow();
+            }}
+          >
+            <Rows3 size={15} aria-hidden />
+            <span className="menu-item-name">Add row</span>
+          </button>
+          <button
+            type="button"
+            role="menuitem"
+            className="menu-item"
+            data-testid="add-column-button"
+            onClick={() => {
+              const bounds = triggerRef.current?.getBoundingClientRect();
+              setOpen(false);
+              openAddColumnPrompt({ x: bounds ? bounds.right - 260 : 0, y: bounds ? bounds.bottom + 4 : 0 });
+            }}
+          >
+            <Columns3 size={15} aria-hidden />
+            <span className="menu-item-name">Add column…</span>
+          </button>
+        </AnchoredMenu>
+      )}
+    </>
   );
 }
 
 export function WorkspaceSheetToolbar() {
   const {
-    appendRow,
     requestDeleteRows,
     selectedRowIdsForSheet,
     sheet,
@@ -153,472 +162,183 @@ export function WorkspaceSheetToolbar() {
     workViewDisabledReasons,
     setWorkView,
     visibleRowCount,
-    canCreateView,
-    openNewView,
-    openViews,
-    activeViewId,
-    viewModified,
-    views,
+    activeHiddenColumns,
+    revealAllHiddenColumns,
   } = useMainViewModel();
   const gridView = useGridViewHandle();
   const wrapText = useSelector(gridView.store, (s) => s.wrapText);
+  const sidebar = useSelector(gridView.store, (s) => s.sidebar);
+  const chips = useRowFilterChips();
   if (!sheet) return null;
 
-  const selectedRowCount = selectedRowIdsForSheet.length;
-
+  const filterOpen = sidebar.open && sidebar.tab === 'filter';
   return (
-<>
-              <div className="workspace-toolbar">
-                <div className="sheet-heading">
-                  <span className="sheet-title">{sheet.name}</span>
-                  {sheet.parent && (
-                    <span className="sheet-breadcrumb" data-testid="sheet-breadcrumb">
-                      ← {sheet.parent.sheetName} via <em>{sheet.parent.viaAction}</em>
-                    </span>
-                  )}
-                  <span className="muted" data-testid="sheet-stats">
-                    {countLabel(visibleRowCount, 'row')} · {countLabel(sheet.columns.length, 'column')}
-                  </span>
-                  {activeViewId !== null && views.find((view) => view.id === activeViewId) && (
-                    <button
-                      type="button"
-                      className="active-view-chip"
-                      data-testid="active-view-chip"
-                      onClick={openViews}
-                    >
-                      {viewModified ? 'Modified' : 'View'}: {views.find((view) => view.id === activeViewId)!.name}
-                    </button>
-                  )}
-                  <WorkViewSwitcher
-                    active={activeWorkView}
-                    segments={workViewSegments}
-                    disabledReasons={workViewDisabledReasons}
-                    onSelect={setWorkView}
-                  />
-                  {activeWorkView !== 'grid' &&
-                    activeWorkView !== 'document' &&
-                    activeWorkView !== 'extract' &&
-                    activeWorkView !== 'answers' && (
-                    <span className="work-split-hint" data-testid="work-view-split-hint">
-                      · split view
-                    </span>
-                  )}
-                </div>
-                <div className="toolbar-actions">
-                  <button
-                    type="button"
-                    className="icon-btn"
-                    data-testid="add-row-button"
-                    title="Add row"
-                    onClick={appendRow}
-                  >
-                    <Plus size={15} />
-                  </button>
-
-                  <DeleteRowsButton count={selectedRowCount} onClick={requestDeleteRows} />
-                  <div className="toolbar-spacer" />
-
-                  {canCreateView && (
-                    <button
-                      type="button"
-                      className="icon-btn"
-                      data-testid="save-as-view"
-                      title="Save current view"
-                      aria-label="Save current view"
-                      onClick={() => openNewView()}
-                    >
-                      <BookOpen size={15} />
-                    </button>
-                  )}
-
-                  <button
-                    type="button"
-                    className={`icon-btn${wrapText ? ' icon-btn-active' : ''}`}
-                    data-testid="toggle-wrap"
-                    title={wrapText ? 'Wrap text: on' : 'Wrap text: off'}
-                    aria-label="Wrap text"
-                    aria-pressed={wrapText}
-                    onClick={toggleWrapText}
-                  >
-                    <WrapText size={15} />
-                  </button>
-                  <ToolbarOverflowMenu />
-                </div>
-              </div>
-  </>
-  );
-}
-
-interface ViewsSubmenuPosition {
-  top: number;
-  left: number;
-  width: number;
-  maxHeight: number;
-}
-
-function useViewsSubmenuPosition(
-  anchorRef: RefObject<HTMLElement | null>,
-  enabled: boolean,
-): ViewsSubmenuPosition | null {
-  const [position, setPosition] = useState<ViewsSubmenuPosition | null>(null);
-
-  useLayoutEffect(() => {
-    if (!enabled) return undefined;
-    const measure = () => {
-      const anchor = anchorRef.current;
-      if (!anchor) return;
-      const margin = 8;
-      const gap = 4;
-      const width = Math.max(0, Math.min(280, window.innerWidth - margin * 2));
-      const maxHeight = Math.max(0, Math.min(320, window.innerHeight - margin * 2));
-      const rect = anchor.getBoundingClientRect();
-      const rightwardLeft = rect.right + gap;
-      const preferredLeft = rightwardLeft + width <= window.innerWidth - margin
-        ? rightwardLeft
-        : rect.left - gap - width;
-      const left = Math.max(margin, Math.min(preferredLeft, window.innerWidth - margin - width));
-      const top = Math.max(margin, Math.min(rect.top, window.innerHeight - margin - maxHeight));
-      setPosition({ top, left, width, maxHeight });
-    };
-    measure();
-    window.addEventListener('resize', measure);
-    window.addEventListener('scroll', measure, true);
-    return () => {
-      window.removeEventListener('resize', measure);
-      window.removeEventListener('scroll', measure, true);
-    };
-  }, [anchorRef, enabled]);
-
-  return position;
-}
-
-function ToolbarOverflowMenu() {
-  const {
-    activeHiddenColumns,
-    changeRowHeight,
-    overflowMenuOpen,
-    setOverflowMenuOpen,
-    provenanceOpen,
-    toggleProvenanceWithDrawers,
-    revealAllHiddenColumns,
-    canCreateView,
-    ensureViewsLoaded,
-    openViews,
-    openNewView,
-    applyView,
-    views,
-    activeViewId,
-  } = useMainViewModel();
-  const gridView = useGridViewHandle();
-  const rowHeight = useSelector(gridView.store, (s) => s.rowHeight);
-  const rootRef = useRef<HTMLDivElement>(null);
-  const triggerRef = useRef<HTMLButtonElement>(null);
-  const menuRef = useRef<HTMLDivElement>(null);
-  const rowHeightMenuRef = useRef<HTMLDivElement>(null);
-  const viewsTriggerRef = useRef<HTMLButtonElement>(null);
-  const viewsMenuRef = useRef<HTMLDivElement>(null);
-  const viewsLoadRequestedRef = useRef(false);
-  const suppressNextViewsFocusOpenRef = useRef(false);
-  const [viewsMenuOpen, setViewsMenuOpen] = useState(false);
-  const [viewsQuery, setViewsQuery] = useState('');
-  const [applyAnnouncement, setApplyAnnouncement] = useState('');
-
-  const closeViewsSubmenu = useCallback(() => {
-    viewsLoadRequestedRef.current = false;
-    setViewsMenuOpen(false);
-    setViewsQuery('');
-  }, []);
-
-  const openViewsSubmenu = useCallback(() => {
-    if (viewsLoadRequestedRef.current) return;
-    viewsLoadRequestedRef.current = true;
-    setViewsMenuOpen(true);
-    void ensureViewsLoaded();
-  }, [ensureViewsLoaded]);
-
-  const setOverflowOpen = useCallback(
-    (next: boolean) => {
-      setOverflowMenuOpen(next);
-      if (!next) {
-        closeViewsSubmenu();
-      }
-    },
-    [closeViewsSubmenu, setOverflowMenuOpen],
-  );
-
-  useNativePopover(menuRef, () => setOverflowOpen(false), {
-    enabled: overflowMenuOpen,
-    ignoreSelector: '[data-testid="toolbar-overflow-button"]',
-    extraRefs: [rowHeightMenuRef, viewsMenuRef],
-  });
-
-  useNativePopover(viewsMenuRef, (reason) => {
-    if (reason === 'escape') suppressNextViewsFocusOpenRef.current = true;
-    closeViewsSubmenu();
-  }, {
-    enabled: overflowMenuOpen && viewsMenuOpen,
-    focusRestore: viewsTriggerRef,
-    sourceRef: viewsTriggerRef,
-    ignoreSelector: '[data-testid="open-views-submenu"]',
-  });
-
-  const menuPos = useAnchoredPosition(triggerRef, {
-    enabled: overflowMenuOpen,
-    align: 'right',
-    width: 210,
-    gap: 4,
-  });
-  const viewsMenuPos = useViewsSubmenuPosition(
-    menuRef,
-    overflowMenuOpen && viewsMenuOpen,
-  );
-  const normalizedViewsQuery = viewsQuery.trim().toLocaleLowerCase();
-  const filteredViews = normalizedViewsQuery
-    ? views.filter((view) => view.name.toLocaleLowerCase().includes(normalizedViewsQuery))
-    : views;
-
-  return (
-    <div className="toolbar-overflow" ref={rootRef}>
-      <button
-        type="button"
-        ref={triggerRef}
-        className={`icon-btn${overflowMenuOpen ? ' icon-btn-active' : ''}`}
-        data-testid="toolbar-overflow-button"
-        title="More view options"
-        aria-label="More view options"
-        aria-haspopup="menu"
-        aria-expanded={overflowMenuOpen}
-        onClick={() => setOverflowOpen(!overflowMenuOpen)}
-      >
-        <MoreHorizontal size={15} />
-      </button>
-      {overflowMenuOpen && (
-        <div
-          ref={menuRef}
-          className="menu-pop toolbar-overflow-menu"
-          data-testid="toolbar-overflow-menu"
-          role="menu"
-          style={
-            menuPos
-              ? { position: 'fixed', inset: 'auto', top: menuPos.top, bottom: menuPos.bottom, left: menuPos.left, right: 'auto', width: menuPos.width, margin: 0 }
-              : { position: 'fixed', visibility: 'hidden' }
-          }
-        >
-          <div className="menu-item menu-item-select" title="Row height (applies to all rows)">
-            <Rows3 size={13} className="menu-item-icon" aria-hidden />
-            <span className="menu-item-name">Row height</span>
-            <PanelSelect
-              className="row-height-select"
-              data-testid="row-height-select"
-              aria-label="Row height"
-              value={rowHeight}
-              menuRef={rowHeightMenuRef}
-              onChange={(e) => changeRowHeight(Number(e.target.value))}
-            >
-              {ROW_HEIGHTS.map((h) => (
-                <option key={h.value} value={h.value}>{h.label}</option>
-              ))}
-            </PanelSelect>
-          </div>
-          <button
-            type="button"
-            ref={viewsTriggerRef}
-            className="menu-item"
-            data-testid="open-views-submenu"
-            aria-haspopup="menu"
-            aria-expanded={viewsMenuOpen}
-            onPointerEnter={openViewsSubmenu}
-            onFocus={() => {
-              if (suppressNextViewsFocusOpenRef.current) {
-                suppressNextViewsFocusOpenRef.current = false;
-                return;
-              }
-              openViewsSubmenu();
-            }}
-            onKeyDown={(event) => {
-              if (event.key === 'ArrowRight' || event.key === 'Enter' || event.key === ' ') {
-                event.preventDefault();
-                openViewsSubmenu();
-                requestAnimationFrame(() => viewsMenuRef.current?.querySelector<HTMLElement>('button, input')?.focus());
-              }
-            }}
-            onClick={openViewsSubmenu}
-          >
-            <BookOpen size={13} className="menu-item-icon" />
-            <span className="menu-item-name">Views</span>
-          </button>
-          <button
-            type="button"
-            className={`menu-item${provenanceOpen ? ' menu-item-active' : ''}`}
-            data-testid="open-provenance-manifest"
-            onClick={() => {
-              setOverflowOpen(false);
-              toggleProvenanceWithDrawers();
-            }}
-          >
-            <ShieldCheck size={13} className="menu-item-icon" />
-            <span className="menu-item-name">Receipts</span>
-          </button>
-          {activeHiddenColumns.length > 0 && (
-            <button
-              type="button"
-              className="menu-item"
-              data-testid="toolbar-show-hidden-columns"
-              onClick={() => {
-                setOverflowOpen(false);
-                revealAllHiddenColumns();
-              }}
-            >
-              <Eye size={13} className="menu-item-icon" />
-              <span className="menu-item-name">
-                {`Show ${activeHiddenColumns.length} hidden column${
-                  activeHiddenColumns.length === 1 ? '' : 's'
-                }`}
-              </span>
-            </button>
-          )}
+    <div className="workspace-toolbar">
+      <div className="sheet-heading">
+        <span className="sheet-title">{sheet.name}</span>
+        {sheet.parent && (
+          <span className="sheet-breadcrumb" data-testid="sheet-breadcrumb">
+            ← {sheet.parent.sheetName} via <em>{sheet.parent.viaAction}</em>
+          </span>
+        )}
+        <span className="sheet-stats" data-testid="sheet-stats">
+          {sheetCountLabel(visibleRowCount, sheet.rowCount, sheet.columns.length)}
+        </span>
+        <div className="sheet-view-switch">
+          <WorkViewSwitcher
+            active={activeWorkView}
+            segments={workViewSegments}
+            disabledReasons={workViewDisabledReasons}
+            onSelect={setWorkView}
+          />
         </div>
-      )}
-      {overflowMenuOpen && viewsMenuOpen && (
-        <div
-          ref={viewsMenuRef}
-          className="menu-pop views-overflow-menu"
-          data-testid="views-overflow-menu"
-          role="menu"
-          onKeyDown={(event) => {
-            if (event.key === 'ArrowLeft') {
-              event.preventDefault();
-              closeViewsSubmenu();
-              suppressNextViewsFocusOpenRef.current = true;
-              requestAnimationFrame(() => viewsTriggerRef.current?.focus());
-            }
-          }}
-          style={
-            viewsMenuPos
-              ? { position: 'fixed', inset: 'auto', top: viewsMenuPos.top, bottom: 'auto', left: viewsMenuPos.left, right: 'auto', width: viewsMenuPos.width, maxHeight: viewsMenuPos.maxHeight, margin: 0 }
-              : { position: 'fixed', visibility: 'hidden' }
-          }
-        >
-          {views.length > 8 && (
-            <TextInput
-              className="views-overflow-search"
-              aria-label="Search views"
-              value={viewsQuery}
-              onChange={(event) => setViewsQuery(event.target.value)}
-            />
-          )}
-          <div className="views-overflow-list" data-testid="views-overflow-list">
-            {filteredViews.length === 0 ? (
-              <div className="menu-empty">No matching views</div>
-            ) : (
-              filteredViews.map((view) => (
-                <button
-                  type="button"
-                  className="menu-item"
-                  data-testid={`views-overflow-view-${view.id}`}
-                  key={view.id}
-                  onClick={() => {
-                    applyView(view);
-                    setApplyAnnouncement(`Applied ${view.name}`);
-                    setOverflowOpen(false);
-                  }}
-                >
-                  <span className="menu-item-name">{view.name}</span>
-                  {activeViewId === view.id && <span className="menu-item-note">Active</span>}
-                </button>
-              ))
-            )}
-          </div>
-          {canCreateView && (
-            <button
-              type="button"
-              className="menu-item"
-              data-testid="views-overflow-new"
-              onClick={() => {
-                setOverflowOpen(false);
-                openNewView();
-              }}
-            >
-              <Plus size={13} className="menu-item-icon" />
-              <span className="menu-item-name">New view</span>
-            </button>
-          )}
+        {activeWorkView !== 'grid' &&
+          activeWorkView !== 'document' &&
+          activeWorkView !== 'extract' &&
+          activeWorkView !== 'answers' && (
+          <span className="work-split-hint" data-testid="work-view-split-hint">
+            · split view
+          </span>
+        )}
+      </div>
+      <div className="toolbar-actions">
+        <DeleteRowsButton count={selectedRowIdsForSheet.length} onClick={requestDeleteRows} />
+        {activeHiddenColumns.length > 0 && (
           <button
             type="button"
-            className="menu-item"
-            data-testid="views-overflow-open-panel"
-            onClick={() => {
-              setOverflowOpen(false);
-              openViews();
-            }}
+            className="icon-btn"
+            data-testid="toolbar-show-hidden-columns"
+            aria-label={`Show ${activeHiddenColumns.length} hidden column${activeHiddenColumns.length === 1 ? '' : 's'}`}
+            title={`Show ${activeHiddenColumns.length} hidden column${activeHiddenColumns.length === 1 ? '' : 's'}`}
+            onClick={revealAllHiddenColumns}
           >
-            <BookOpen size={13} className="menu-item-icon" />
-            <span className="menu-item-name">Open Views</span>
+            <Eye size={15} aria-hidden />
           </button>
-        </div>
-      )}
-      <div className="sr-only" role="status" aria-live="polite" aria-atomic="true">
-        {applyAnnouncement}
+        )}
+        <AddMenu />
+        <button
+          type="button"
+          className={`btn sheet-toolbar-button sheet-filter-toggle${filterOpen ? ' is-active' : ''}`}
+          data-testid={FILTER_TOGGLE_TEST_ID}
+          aria-expanded={filterOpen}
+          aria-controls={filterOpen ? FILTER_SIDEBAR_ID : undefined}
+          aria-label={chips.length > 0 ? `Filter, ${chips.length} active` : 'Filter'}
+          onClick={() => (filterOpen ? gridView.closeSidebar() : gridView.openSidebar('filter'))}
+        >
+          <ListFilter size={15} aria-hidden />
+          <span>Filter</span>
+          {chips.length > 0 && (
+            <span className="sheet-filter-badge" data-testid="filter-badge" aria-hidden>{chips.length}</span>
+          )}
+        </button>
+        <button
+          type="button"
+          className={`icon-btn sheet-wrap-toggle${wrapText ? ' icon-btn-active' : ''}`}
+          data-testid="toggle-wrap"
+          title={wrapText ? 'Wrap text: on' : 'Wrap text: off'}
+          aria-label="Wrap text"
+          aria-pressed={wrapText}
+          onClick={toggleWrapText}
+        >
+          <WrapText size={15} />
+        </button>
       </div>
     </div>
   );
 }
 
+/** Shows what is active, never inputs: filter chips hide rows, shaping chips
+ *  (sort, limit) do not. A chip's label opens its control in the sidebar. */
 export function WorkspaceGridControls() {
   const {
-    applyGridSort,
-    clearGridFilter,
-    clearGridSort,
-    currentDefinition,
-    effectiveSortColumn,
     sheet,
+    applyRowSearch,
+    applyRowLimit,
+    applyRowOrder,
+    applyGridFilterSpec,
+    clearViewSelection,
+    canCreateView,
+    openNewView,
     updateViewSelection,
   } = useMainViewModel();
   const gridView = useGridViewHandle();
-  const activeGridFilter = useSelector(gridView.store, (s) => s.applied.filter);
-  const scopeRowIds = useSelector(gridView.store, (s) => s.applied.scopeRowIds ?? null);
+  const filter = useSelector(gridView.store, (s) => s.applied.filter);
+  const selection = useCurrentViewSelection(sheet);
+  const chips = useRowFilterChips();
+  if (!sheet || chips.length === 0) return null;
 
-  const activeGridFilterValueLabel = useSelector(
-    gridView.store,
-    (s) => s.applied.filterValueLabel,
-  );
-  const activeGridSort = useSelector(gridView.store, (s) => s.applied.sort);
-  const sortPanelOpen = useSelector(gridView.store, (s) => s.sortPanelOpen);
-  const draftSortDirection = useSelector(gridView.store, (s) => s.draft.sortDirection);
-  if (!sheet) return null;
+  const openChip = (chip: RowFilterChip) => {
+    const target = chip.target;
+    if (target.kind === 'search') gridView.openSidebar('filter', { search: true });
+    else if (target.kind === 'facet') gridView.openSidebar('filter', { facet: target.column });
+    else gridView.openSidebar('filter');
+  };
+  const removeChip = (chip: RowFilterChip) => {
+    const target = chip.target;
+    if (target.kind === 'search') applyRowSearch({ text: '', scope: 'all' });
+    else if (target.kind === 'facet') applyGridFilterSpec(withColumnFacet(filter, target.column, null));
+    else if (target.kind === 'sort') applyRowOrder(null);
+    else if (target.kind === 'limit') applyRowLimit(null);
+    else if (target.kind === 'rows') {
+      gridView.store.set((state) => ({
+        ...state,
+        activeViewId: null,
+        applied: { ...state.applied, scopeRowIds: null },
+      }));
+    } else if (selection) {
+      updateViewSelection({
+        ...selection,
+        similarity: undefined,
+        order: selection.order.filter((item) => !('score' in item && item.score === 'similarity')),
+      });
+    }
+  };
+  const firstShape = chips.findIndex((chip) => chip.tone === 'shape');
 
   return (
-    <>
-      {sortPanelOpen && (
-        <GridSortPanel
-          sheet={sheet}
-          column={effectiveSortColumn}
-          direction={draftSortDirection}
-          onColumnChange={gridView.setDraftSortColumn}
-          onDirectionChange={gridView.setDraftSortDirection}
-          onApply={applyGridSort}
-          onClose={() => gridView.setSortPanelOpen(false)}
-        />
-      )}
-
-      <SheetFilterBar
-        currentSelection={currentDefinition?.selection ?? null}
-        onSelectionChange={updateViewSelection}
-        activeGridFilter={activeGridFilter}
-        activeGridFilterValueLabel={activeGridFilterValueLabel}
-        activeGridSort={activeGridSort}
-        scopeRowIds={scopeRowIds}
-        onClearGridFilter={clearGridFilter}
-        onClearGridSort={clearGridSort}
-        onClearScopeRowIds={() =>
-          gridView.store.set((state) => ({
-            ...state,
-            activeViewId: null,
-            applied: { ...state.applied, scopeRowIds: null },
-          }))
-        }
-      />
-    </>
+    <div className="row-filter-chips" data-testid="row-filter-chips" role="region" aria-label="Active filters">
+      <ul className="row-filter-chip-list">
+        {chips.map((chip, index) => (
+          <li key={chip.key} className="row-filter-chip-item">
+            {index === firstShape && index > 0 && <span className="row-filter-chip-divider" aria-hidden />}
+            <span className="row-filter-chip" data-tone={chip.tone} data-testid={`row-filter-chip-${chip.key}`}>
+              <button
+                type="button"
+                className="row-filter-chip-label"
+                onClick={() => openChip(chip)}
+              >
+                <span className="row-filter-chip-kind">{chip.kind}</span>{' '}
+                <span className="row-filter-chip-value">{chip.value}</span>
+              </button>
+              <button
+                type="button"
+                className="row-filter-chip-remove"
+                data-testid={`row-filter-chip-remove-${chip.key}`}
+                aria-label={`Remove ${chip.kind} ${chip.value}`}
+                onClick={() => removeChip(chip)}
+              >
+                <X size={11} aria-hidden />
+              </button>
+            </span>
+          </li>
+        ))}
+      </ul>
+      <div className="row-filter-chip-actions">
+        {canCreateView && (
+          <button
+            type="button"
+            className="row-filter-save-view"
+            data-testid="save-as-view"
+            onClick={() => openNewView()}
+          >
+            Save as view
+          </button>
+        )}
+        <Button type="button" data-testid="clear-all-filters" onClick={clearViewSelection}>
+          Clear all
+        </Button>
+      </div>
+    </div>
   );
 }
 

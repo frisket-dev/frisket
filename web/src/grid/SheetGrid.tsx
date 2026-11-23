@@ -20,6 +20,7 @@ import {
   GridColumnIcon,
   GridColumnMenuIcon,
   type DataEditorRef,
+  type DrawCellCallback,
   type EditableGridCell,
   type GridCell,
   type CellClickedEventArgs,
@@ -67,12 +68,11 @@ import {
 } from './cells';
 import { countLabel } from '../format';
 import { ColumnAnnotationChip, type ColumnAnnotation } from './columnAnnotations';
-import type { GridCellPalette } from './gridTheme';
+import type { GridCellPalette, RowFilterTints } from './gridTheme';
+import { rowFilterDrawCell, textMeasure, wrappedRowHeights } from './rowFilterDraw';
+import { ROW_HEIGHT } from './rowHeights';
 import { useGridTheme } from './useGridTheme';
-import {
-  addColumnScrollGutter,
-  resolveColumnAnnotationPlacement,
-} from './gridHeaderBand';
+import { resolveColumnAnnotationPlacement } from './gridHeaderBand';
 import { useRowCache, type RowCache } from './useRowCache';
 import { gridReadColumnIds } from '../components/fieldValueDependencies';
 import { createRowCacheStore, resolveRowCacheScope, type RowCacheStoreHandle } from './rowCacheStore';
@@ -82,6 +82,7 @@ import { usePoll } from '../hooks/usePoll';
 import { PanelLoading } from '../components/PanelPrimitives';
 import { createAudioPlaybackSource } from '../state/audioPlaybackStore';
 import { coalesceDefaultRunColumnGroups } from '../workspace/gridColumnState';
+import { facetCondition, searchOf } from '../workspace/rowFiltering';
 import { previewGridCell } from './previewCells';
 import {
   consumeGridCellReveal,
@@ -320,10 +321,13 @@ interface SheetGridProps {
   pendingImportRowCount?: number;
   /** Changes when an import commits rows or reaches a new lifecycle state. */
   importRowRefreshKey?: string | null;
-  /** Global row height (Google-Sheets select-all style: every row alike). */
-  rowHeight: number;
-  /** Wrap long text in text cells (pairs with taller rows). */
+  /** Wrap long text in text cells: each row grows to fit, up to a fixed
+   *  maximum (rowHeights.ts). */
   wrapText: boolean;
+  /** Tints one row, the row just added from the toolbar. */
+  highlightRowId?: string | null;
+  /** Shown under the last row while a limit hides matching rows. */
+  limitNote?: { note: string; showAll: string; onShowAll(): void } | null;
   /** When set, a trailing chip column shows each row's derived-row count. */
   childSheet?: ChildSheetRef | null;
   /** When set, the grid shows only one parent row's derived children. */
@@ -356,8 +360,6 @@ interface SheetGridProps {
   userHiddenColumnNames?: string[];
   /** Revive a hidden run (the whole run revives together). */
   onRevealColumns?(columns: string[]): void;
-  /** Open the add-column popover anchored at the header "+" affordance. */
-  onAddColumnAtEnd?(anchor: { x: number; y: number }): void;
   onRowOpen(row: Row, col?: ColumnDef, preview?: PreviewCellDetail | null): void;
   onColumnOpen(col: ColumnDef): void;
   /** Header LABEL click → cycle server-backed sort for this column (asc→desc).
@@ -460,15 +462,13 @@ interface ColumnModel {
   generatedColumnTheme: Partial<Theme>;
   expectedColumnTheme: Partial<Theme>;
   gridCellPalette: GridCellPalette;
+  rowFilterTints: RowFilterTints;
   onColumnResize(column: GridColumn, newSize: number): void;
   /** Boundaries between visible columns that flank a user-hidden run. */
   hiddenBoundaries: HiddenColumnBoundary[];
-  /** Canvas x-offset just past the last visible data column — where the "+"
-   *  add-column affordance sits at the right end of the header row. */
-  columnsEndX: number;
   /** Canvas x-offset just past each visible column's right edge, by name —
    *  the geometry the header overlay band positions per-column DOM affordances
-   *  against (the revive-chevron/add-column affordances) — the one source of
+   *  against (the revive chevrons) — the one source of
    *  truth for column x-offsets. */
   rightEdgeByName: Map<string, number>;
 }
@@ -476,9 +476,9 @@ interface ColumnModel {
 // Glide's row-marker gutter width (rowMarkers width below); the header overlay
 // band offsets its affordances past it so they align with the canvas columns.
 const ROW_MARKER_WIDTH = 40;
+const LIMIT_NOTE_HEIGHT = 36;
 // Horizontal gap that pushes the header "+" add-column button clear of the
 // last column's right edge, which the button is centred on.
-const ADD_COLUMN_BUTTON_GAP = 34;
 
 function useColumnModel(
   sheet: SheetMeta,
@@ -492,6 +492,7 @@ function useColumnModel(
   previewNewColumns: PreviewOverlayColumn[],
   activeSort: GridSortSpec | null | undefined,
   expectedColumns: ExpectedGridColumn[],
+  filteredColumnNames: ReadonlySet<string>,
 ): ColumnModel {
   const stored = useMemo(() => loadColWidths(storageScope, sheet.id), [storageScope, sheet.id]);
   const [colWidthsBySheet, setColWidthsBySheet] = useState<Record<string, Record<string, number>>>({});
@@ -525,7 +526,7 @@ function useColumnModel(
     [sheet.id, storageScope, stored],
   );
 
-  const { gridTheme, generatedColumnTheme, expectedColumnTheme, gridCellPalette } = useGridTheme();
+  const { gridTheme, generatedColumnTheme, expectedColumnTheme, gridCellPalette, rowFilterTints } = useGridTheme();
 
   const sortByName = useMemo(() => {
     const map = new Map<string, GridSortDirection>();
@@ -538,11 +539,12 @@ function useColumnModel(
       // (Glide draws headers on canvas, so this is the on-canvas arrow).
       const dir = sortByName.get(c.name);
       const title = dir ? `${c.name} ${dir === 'asc' ? '↑' : '↓'}` : c.name;
-      // Icon priority (the funnel-when-filtered sprite was dropped — filtered
-      // state now renders in the caret menu): generated columns keep their bolt;
-      // else the column's type-tag glyph.
+      // Icon priority: a filtered column shows an accent funnel; otherwise
+      // generated columns keep their bolt, else the column's type-tag glyph.
       const expected = expectedColumns.some(column => column.id === c.id);
-      const icon = expected ? 'typeLink' : c.ai ? 'aiBolt' : typeHeaderIcon(c.type);
+      const filtered = filteredColumnNames.has(c.name);
+      const icon = filtered ? 'funnel' : expected ? 'typeLink' : c.ai ? 'aiBolt' : typeHeaderIcon(c.type);
+      const filteredTheme = filtered ? { bgIconHeader: gridTheme.accentColor } : {};
       return {
         id: c.id,
         title,
@@ -553,7 +555,11 @@ function useColumnModel(
         hasMenu: true,
         menuIcon: GridColumnMenuIcon.Dots,
         ...(icon ? { icon } : {}),
-        ...(expected ? { themeOverride: expectedColumnTheme } : c.ai ? { themeOverride: generatedColumnTheme } : {}),
+        ...(expected
+          ? { themeOverride: { ...expectedColumnTheme, ...filteredTheme } }
+          : c.ai
+            ? { themeOverride: { ...generatedColumnTheme, ...filteredTheme } }
+            : filtered ? { themeOverride: filteredTheme } : {}),
       };
     });
     // Trailing chip column: each row's derived-row count in the child sheet
@@ -591,13 +597,13 @@ function useColumnModel(
       });
     }
     return cols;
-  }, [gridColumns, colWidths, childSheet, columnGroups.groupByRunId, viewActive, generatedColumnTheme, expectedColumnTheme, expectedColumns, previewNewColumns, sortByName]);
+  }, [gridColumns, colWidths, childSheet, columnGroups.groupByRunId, viewActive, generatedColumnTheme, expectedColumnTheme, expectedColumns, previewNewColumns, sortByName, filteredColumnNames, gridTheme.accentColor]);
 
-  // The revive chevrons + the add-column "+" ride a DOM band over the canvas
+  // The revive chevrons ride a DOM band over the canvas
   // header (glide has no per-boundary DOM). A hidden run is a maximal sequence
   // of USER-hidden columns in the active order; its chevron sits on the boundary
   // just past the nearest visible column to its left (or the grid's left edge).
-  const { hiddenBoundaries, columnsEndX, rightEdgeByName } = useMemo(() => {
+  const { hiddenBoundaries, rightEdgeByName } = useMemo(() => {
     const visibleNames = new Set(gridColumns.map((col) => col.name));
     const rightEdgeByName = new Map<string, number>();
     let x = ROW_MARKER_WIDTH;
@@ -605,7 +611,6 @@ function useColumnModel(
       x += colWidths[col.id] ?? col.width ?? 140;
       rightEdgeByName.set(col.name, x);
     }
-    const endX = x;
     const userHidden = new Set(userHiddenColumnNames);
     const boundaries: HiddenColumnBoundary[] = [];
     let lastVisibleName: string | null = null;
@@ -633,7 +638,7 @@ function useColumnModel(
       // user-hidden; skip it without breaking an adjacent user-hidden run.
     }
     flush();
-    return { hiddenBoundaries: boundaries, columnsEndX: endX, rightEdgeByName };
+    return { hiddenBoundaries: boundaries, rightEdgeByName };
   }, [colWidths, gridColumns, orderedSheetColumns, userHiddenColumnNames]);
 
   return {
@@ -643,9 +648,9 @@ function useColumnModel(
     generatedColumnTheme,
     expectedColumnTheme,
     gridCellPalette,
+    rowFilterTints,
     onColumnResize,
     hiddenBoundaries,
-    columnsEndX,
     rightEdgeByName,
   };
 }
@@ -1382,11 +1387,9 @@ interface SheetGridController {
   headerHandlers: ReturnType<typeof useGridHeaderHandlers>;
   hostRef: MutableRefObject<HTMLDivElement | null>;
   hiddenBoundaries: HiddenColumnBoundary[];
-  columnsEndX: number;
   rightEdgeByName: Map<string, number>;
   columnAnnotations: ColumnAnnotation[];
   onRevealColumns?(columns: string[]): void;
-  onAddColumnAtEnd?(anchor: { x: number; y: number }): void;
   onCellActivated(item: Item): void;
   onCellClicked(item: Item, event: CellClickedEventArgs): void;
   onCellContextMenu(item: Item, event: CellClickedEventArgs): void;
@@ -1398,7 +1401,11 @@ interface SheetGridController {
   onGridSelectionChange(selection: GridSelection): void;
   onVisibleRegionChanged(range: Rectangle): void;
   rowCount: number;
-  rowHeight: number;
+  rowHeight: number | ((index: number) => number);
+  drawCell: DrawCellCallback | undefined;
+  limitNote: { note: string; showAll: string; onShowAll(): void } | null;
+  /** Host-relative top of the limit note, under the last row; null while that row is off screen. */
+  limitNoteTop: number | null;
   detailIconBounds: Rectangle | null;
   openSelectedCell(): void;
 }
@@ -1406,12 +1413,12 @@ interface SheetGridController {
 function useSheetGridController({
   sheet, dataVersion, liveRun, importPageReading = null,
   pendingImportRowCount = 0, importRowRefreshKey = null,
-  rowHeight, wrapText, childSheet, parentRowFilter,
+  wrapText, highlightRowId = null, limitNote = null, childSheet, parentRowFilter,
   activeFilter, activeSort, columnOrder, viewRowIds, viewScores, scopeRowIds, viewSelection, citationColumnId,
   previewColumns, previewCells,
   rowDrawerOpen = false, frozenColumnCount = 1, columnGroupsStorageScope, columnGroupsVersion,
   hiddenColumnNames = EMPTY_COLUMN_NAMES, userHiddenColumnNames = EMPTY_COLUMN_NAMES,
-  onRevealColumns, onAddColumnAtEnd,
+  onRevealColumns,
   onRowOpen, onColumnOpen, onHeaderSort, onSelectedRowsChange, onRowContextMenu,
   onColumnHeaderMenu, loadActionRunEntry,
   onCompareActionRun, onCheckExpected, expectedColumns = EMPTY_EXPECTED_COLUMNS, projectExpected, onExpectedEdit, onExpectedHeaderMenu,
@@ -1540,6 +1547,19 @@ function useSheetGridController({
     () => (previewColumns ?? []).filter((col) => col.replacesColumnId == null),
     [previewColumns],
   );
+  const rowSearch = useMemo(
+    () => searchOf({ selection: viewSelection ?? null, filter: activeFilter ?? null }),
+    [activeFilter, viewSelection],
+  );
+  const filteredColumnNames = useMemo(() => {
+    const names = new Set(
+      Object.entries(activeFilter ?? {})
+        .filter(([, condition]) => facetCondition(condition) !== null)
+        .map(([name]) => name),
+    );
+    if (rowSearch.text && rowSearch.scope !== 'all') names.add(rowSearch.scope);
+    return names;
+  }, [activeFilter, rowSearch]);
   const {
     columns,
     gridColumns,
@@ -1547,9 +1567,9 @@ function useSheetGridController({
     generatedColumnTheme,
     expectedColumnTheme,
     gridCellPalette,
+    rowFilterTints,
     onColumnResize: onColumnResizeRaw,
     hiddenBoundaries,
-    columnsEndX,
     rightEdgeByName,
   } =
     useColumnModel(
@@ -1564,6 +1584,7 @@ function useSheetGridController({
       previewNewColumns,
       activeSort,
       expectedColumns,
+      filteredColumnNames,
     );
   useEffect(() => {
     const cells: Array<{ cell: Item }> = [];
@@ -1631,18 +1652,15 @@ function useSheetGridController({
     };
   }, [sheet.id]);
 
-  // Glide preserves scrollTop pixels across row-height changes, so rescale to keep the same top row.
+  // Toggling wrap changes every row's height; keep the same top row in view.
   const hostRef = useRef<HTMLDivElement | null>(null);
-  const prevRowHeight = useRef(rowHeight);
+  const prevWrapText = useRef(wrapText);
   useEffect(() => {
-    if (prevRowHeight.current === rowHeight) return;
-    const ratio = rowHeight / prevRowHeight.current;
-    prevRowHeight.current = rowHeight;
-    const scroller = hostRef.current?.querySelector<HTMLElement>('.dvn-scroller');
-    if (scroller && scroller.scrollTop > 0) {
-      scroller.scrollTop = Math.round(scroller.scrollTop * ratio);
-    }
-  }, [rowHeight]);
+    if (prevWrapText.current === wrapText) return;
+    prevWrapText.current = wrapText;
+    const topRow = Math.max(0, Math.floor(visibleRegion.current.y));
+    if (topRow > 0) gridRef.current?.scrollTo(0, topRow, 'vertical', 0, 0, { vAlign: 'start' });
+  }, [wrapText]);
 
   const pendingColIds = useMemo<Set<string>>(() => {
     if (!runActive || !liveRun) return new Set();
@@ -1805,6 +1823,7 @@ function useSheetGridController({
       );
       if (expected) cell = { ...cell, themeOverride: { ...cell.themeOverride, bgCell: expectedColumnTheme.bgHeader, bgCellMedium: expectedColumnTheme.bgHeader } };
       if (def.id === citationColumnId) cell = { ...cell, themeOverride: { ...cell.themeOverride, bgCell: gridTheme.bgSearchResult ?? "#fff1cf" } };
+      if (highlightRowId !== null && row?.id === highlightRowId) cell = { ...cell, themeOverride: { ...cell.themeOverride, bgCell: rowFilterTints.rowAdded } };
       const media = audioMedia(cell);
       if (!media || !row) return cell;
       const source = createAudioPlaybackSource({
@@ -1839,6 +1858,8 @@ function useSheetGridController({
       expectedColumnTheme,
       citationColumnId,
       gridTheme.bgSearchResult,
+      highlightRowId,
+      rowFilterTints.rowAdded,
       sheet.id,
       audioPlaybackState,
       expandedEntityMentionCells,
@@ -1846,6 +1867,27 @@ function useSheetGridController({
       rowCount,
     ],
   );
+
+  // `cache` changes identity as pages load, which re-derives the heights.
+  const rowHeight = useMemo<number | ((index: number) => number)>(() => {
+    if (!wrapText) return ROW_HEIGHT;
+    const measure = textMeasure(`${gridTheme.baseFontStyle ?? '12.5px'} ${gridTheme.fontFamily ?? 'sans-serif'}`);
+    const widths = columns.map((column) => ('width' in column ? column.width : 140));
+    return wrappedRowHeights(cache.getRow, gridColumns, widths, measure, gridTheme.cellHorizontalPadding ?? 8);
+  }, [wrapText, cache, columns, gridColumns, gridTheme.baseFontStyle, gridTheme.fontFamily, gridTheme.cellHorizontalPadding]);
+  const drawCell = useMemo(() => rowFilterDrawCell({
+    wrap: wrapText,
+    search: rowSearch.text.trim()
+      ? {
+          text: rowSearch.text,
+          covers: (column) => {
+            const def = gridColumns[column];
+            return def !== undefined && (rowSearch.scope === 'all' ? def.type === 'text' : def.name === rowSearch.scope);
+          },
+        }
+      : null,
+    tints: rowFilterTints,
+  }), [gridColumns, rowFilterTints, rowSearch, wrapText]);
 
   // Glide bounds are viewport-relative; convert them to host-relative overlay coordinates.
   const recomputeDetailIconBounds = useCallback(() => {
@@ -1877,6 +1919,22 @@ function useSheetGridController({
         : next,
     );
   }, []);
+
+  const [limitNoteTop, setLimitNoteTop] = useState<number | null>(null);
+  const recomputeLimitNote = useCallback(() => {
+    const host = hostRef.current;
+    const bounds = limitNote && rowCount > 0 ? gridRef.current?.getBounds(0, rowCount - 1) : undefined;
+    if (!host || !bounds) {
+      setLimitNoteTop(null);
+      return;
+    }
+    const top = bounds.y + bounds.height - host.getBoundingClientRect().top;
+    setLimitNoteTop(top >= 0 && top <= host.clientHeight ? top : null);
+  }, [limitNote, rowCount]);
+  useEffect(() => {
+    const frame = requestAnimationFrame(recomputeLimitNote);
+    return () => cancelAnimationFrame(frame);
+  }, [recomputeLimitNote, rowHeight]);
 
   const pendingCellReveal = useSyncExternalStore(
     subscribeGridCellReveal,
@@ -2037,8 +2095,9 @@ function useSheetGridController({
       const lastRealRow = Math.min(range.y + range.height, realRowCount);
       if (lastRealRow > firstRealRow) cache.onVisibleRowsChanged(firstRealRow, lastRealRow);
       recomputeDetailIconBounds();
+      recomputeLimitNote();
     },
-    [cache, realRowCount, recomputeDetailIconBounds],
+    [cache, realRowCount, recomputeDetailIconBounds, recomputeLimitNote],
   );
 
   const openCell = useCallback(
@@ -2368,11 +2427,9 @@ function useSheetGridController({
       headerHandlers,
       hostRef,
       hiddenBoundaries,
-      columnsEndX,
-      rightEdgeByName,
+        rightEdgeByName,
       columnAnnotations,
       onRevealColumns,
-      onAddColumnAtEnd,
       onCellActivated,
       onCellClicked,
       onCellContextMenu,
@@ -2385,6 +2442,9 @@ function useSheetGridController({
       onVisibleRegionChanged,
       rowCount,
       rowHeight,
+      drawCell,
+      limitNote,
+      limitNoteTop,
       detailIconBounds,
       openSelectedCell,
     }),
@@ -2403,11 +2463,9 @@ function useSheetGridController({
       headerHandlers,
       hostRef,
       hiddenBoundaries,
-      columnsEndX,
-      rightEdgeByName,
+        rightEdgeByName,
       columnAnnotations,
       onRevealColumns,
-      onAddColumnAtEnd,
       onCellActivated,
       onCellClicked,
       onCellContextMenu,
@@ -2420,6 +2478,9 @@ function useSheetGridController({
       onVisibleRegionChanged,
       rowCount,
       rowHeight,
+      drawCell,
+      limitNote,
+      limitNoteTop,
       detailIconBounds,
       openSelectedCell,
     ],
@@ -2442,11 +2503,9 @@ function SheetGridSurface({ controller }: { controller: SheetGridController }) {
     headerHandlers,
     hostRef,
     hiddenBoundaries,
-    columnsEndX,
     rightEdgeByName,
     columnAnnotations,
     onRevealColumns,
-    onAddColumnAtEnd,
     onCellActivated,
     onCellClicked,
     onCellContextMenu,
@@ -2459,28 +2518,21 @@ function SheetGridSurface({ controller }: { controller: SheetGridController }) {
     onVisibleRegionChanged,
     rowCount,
     rowHeight,
+    drawCell,
+    limitNote,
+    limitNoteTop,
     detailIconBounds,
     openSelectedCell,
   } = controller;
 
   const [scrollLeft, setScrollLeft] = useState(0);
-  const [hostWidth, setHostWidth] = useState(0);
   useEffect(() => {
-    const host = hostRef.current;
-    const scroller = host?.querySelector<HTMLElement>('.dvn-scroller');
-    if (!host || !scroller) return;
-    const sync = () => {
-      setScrollLeft(scroller.scrollLeft);
-      setHostWidth(host.clientWidth);
-    };
+    const scroller = hostRef.current?.querySelector<HTMLElement>('.dvn-scroller');
+    if (!scroller) return;
+    const sync = () => setScrollLeft(scroller.scrollLeft);
     sync();
     scroller.addEventListener('scroll', sync, { passive: true });
-    const observer = new ResizeObserver(sync);
-    observer.observe(host);
-    return () => {
-      scroller.removeEventListener('scroll', sync);
-      observer.disconnect();
-    };
+    return () => scroller.removeEventListener('scroll', sync);
   }, [hostRef, gridReady, columns.length]);
 
   const headerTop = hasNativeColumnGroups ? GROUP_HEADER_HEIGHT : 0;
@@ -2495,7 +2547,6 @@ function SheetGridSurface({ controller }: { controller: SheetGridController }) {
   const bandX = (x: number): number =>
     x <= frozenWidth ? x : Math.max(frozenWidth, x - scrollLeft);
 
-  const addColumnOverscrollX = addColumnScrollGutter(Boolean(onAddColumnAtEnd), hostWidth, columnsEndX);
 
   useEffect(() => {
     const revealColumn = (event: Event) => {
@@ -2584,7 +2635,8 @@ function SheetGridSurface({ controller }: { controller: SheetGridController }) {
         theme={gridTheme}
         rowSelectionMode="multi"
         rowHeight={rowHeight}
-        overscrollX={addColumnOverscrollX}
+        drawCell={drawCell}
+        overscrollY={limitNote ? LIMIT_NOTE_HEIGHT : undefined}
         freezeColumns={Math.max(0, Math.min(frozenColumnCount, columns.length))}
         getCellsForSelection
         gridSelection={gridSelection}
@@ -2605,6 +2657,14 @@ function SheetGridSurface({ controller }: { controller: SheetGridController }) {
         onGroupHeaderRenamed={headerHandlers.onGroupHeaderRenamed}
         onColumnMoved={onColumnMoved}
       />
+      {gridReady && limitNote && limitNoteTop !== null && (
+        <div className="grid-limit-note" data-testid="grid-limit-note" style={{ top: limitNoteTop, height: LIMIT_NOTE_HEIGHT }}>
+          <span>{limitNote.note}</span>
+          <button type="button" data-testid="grid-limit-show-all" onClick={limitNote.onShowAll}>
+            {limitNote.showAll}
+          </button>
+        </div>
+      )}
       {!gridReady && (
         <PanelLoading
           className="main-view-loading grid-view-loading"
@@ -2671,7 +2731,6 @@ function SheetGridSurface({ controller }: { controller: SheetGridController }) {
       {/* Glide draws headers on canvas, so interactive header controls need a DOM overlay. */}
       {gridReady &&
         (hiddenBoundaries.length > 0 ||
-          onAddColumnAtEnd ||
           annotationPlacements.length > 0) && (
         <div
           className="grid-hidden-columns-band"
@@ -2699,27 +2758,6 @@ function SheetGridSurface({ controller }: { controller: SheetGridController }) {
                 <span aria-hidden>{`‹${boundary.columns.length}›`}</span>
               </button>
             ))}
-          {onAddColumnAtEnd && (
-            <button
-              type="button"
-              className="grid-add-column-button"
-              data-testid="grid-add-column-button"
-              title="Add column"
-              aria-label="Add column"
-              style={{
-                left:
-                  hostWidth > 0
-                    ? Math.min(bandX(columnsEndX) + ADD_COLUMN_BUTTON_GAP, hostWidth - 20)
-                    : bandX(columnsEndX) + ADD_COLUMN_BUTTON_GAP,
-              }}
-              onClick={(event) => {
-                const rect = (event.currentTarget as HTMLElement).getBoundingClientRect();
-                onAddColumnAtEnd({ x: rect.left, y: rect.bottom });
-              }}
-            >
-              <span aria-hidden>+</span>
-            </button>
-          )}
           {/* The reusable column-annotation chip(s), positioned over the
               combined header extent of their spanned columns
               (bandX-translated like every other band affordance). */}

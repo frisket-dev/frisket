@@ -34,17 +34,6 @@ export interface ProposalInspectState {
   spec: GeneratedActionDraft;
 }
 
-/** Global row heights, Google-Sheets-style: resizing applies to every row. */
-export const ROW_HEIGHTS = [
-  { label: 'Compact', value: 26 },
-  { label: 'Default', value: 34 },
-  { label: 'Roomy', value: 48 },
-  { label: 'Tall', value: 68 },
-  { label: 'Extra', value: 96 },
-] as const;
-
-export const WRAP_ROW_HEIGHT = 68; // wrapping needs room; auto-bump short rows
-
 export const emptySelectedRows = (sheetId = ''): SelectedGridRows => ({
   sheetId,
   rowIds: [],

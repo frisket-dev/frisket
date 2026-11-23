@@ -11,7 +11,9 @@ import { GridColumnHeaderMenu } from './gridMenus';
 import { useGridViewHandle } from '../bind/useGridViewHandle';
 import { useActionCatalogHandle } from '../bind/useActionCatalogHandle';
 import { useSelector } from '../bind/useSelector';
-import { useMainViewModel, useWorkspaceShell, useRun } from './WorkspaceContext';
+import { useCurrentViewSelection } from '../bind/useCurrentViewSelection';
+import { facetCondition, isFacetColumn, searchOf, withColumnFacet } from './rowFiltering';
+import { useMainViewModel, useRun } from './WorkspaceContext';
 
 export function WorkspaceHeaderMenuSlot() {
   const {
@@ -19,7 +21,8 @@ export function WorkspaceHeaderMenuSlot() {
     activeFrozenColumnCount,
     applyGridSortForColumn,
     changeFrozenColumnCount,
-    clearGridFilter,
+    applyGridFilterSpec,
+    applyRowSearch,
     clearGridSort,
     closeHeaderMenu,
     headerMenuActiveFilter,
@@ -44,9 +47,10 @@ export function WorkspaceHeaderMenuSlot() {
     loadActionRunEntry,
     compareActionRun,
   } = useMainViewModel();
-  const { openDiscover } = useWorkspaceShell();
   const run = useRun();
   const gridView = useGridViewHandle();
+  const activeFilter = useSelector(gridView.store, (state) => state.applied.filter);
+  const selection = useCurrentViewSelection(sheet);
   const actionCatalog = useActionCatalogHandle();
   const columnTablesExportEntry = useSelector(actionCatalog.store, (state) => (
     state.status === 'ready'
@@ -121,6 +125,15 @@ export function WorkspaceHeaderMenuSlot() {
     [columnTablesExportEntry, columnTablesPicker, sheet, startRun],
   );
 
+  const menuColumn = visibleHeaderMenu?.column ?? null;
+  const facetColumn = menuColumn ? isFacetColumn(menuColumn) : false;
+  const search = searchOf({ selection, filter: activeFilter });
+  const columnFiltered = menuColumn
+    ? facetColumn
+      ? facetCondition(headerMenuActiveFilter ?? undefined) !== null
+      : search.text !== '' && search.scope === menuColumn.name
+    : false;
+
   return (
 <>
               {visibleHeaderMenu && (
@@ -129,7 +142,8 @@ export function WorkspaceHeaderMenuSlot() {
                   actionRunEntry={actionRunEntry}
                   onCompareActionRun={anchor => { closeHeaderMenu(); compareActionRun(anchor); }}
                   activeSort={headerMenuActiveSort}
-                  activeFilter={headerMenuActiveFilter}
+                  activeFilter={columnFiltered ? headerMenuActiveFilter : null}
+                  filterLabel={facetColumn ? 'Filter…' : `Search in ${visibleHeaderMenu.column.name}…`}
                   onSort={(direction) => {
                     applyGridSortForColumn(visibleHeaderMenu.column.name, direction);
                     closeHeaderMenu();
@@ -139,21 +153,19 @@ export function WorkspaceHeaderMenuSlot() {
                     closeHeaderMenu();
                   }}
                   onFilter={() => {
-                    if (sheet) {
-                      gridView.setInlineFilterColumn(sheet.id, visibleHeaderMenu.column.name);
+                    const name = visibleHeaderMenu.column.name;
+                    if (facetColumn) {
+                      gridView.openSidebar('filter', { facet: name });
+                    } else {
+                      gridView.openSidebar('filter', { search: true, scope: name });
+                      if (search.text) applyRowSearch({ text: search.text, scope: name });
                     }
                     closeHeaderMenu();
                   }}
                   onClearFilter={() => {
-                    if (headerMenuActiveFilter) clearGridFilter();
-                    closeHeaderMenu();
-                  }}
-                  onOpenFilterSidebar={() => {
-                    openDiscover('Facets');
-                    closeHeaderMenu();
-                  }}
-                  onAdvancedSort={() => {
-                    gridView.setSortPanelOpen(true);
+                    const name = visibleHeaderMenu.column.name;
+                    if (facetColumn) applyGridFilterSpec(withColumnFacet(activeFilter, name, null));
+                    else applyRowSearch({ text: '', scope: 'all' });
                     closeHeaderMenu();
                   }}
                   columnActions={columnActions}

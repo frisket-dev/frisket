@@ -30,7 +30,7 @@ it('keeps applied criteria bound across rename, deletion and reuse of a display 
   let current = sheet;
   const grid = createGridViewStore(() => current);
   grid.applyFilter({ filter: { amount: { gte: '100' } } });
-  grid.applySort({ column: 'amount', direction: 'desc', sort: [{ column: 'amount', dir: 'desc' }] });
+  grid.applySort({ sort: [{ column: 'amount', dir: 'desc' }] });
   current = { ...sheet, columns: [{ ...sheet.columns[0], name: 'renamed_amount' }, { ...sheet.columns[1], name: 'amount' }] };
   const read = () => {
     const applied = grid.store.get().applied;

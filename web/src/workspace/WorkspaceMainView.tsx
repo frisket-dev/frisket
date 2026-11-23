@@ -19,7 +19,9 @@ import { useSelector } from '../bind/useSelector';
 import { useMainViewModel } from './WorkspaceContext';
 import { WorkspaceMainViewTabs } from './WorkspaceSheetTabs';
 import { WorkspacePromotedView, WorkspacePrimarySurface } from './WorkspaceSurface';
-import { WorkspaceSheetToolbar, WorkspaceGridControls, WorkspaceInlineFilterRow, WorkspaceGridBanners } from './WorkspaceToolbar';
+import { WorkspaceSheetToolbar, WorkspaceGridControls, WorkspaceGridBanners } from './WorkspaceToolbar';
+import { FilterSidebar } from './FilterSidebar';
+import { RowAddedToast } from './RowAddedToast';
 import { WorkspaceHeaderMenuSlot } from './WorkspaceHeaderMenu';
 import { useWorkspaceNavigationTelemetry, type WorkspaceTelemetryView } from '../telemetry/navigationTelemetry';
 
@@ -241,14 +243,17 @@ function WorkspaceSheetMainView() {
     return <WorkspacePromotedView />;
   }
   return (
-    <>
-      <WorkspaceSheetToolbar />
-      <WorkspaceGridControls />
-      <WorkspaceInlineFilterRow />
-      <WorkspaceGridBanners />
-      <WorkspacePrimarySurface />
-      <WorkspaceHeaderMenuSlot />
-    </>
+    <div className="sheet-shell">
+      <div className="sheet-column">
+        <WorkspaceSheetToolbar />
+        <WorkspaceGridControls />
+        <WorkspaceGridBanners />
+        <WorkspacePrimarySurface />
+        <WorkspaceHeaderMenuSlot />
+        <RowAddedToast />
+      </div>
+      <FilterSidebar />
+    </div>
   );
 }
 

@@ -622,8 +622,3 @@ export function gridFilterSummaryLabel(filter: GridFilterSpec, valueLabel?: stri
     gridFilterConditionLabel(column, operators, valueLabel, summaryFilterValue));
   return labels.length > 0 ? labels.join(' · ') : 'active';
 }
-
-export function gridSortLabel(sort: GridSortSpec): string {
-  const first = sort[0];
-  return first ? `${first.column} ${first.dir}` : 'active';
-}

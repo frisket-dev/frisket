@@ -54,11 +54,8 @@ function seedClassOne(harness: ReturnType<typeof createMatrixHarness>): void {
     filterValueLabel: 'Open',
   });
   harness.gridView.applySort({
-    column: 'name',
-    direction: 'desc',
     sort: [{ column: 'name', dir: 'desc' }],
   });
-  harness.gridView.setSortPanelOpen(true);
   harness.detail.openHeaderMenu(
     { column, columnIndex: 0, bounds: { x: 0, y: 0, width: 1, height: 1 } },
   );
@@ -155,23 +152,10 @@ describe('applyRoute fixed six-class matrix', () => {
         sort: null,
         filterValueLabel: null,
       });
-      expect(harness.gridView.store.get().sortPanelOpen).toBe(false);
       expect(harness.detail.store.get().headerMenu).toBeNull();
       expect(harness.workView.store.get().answersView.chosenColumnId).toBeNull();
     },
   );
-
-  it('class 1 exception: only sort direction resets in the remaining draft state', () => {
-    const harness = createMatrixHarness();
-    seedClassOne(harness);
-    const before = harness.gridView.store.get().draft;
-
-    harness.route.navigate({ ...base, sheetId: 's2' });
-
-    const after = harness.gridView.store.get().draft;
-    expect(after.sortDirection).toBe('asc');
-    expect(after.sortColumn).toBe(before.sortColumn);
-  });
 
   it('class 1 exception: answers chosen column resets for every origin', () => {
     for (const origin of ['navigate', 'projectExternal'] as const) {
