@@ -13,7 +13,10 @@ from typing import TYPE_CHECKING
 from urllib.parse import urlparse
 
 from frisket.execution.definitions import MODELS_GATEWAY_TARGET_ID
-from frisket.local_provider_config import resolve_local_endpoints, resolve_models_gateway
+from frisket.local_provider_config import (
+    resolve_local_endpoints,
+    resolve_models_gateway,
+)
 from frisket.service_access import (
     DEFAULT_PORTS,
     ApprovedEndpoint,
@@ -124,4 +127,3 @@ def check_route(
             access.check_url(destination)
             return
     access.check_remote_service(route.target_id)
-

@@ -18,7 +18,7 @@ from frisket.engine.executor import run_action_spec
 from frisket.engine.executor.map_rows_action import build_typed_map_rows_plan
 from frisket.engine.runner import validation
 from frisket.engine.runner.map_runner import MapRunner
-from frisket.engine.store import Project
+from frisket.engine.store import Project, project_meta
 from frisket.engine.store.project_meta import AllowedServicesConfirmationRequired
 from frisket.execution.attempt_authority import UnroutedOnlyAuthority
 from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
@@ -327,8 +327,6 @@ def test_a_concurrent_tightening_is_not_loosened_without_confirmation(
     """Writer A asks for Approved services (stricter than All services) and
     pauses after reading the current value; writer B tightens to This machine
     only meanwhile. A must not then loosen B's choice unconfirmed."""
-    from frisket.engine.store import project_meta
-
     real_read = project_meta.allowed_services
     a_read, b_done = threading.Event(), threading.Event()
     writer_a = threading.current_thread()
@@ -353,9 +351,7 @@ def test_a_concurrent_tightening_is_not_loosened_without_confirmation(
             outcome["a"] = exc
 
     def run_b() -> None:
-        project.set_allowed_services(
-            "this_machine_only", confirm_allowed_services=None
-        )
+        project.set_allowed_services("this_machine_only", confirm_allowed_services=None)
 
     monkeypatch.setattr(project_meta, "allowed_services", paused_read)
     a = threading.Thread(target=run_a)

@@ -63,9 +63,7 @@ def test_models_gateway_is_judged_by_its_origin(
                 endpoints=(ApprovedEndpoint(host="models.lan.example.test"),)
             ),
         )
-    project = Project.create(
-        tmp_path / "t.frisket", name="t", allowed_services=setting
-    )
+    project = Project.create(tmp_path / "t.frisket", name="t", allowed_services=setting)
     sheet = project.add_sheet("data")
     cols = {"doc": project.add_column(sheet, "doc", type="text")}
     project.add_rows(sheet, [{"doc": "<html><body>hi</body></html>"}], cols)
