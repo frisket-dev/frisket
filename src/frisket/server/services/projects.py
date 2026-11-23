@@ -410,6 +410,7 @@ class ProjectLifecycleService:
             project: dict[str, Any],
             *,
             require_creation_match: bool,
+            expected_storage_id: str | None,
         ) -> tuple[str, dict[str, Any]]:
             manifest_path = (
                 self._workspace.root / f"{project_id}.frisket" / "manifest.json"
@@ -449,9 +450,15 @@ class ProjectLifecycleService:
                     409,
                     "project creation operation conflicts with its bound bundle",
                 )
-            # The identity is verified from the manifest first; only then is
-            # the bound bundle opened, which upgrades one written by an older
-            # release, and its settings read from what it stores.
+            # The identity is verified from the manifest first, including the
+            # bundle a completed operation recorded; only then is the bound
+            # bundle opened, which upgrades one written by an older release,
+            # and its settings read from what it stores.
+            if expected_storage_id is not None and storage_id != expected_storage_id:
+                raise RouteError(
+                    409,
+                    "project creation operation refers to a different bundle",
+                )
             settings = self._workspace.get(project_id).project_metadata()
             current_allowed = settings["allowed_services"]
             current_usage = settings["usage_data_sharing"]
@@ -533,16 +540,12 @@ class ProjectLifecycleService:
                             409,
                             "project creation operation refers to a retired bundle",
                         )
-                    actual_storage_id, current_project = bound_bundle(
+                    _storage_id, current_project = bound_bundle(
                         project_id,
                         project,
                         require_creation_match=False,
+                        expected_storage_id=recorded_storage_id,
                     )
-                    if actual_storage_id != recorded_storage_id:
-                        raise RouteError(
-                            409,
-                            "project creation operation refers to a different bundle",
-                        )
                     return current_project
 
                 if bundle_path.exists():
@@ -550,6 +553,7 @@ class ProjectLifecycleService:
                         project_id,
                         project,
                         require_creation_match=True,
+                        expected_storage_id=None,
                     )
                 else:
                     made = self._workspace.create(
@@ -566,6 +570,7 @@ class ProjectLifecycleService:
                         project_id,
                         project,
                         require_creation_match=True,
+                        expected_storage_id=None,
                     )
                 write_operation_record(
                     {
@@ -622,6 +627,7 @@ class ProjectLifecycleService:
                 project_id,
                 project,
                 require_creation_match=True,
+                expected_storage_id=None,
             )
             write_operation_record(
                 {
