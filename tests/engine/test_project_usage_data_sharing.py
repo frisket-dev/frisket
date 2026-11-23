@@ -189,3 +189,45 @@ def test_upgrade_turns_the_sensitive_flag_into_the_override(
     destination = _Destination()
     assert _emit(root, "old", destination) == 204
     assert len(destination.sent) == (0 if expected == "off" else 1)
+
+
+def test_upgrade_rerun_writes_the_stored_override_to_the_manifest(tmp_path) -> None:
+    from frisket.upgrades.project.usage_data_sharing_migration import (
+        upgrade_usage_data_sharing,
+    )
+
+    bundle = tmp_path / "bundle"
+    project = Project.create(bundle, "Notes", usage_data_sharing="off")
+    manifest_path = bundle / "manifest.json"
+    manifest = json.loads(manifest_path.read_text())
+    manifest["sensitive"] = False
+    manifest["usage_data_sharing"] = "inherit"
+    manifest_path.write_text(json.dumps(manifest))
+
+    upgrade_usage_data_sharing(project)
+
+    assert _db_meta(bundle)["usage_data_sharing"] == "off"
+    rewritten = json.loads(manifest_path.read_text())
+    assert rewritten["usage_data_sharing"] == "off"
+    assert rewritten["sensitive"] is True
+
+
+def test_upgrade_keeps_a_project_the_manifest_marks_sensitive(tmp_path) -> None:
+    """Meta lost the legacy flag; the manifest still records it."""
+    root = tmp_path / "workspace"
+    root.mkdir()
+    bundle = root / "old.frisket"
+    Project.create(bundle, "Old project").close()
+    with sqlite3.connect(bundle / "project.db") as db:
+        db.execute("DELETE FROM meta WHERE key='usage_data_sharing'")
+    manifest_path = bundle / "manifest.json"
+    manifest = json.loads(manifest_path.read_text())
+    manifest.pop("usage_data_sharing")
+    manifest["sensitive"] = True
+    manifest_path.write_text(json.dumps(manifest))
+
+    project = Project(bundle)
+    upgrade_project(project)
+
+    assert project.usage_data_sharing() == "off"
+    assert [row["sensitive"] for row in Workspace(root).list()] == [True]
