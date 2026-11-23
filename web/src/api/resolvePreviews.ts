@@ -47,7 +47,7 @@ type ColumnValueCountsWire =
   HttpContractSuccessResponse<'tenant.column_value_counts.post'>;
 
 /** One column's whole-column counts, as facet eligibility reads them. */
-export interface ColumnValueCounts {
+interface ColumnValueCounts {
   inputColumn: string;
   distinct: number;
   omittedRows: number;
