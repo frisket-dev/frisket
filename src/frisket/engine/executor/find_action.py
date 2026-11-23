@@ -39,6 +39,7 @@ from frisket.engine.executor.map_find_publication import (
 from frisket.engine.executor.map_find_scan import scan_find_plans
 from frisket.engine.executor.map_find_source import _snapshot_payload
 from frisket.engine.store.receipts import ReceiptStore
+from frisket.execution.consent_coverage import effective_consent_coverage
 
 
 class FindRefused(ValueError):
@@ -174,8 +175,6 @@ def _admission(bound, prepared, *, consent_coverage):
 def prepare_typed_find_admission(
     project, bound, *, model_servers=(), consent_coverage=None
 ):
-    from frisket.execution.consent_coverage import effective_consent_coverage
-
     try:
         return _admission(
             bound,
@@ -250,6 +249,51 @@ def reserve_typed_find_action_job(
     return replace(envelope, resolved_snapshot=admission)
 
 
+def _durable_admission(receipt):
+    if not receipt:
+        return None
+    return next(
+        (
+            item.ref.get("admission")
+            for item in receipt.records
+            if item.ref.get("kind") == "find_admission"
+        ),
+        None,
+    )
+
+
+def _dispatch_refusal(project, bound, prepared, admitted, deps):
+    """Why a prepared scan may not dispatch on its earlier admission.
+
+    The scan must be the one admitted, and its admitted rate is not authority
+    for a later dispatch: re-rated with the servers configured now, it must
+    pass the same cost decision admission applied, or it asks again before
+    any request."""
+    scan = prepared.scan
+    if (
+        prepared.operation.model_dump(mode="json") != admitted.get("operation")
+        or _snapshot_payload(scan.sources) != admitted.get("sources")
+        or scan.target != admitted.get("target")
+        or scan.estimate["resolved_prompt_hash"] != admitted.get("resolved_prompt_hash")
+    ):
+        return ActionError(
+            code="source_changed",
+            message="Find sources, target or actual scan changed after admission",
+            action_kind=bound.action.action_id,
+        )
+    try:
+        _admission(
+            bound,
+            prepared,
+            consent_coverage=effective_consent_coverage(
+                project, getattr(deps, "consent_coverage", None)
+            ),
+        )
+    except FindRefused as exc:
+        return exc.error
+    return None
+
+
 def run_typed_find_action_job(project, envelope, *, execution, deps=None):
     from frisket.ai.llm.router import model_call_cannot_go_live
     from frisket.ai.llm.types import provider_from_model_id
@@ -267,18 +311,7 @@ def run_typed_find_action_job(project, envelope, *, execution, deps=None):
     # The worker adds its queue identity after admission. It is transport
     # bookkeeping, not an admitted source, target, prompt, or consent fact.
     admitted.pop("job_id", None)
-    durable = (
-        next(
-            (
-                item.ref.get("admission")
-                for item in receipt.records
-                if item.ref.get("kind") == "find_admission"
-            ),
-            None,
-        )
-        if receipt
-        else None
-    )
+    durable = _durable_admission(receipt)
     if durable != admitted:
         return _failure_before_egress(
             project,
@@ -307,21 +340,9 @@ def run_typed_find_action_job(project, envelope, *, execution, deps=None):
             ),
         )
     scan = prepared.scan
-    if (
-        prepared.operation.model_dump(mode="json") != admitted.get("operation")
-        or _snapshot_payload(scan.sources) != admitted.get("sources")
-        or scan.target != admitted.get("target")
-        or scan.estimate["resolved_prompt_hash"] != admitted.get("resolved_prompt_hash")
-    ):
-        return _failure_before_egress(
-            project,
-            envelope,
-            ActionError(
-                code="source_changed",
-                message="Find sources, target or actual scan changed after admission",
-                action_kind=envelope.action_kind,
-            ),
-        )
+    refusal = _dispatch_refusal(project, bound, prepared, admitted, deps)
+    if refusal is not None:
+        return _failure_before_egress(project, envelope, refusal)
     execution.check()
     router = router.for_execution(execution)
     if not model_call_cannot_go_live(router):

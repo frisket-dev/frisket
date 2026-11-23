@@ -10,6 +10,9 @@ import pytest
 from PIL import Image
 
 from frisket.ai.llm import LLMRequest, LLMResponse, ModelRouter
+from frisket.ai.llm.adapters import OpenAICompatAdapter
+from frisket.ai.llm.endpoint_config import LocalModelEndpointConfig, ModelServerModel
+from frisket.engine.executor.find_action import reserve_typed_find_action_job
 from frisket.execution.dispatch_control import STANDALONE
 from frisket.ai.map.find_source import AddressedUnit
 from frisket.ai.vision.region_locator import prepare_image_asset
@@ -250,13 +253,6 @@ def test_queued_find_rerates_a_model_server_model_before_dispatch(
     """Admission under an allowance is not authority once the rate changes:
     the worker re-rates the scan with the servers configured now and asks
     again, before any request, when the model has lost its price."""
-    from frisket.ai.llm.adapters import OpenAICompatAdapter
-    from frisket.ai.llm.endpoint_config import (
-        LocalModelEndpointConfig,
-        ModelServerModel,
-    )
-    from frisket.engine.executor.find_action import reserve_typed_find_action_job
-
     monkeypatch.setenv("FRISKET_COST_CONSENT_USD", "100")
 
     class Adapter(_FindAdapter, OpenAICompatAdapter):
