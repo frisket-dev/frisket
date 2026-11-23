@@ -243,6 +243,101 @@ def test_queued_find_network_off_allows_only_configured_local_model(
         assert result.errors[0].code == "network_disabled"
 
 
+@pytest.mark.parametrize("price_at_execution", [(0.1, 0.1), None])
+def test_queued_find_rerates_a_model_server_model_before_dispatch(
+    make_project, monkeypatch, price_at_execution
+):
+    """Admission under an allowance is not authority once the rate changes:
+    the worker re-rates the scan with the servers configured now and asks
+    again, before any request, when the model has lost its price."""
+    from frisket.ai.llm.adapters import OpenAICompatAdapter
+    from frisket.ai.llm.endpoint_config import (
+        LocalModelEndpointConfig,
+        ModelServerModel,
+    )
+    from frisket.engine.executor.find_action import reserve_typed_find_action_job
+
+    monkeypatch.setenv("FRISKET_COST_CONSENT_USD", "100")
+
+    class Adapter(_FindAdapter, OpenAICompatAdapter):
+        def __init__(self):
+            _FindAdapter.__init__(self, "unused", matches=[])
+            OpenAICompatAdapter.__init__(self, "test", "http://192.168.1.20:8000/v1")
+
+        async def complete(self, req, client, *, cost_pricing=None):
+            del cost_pricing
+            return await super().complete(req, client)
+
+    def router(price):
+        built = ModelRouter(
+            model_call_policy=LOCAL_PURCHASE_POLICY,
+            cache=None,
+            cache_mode="off",
+            use_env_keys=False,
+            local_endpoints=(
+                LocalModelEndpointConfig(
+                    endpoint_id="lan",
+                    display_name="LAN",
+                    origin="http://192.168.1.20:8000",
+                    source="local_file",
+                    models=(
+                        ()
+                        if price is None
+                        else (
+                            ModelServerModel(name="served", entered=True, price=price),
+                        )
+                    ),
+                ),
+            ),
+        )
+        return built
+
+    project = make_project("rerate-find")
+    sheet = project.add_sheet("Documents")
+    column = project.add_column(sheet, "body", type="text")
+    project.add_rows(sheet, [{"body": "Local policy report."}], {"body": column})
+    request = ActionRequest(
+        action_id="map.find",
+        scope={"kind": "sheet_rows", "sheet_id": sheet},
+        params={
+            "source": "body",
+            "model": "ollama/@lan/served",
+            "instruction": "Find policy mentions.",
+        },
+        sheet_name="Findings",
+        idempotency_key="rerate-find",
+    )
+    envelope = reserve_typed_find_action_job(
+        project,
+        "rerate-find",
+        typed_action_for_request(request.model_dump(mode="json")),
+        deps=ExecutorDeps(router=router((0.1, 0.1))),
+    )
+    assert isinstance(envelope, ActionJobEnvelope), envelope
+
+    adapter = Adapter()
+    execution_router = router(price_at_execution)
+    execution_router._adapters["ollama"]._adapters["lan"] = adapter  # noqa: SLF001
+    bindings = action_job_bindings(
+        executor_deps_factory=lambda _project_id, _run_id: ExecutorDeps(
+            router=execution_router
+        )
+    )
+    result = run_action_run_job(
+        project,
+        {"action_job": envelope.to_json(), "job_id": 7},
+        executor_lookup=bindings.get,
+    )
+
+    if price_at_execution is None:
+        assert result.status == "failed", result.model_dump()
+        assert result.errors[0].code == "model_cost_requires_confirmation"
+        assert adapter.requests == []
+    else:
+        assert result.status == "completed", result.model_dump()
+        assert len(adapter.requests) == 1
+
+
 class _VisualFindAdapter:
     def __init__(self, matches: list[dict[str, Any]] | None = None) -> None:
         self.matches = matches
