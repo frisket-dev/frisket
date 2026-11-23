@@ -18,7 +18,7 @@ from frisket.engine.store.project_qa import ProjectQAStore
 from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 from frisket.local_provider_config import resolve_local_endpoints
 from frisket.server.provider_config import create_local_endpoint
-from frisket.server.route_errors import register_route_error_handler
+from frisket.server.route_errors import RouteError, register_route_error_handler
 from frisket.server.routes.selector_choices import register_selector_choices_routes
 from frisket.server.services import project_qa_runner
 from frisket.server.services.project_qa import ProjectQAService
@@ -56,12 +56,16 @@ class _Calls:
 
 
 def _workspace(
-    root: Path, setting: AllowedServices, approved: tuple[str, ...]
+    root: Path,
+    setting: AllowedServices,
+    approved: tuple[str, ...],
+    *,
+    origins: tuple[str, ...] = (LOOPBACK_ORIGIN, REMOTE_ORIGIN),
 ) -> tuple[Workspace, ModelRouter, dict[str, str], _Calls]:
     root.mkdir(parents=True)
     servers = {
-        origin: create_local_endpoint(root, name=name, url=origin)
-        for name, origin in (("Here", LOOPBACK_ORIGIN), ("Ollama", REMOTE_ORIGIN))
+        origin: create_local_endpoint(root, name=f"Server {index}", url=origin)
+        for index, origin in enumerate(origins)
     }
     endpoints, _notes = resolve_local_endpoints(root)
     router = ModelRouter(
@@ -225,3 +229,84 @@ def test_ask_model_picker_agrees_with_the_ask_check(
             model,
             choices[model]["blocker"],
         )
+
+
+def _submit(workspace: Workspace, model: str | None) -> dict[str, Any]:
+    async def scenario() -> dict[str, Any]:
+        service = ProjectQAService(workspace)
+        try:
+            thread = await service.create(
+                "ask", AskThreadCreate(scope={"kind": "project"})
+            )
+            return await service.submit(
+                "ask",
+                thread["id"],
+                AskTurnRequest(
+                    request_id=f"default-{model}",
+                    question="What is in this project?",
+                    scope={"kind": "project"},
+                    model=model,
+                ),
+            )
+        finally:
+            await service.shutdown()
+
+    return asyncio.run(scenario())
+
+
+def test_ask_default_model_is_one_the_setting_allows(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.delenv("OLLAMA_URL", raising=False)
+
+    def reachable(_origin: str, **_kwargs: Any) -> dict[str, Any]:
+        return {
+            "reachable": True,
+            "protocol": "openai_compatible",
+            "models": ["llama3"],
+            "auth_status": "ok",
+        }
+
+    monkeypatch.setattr("frisket.server.provider_config.ollama_reachable", reachable)
+    workspace, _router, models, _calls = _workspace(
+        tmp_path / "ws", "this_machine_only", ()
+    )
+    turn = _submit(workspace, None)
+    assert turn["model"] == models[LOOPBACK_ORIGIN]
+
+
+@pytest.mark.parametrize("model_key", ["provider", REMOTE_ORIGIN])
+def test_ask_refuses_a_disallowed_model_at_submit(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, model_key: str
+) -> None:
+    monkeypatch.delenv("OLLAMA_URL", raising=False)
+    workspace, _router, models, calls = _workspace(
+        tmp_path / "ws", "this_machine_only", ()
+    )
+    with pytest.raises(RouteError) as refused:
+        _submit(workspace, models[model_key])
+    assert refused.value.content["code"] == "service_not_allowed"
+    assert calls.models == []
+
+
+def test_ask_refuses_at_submit_when_no_model_is_allowed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.delenv("OLLAMA_URL", raising=False)
+
+    def reachable(_origin: str, **_kwargs: Any) -> dict[str, Any]:
+        return {
+            "reachable": True,
+            "protocol": "openai_compatible",
+            "models": ["llama3"],
+            "auth_status": "ok",
+        }
+
+    monkeypatch.setattr("frisket.server.provider_config.ollama_reachable", reachable)
+    workspace, _router, _models, calls = _workspace(
+        tmp_path / "ws", "this_machine_only", (), origins=(REMOTE_ORIGIN,)
+    )
+    with pytest.raises(RouteError) as refused:
+        _submit(workspace, None)
+    assert refused.value.content["code"] == "service_not_allowed"
+    assert calls.models == []
