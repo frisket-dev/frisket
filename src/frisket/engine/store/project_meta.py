@@ -504,8 +504,8 @@ def remote_services_refused(project: Any) -> bool:
     endpoints: its network setting is off, or Allowed services is not All
     services. Sites with no destination to classify read this."""
     return (
-        effective_network_policy(project) == "off"
-        or allowed_services(project) != "all_services"
+        project.effective_network_policy() == "off"
+        or project.allowed_services() != "all_services"
     )
 
 
