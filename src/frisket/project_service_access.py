@@ -7,11 +7,13 @@ model servers, since adding a model server approves it.
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING
 from urllib.parse import urlparse
 
-from frisket.local_provider_config import resolve_local_endpoints
+from frisket.execution.definitions import MODELS_GATEWAY_TARGET_ID
+from frisket.local_provider_config import resolve_local_endpoints, resolve_models_gateway
 from frisket.service_access import (
     DEFAULT_PORTS,
     ApprovedEndpoint,
@@ -64,3 +66,62 @@ def project_service_access(project: Project) -> ServiceAccess:
         read_approved_endpoints(root) + configured_model_server_endpoints(root),
         frisket_processing_allowed=workspace_edition(root) == "cloud",
     )
+
+
+FRISKET_ROUTE_EGRESS_CLASSES = frozenset({"frisket_shared", "frisket_dedicated_org"})
+
+
+@dataclass(frozen=True)
+class SelectedRoute:
+    """The execution target a run was resolved to."""
+
+    target_id: str
+    egress_class: str
+
+
+def selected_target_destination(project: Project, target_id: str) -> str | None:
+    """The origin a target on the operator's own network sends to, if known.
+
+    The models gateway's origin is the one the operator configured, from the
+    environment or the workspace settings.
+    """
+    if target_id != MODELS_GATEWAY_TARGET_ID:
+        return None
+    gateway = resolve_models_gateway(project.path.parent)
+    return None if gateway is None else gateway.origin
+
+
+def check_route(
+    project: Project,
+    access: ServiceAccess,
+    route: SelectedRoute | None,
+    *,
+    model_destination: str | None = None,
+) -> None:
+    """Raise ``ServiceNotAllowed`` unless ``access`` allows where the work goes.
+
+    The one decision execution and the selectors share. Frisket Cloud routes
+    count as Frisket's own processing only on Frisket Cloud. Otherwise a model
+    call is judged by the URL the router sends it to, a target on the
+    operator's own network by its configured origin, and anything else needs
+    All services.
+    """
+    if access.allows_all_services:
+        return
+    egress_class = route.egress_class if route is not None else None
+    if egress_class in FRISKET_ROUTE_EGRESS_CLASSES:
+        if not access.frisket_processing_allowed:
+            access.check_remote_service("Frisket Cloud")
+        return
+    if model_destination is not None:
+        access.check_url(model_destination)
+        return
+    if route is None or egress_class == "none":
+        return
+    if egress_class == "operator_lan":
+        destination = selected_target_destination(project, route.target_id)
+        if destination is not None:
+            access.check_url(destination)
+            return
+    access.check_remote_service(route.target_id)
+

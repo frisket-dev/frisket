@@ -25,6 +25,7 @@ from frisket.server.provider_config import (
     create_local_endpoint,
     delete_local_endpoint,
 )
+from frisket.project_service_access import SelectedRoute
 from frisket.service_access import (
     ALLOWED_SERVICES_VALUES,
     ApprovedEndpoint,
@@ -306,7 +307,7 @@ def test_frisket_cloud_route_needs_all_services_except_on_cloud(
                     plan.program,
                     plan.spec_dict(),
                     router=router,
-                    selected_egress_class="frisket_shared",
+                    selected_route=SelectedRoute("frisket-cloud", "frisket_shared"),
                 )
 
             if edition == "cloud" or setting == "all_services":

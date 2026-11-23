@@ -26,7 +26,10 @@ from frisket.actions.types import (
 )
 from frisket.engine.executor.map_rows_action import _typed_map_rows_plan
 from frisket.engine.runner.network_policy import remote_capability_for_spec
+from frisket.ai.llm import ModelRouter
 from frisket.engine.runner.validation import NetworkDisabled, assert_network_policy
+from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
+from frisket.project_service_access import SelectedRoute
 from frisket.execution.targets import CAPABILITY_TO_MARKDOWN
 
 
@@ -95,9 +98,13 @@ def test_document_network_policy_follows_capability_not_builtin_id(
     project.set_network_policy(mode="off")
     if engine == "datalab":
         with pytest.raises(NetworkDisabled):
-            assert_network_policy(project, plan.program, spec)
+            assert_network_policy(project, plan.program, spec, router=_router())
     else:
-        assert_network_policy(project, plan.program, spec)
+        assert_network_policy(project, plan.program, spec, router=_router())
+
+
+def _router() -> ModelRouter:
+    return ModelRouter(model_call_policy=LOCAL_PURCHASE_POLICY, use_env_keys=False)
 
 
 def test_network_policy_uses_selected_route_egress(make_project):
@@ -117,12 +124,14 @@ def test_network_policy_uses_selected_route_egress(make_project):
         project,
         plan.program,
         spec,
-        selected_egress_class="operator_lan",
+        router=_router(),
+        selected_route=SelectedRoute("models-gateway", "operator_lan"),
     )
     with pytest.raises(NetworkDisabled, match="execution_route:frisket_shared"):
         assert_network_policy(
             project,
             plan.program,
             spec,
-            selected_egress_class="frisket_shared",
+            router=_router(),
+            selected_route=SelectedRoute("frisket-cloud", "frisket_shared"),
         )

@@ -29,7 +29,11 @@ from frisket.ai.llm.pdf_estimates import (
 )
 from frisket.ai.llm.execution import ExecutionModelRouter
 from frisket.ops.base import ActionProgram
-from frisket.project_service_access import project_service_access
+from frisket.project_service_access import (
+    SelectedRoute,
+    check_route,
+    project_service_access,
+)
 from frisket.service_access import SERVICE_NOT_ALLOWED, ServiceNotAllowed
 from frisket.ops.builtin import get_action_program
 from frisket.engine.runner.confirmation_context import (
@@ -839,7 +843,7 @@ def assert_network_policy(
     spec: dict,
     *,
     router: ModelRouter | ExecutionModelRouter,
-    selected_egress_class: str | None = None,
+    selected_route: SelectedRoute | None = None,
 ) -> None:
     """Raise NetworkDisabled when the spec resolves a remote capability and
     the project's effective network policy is ``off``, and ServiceNotAllowed
@@ -856,10 +860,10 @@ def assert_network_policy(
         program,
         spec,
         router=router,
-        selected_egress_class=selected_egress_class,
+        selected_route=selected_route,
     )
-    if selected_egress_class is not None:
-        assert_selected_egress_policy(project, selected_egress_class)
+    if selected_route is not None:
+        assert_selected_egress_policy(project, selected_route.egress_class)
         return
     capability = remote_capability_for_spec(program, spec)
     if capability is None:
@@ -874,15 +878,14 @@ def assert_allowed_services(
     spec: dict,
     *,
     router: ModelRouter | ExecutionModelRouter,
-    selected_egress_class: str | None,
+    selected_route: SelectedRoute | None,
 ) -> None:
     """Classify where the spec's work would be sent and refuse what the
     project's Allowed services setting does not allow.
 
-    A model call is classified by the exact URL the router would send it to,
-    so a model server or self-hosted API is allowed when it is on this machine
-    or approved. Other remote capabilities and Frisket Cloud routes have no
-    approvable destination here and need All services.
+    A model call is classified by the exact URL the router would send it to
+    and a selected route by ``check_route``, the decision the selectors also
+    use. Remote capabilities with no approvable destination need All services.
     """
     access = project_service_access(project)
     if access.allows_all_services:
@@ -892,15 +895,9 @@ def assert_allowed_services(
         program, spec, include_model_provider=destination is None
     )
     try:
-        if destination is not None:
-            access.check_url(destination)
         if capability is not None:
             access.check_remote_service(capability)
-        if (
-            selected_egress_class in {"frisket_shared", "frisket_dedicated_org"}
-            and not access.frisket_processing_allowed
-        ):
-            access.check_remote_service("Frisket Cloud")
+        check_route(project, access, selected_route, model_destination=destination)
     except ServiceNotAllowed as exc:
         raise ServiceRefused(exc.destination, str(exc)) from None
 
@@ -1437,8 +1434,11 @@ def validate_spec(
             action_program,
             spec,
             router=router,
-            selected_egress_class=(
-                resolved_execution.resolution.facts.egress_class
+            selected_route=(
+                SelectedRoute(
+                    resolved_execution.resolution.facts.target_id,
+                    resolved_execution.resolution.facts.egress_class,
+                )
                 if resolved_execution is not None
                 else None
             ),

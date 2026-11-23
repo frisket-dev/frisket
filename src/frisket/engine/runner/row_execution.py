@@ -35,6 +35,7 @@ from frisket.ops.integrations.hosted_error import HostedEngineError
 from frisket.ops.base import ActionContext, ActionProgram, ActionProgramInvocationHalt
 from frisket.redaction import safe_error
 from frisket.engine.runner import validation
+from frisket.project_service_access import SelectedRoute
 from frisket.engine.runner.grounding import grounding_enabled, unwrap_grounded_value
 from frisket.engine.runner.publication import (
     PUBLISH_ERROR,
@@ -547,8 +548,13 @@ async def _execute_row(
         program,
         spec,
         router=router,
-        selected_egress_class=(
-            admission.route.egress_class if admission is not None else None
+        selected_route=(
+            SelectedRoute(
+                str(admission.route.target_snapshot["target_id"]),
+                admission.route.egress_class,
+            )
+            if admission is not None
+            else None
         ),
     )
     field_names = (
