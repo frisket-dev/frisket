@@ -4,7 +4,7 @@ import { useWorkspaceStores } from '../bind/useWorkspaceStores';
 import { facetBehaviorFor } from '../grid/typeRegistry';
 import { facetColumnsOf, isSearchOnly } from './rowFiltering';
 
-export interface FacetEligibility {
+interface FacetEligibility {
   /** Facetable by type but left to search by the server's counts. */
   searchOnly: ReadonlySet<string>;
   /** Not yet counted; no card is shown until the count arrives. */
