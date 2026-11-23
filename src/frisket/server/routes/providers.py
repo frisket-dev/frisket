@@ -10,6 +10,7 @@ tests.
 from __future__ import annotations
 
 import os
+from typing import Any
 
 from fastapi import FastAPI, HTTPException
 
@@ -60,11 +61,38 @@ from frisket.server.services.project_model_routes import (
     ProjectModelRoutesService,
 )
 from frisket.server.workspace import Workspace
+from frisket.project_service_access import check_model_call, project_service_access
+from frisket.service_access import ServiceNotAllowed
 
 
 # DTO builder lives in model_pull_store (the shared frisket.model_pull.v2
 # wire shape) so local and team routes cannot drift on field names/types.
 _pull_dto = model_pull_store.to_dto
+
+
+def _provider_allowed(project: Any, router: Any, entry: dict[str, Any]) -> bool:
+    """Whether Run would send this provider's models where the project's
+    Allowed services lets it, judged by the URL each model is called at."""
+    models = [
+        model["id"]
+        for model in entry.get("models") or []
+        if isinstance(model, dict) and isinstance(model.get("id"), str)
+    ]
+    if not models:
+        origin = entry.get("url")
+        access = project_service_access(project)
+        return (
+            access.allows_url(origin)
+            if isinstance(origin, str)
+            else access.allows_all_services
+        )
+    try:
+        check_model_call(
+            project, models[0], destination=router.destination_for_model(models[0])
+        )
+    except ServiceNotAllowed:
+        return False
+    return True
 
 
 def register_provider_config_routes(app: FastAPI, *, workspace: Workspace) -> None:
@@ -83,16 +111,24 @@ def register_provider_config_routes(app: FastAPI, *, workspace: Workspace) -> No
         # The catalog is instance-scoped; an optional project_id folds in
         # that project's effective network policy so the picker only offers
         # providers dispatch would accept.
-        network_off = False
-        if project_id:
-            # Workspace.get raises its own 404 for unknown/malformed ids.
-            project = workspace.get(project_id)
-            network_off = project.remote_services_refused()
-        return LocalProviderCatalog.model_validate(
-            provider_config.build_provider_catalog(
-                root, dict(os.environ), network_off=network_off
+        if not project_id:
+            return LocalProviderCatalog.model_validate(
+                provider_config.build_provider_catalog(root, dict(os.environ))
             )
+        # Workspace.get raises its own 404 for unknown/malformed ids.
+        project = workspace.get(project_id)
+        catalog = provider_config.build_provider_catalog(
+            root,
+            dict(os.environ),
+            network_off=project.effective_network_policy() == "off",
         )
+        router = workspace.router_for(project)
+        catalog["providers"] = [
+            entry
+            for entry in catalog["providers"]
+            if _provider_allowed(project, router, entry)
+        ]
+        return LocalProviderCatalog.model_validate(catalog)
 
     @app.get(
         "/api/providers/{provider}/status",
