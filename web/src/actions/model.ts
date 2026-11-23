@@ -638,3 +638,18 @@ export function actionTemplatesFromCatalog(catalog: ActionCatalogPayload): Actio
     return template ? [template] : [];
   }));
 }
+
+/** The templates the ribbon, menus and command palette offer: an action the
+ *  project's Allowed services setting refuses entirely is left out. Its
+ *  template stays resolved so a saved draft or deep link still explains it. */
+export function offeredActionTemplates(
+  templates: ActionTemplate[],
+  catalog: ActionCatalogPayload | null,
+): ActionTemplate[] {
+  const refused = new Set(
+    (catalog?.actions ?? [])
+      .filter((entry) => entry.ui_hints.service_not_allowed === true)
+      .map((entry) => entry.kind),
+  );
+  return refused.size === 0 ? templates : templates.filter((template) => !refused.has(template.kind));
+}

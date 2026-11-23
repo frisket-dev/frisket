@@ -1,5 +1,38 @@
 import type { HttpSelectorChoicesQuery, HttpSelectorChoicesResponse, SelectorChoice } from '../api/selectorChoices';
 import type { SelectorChoicesState } from './useSelectorChoices';
+import { SERVICE_NOT_ALLOWED } from '../allowedServices';
+
+function refused(choice: SelectorChoice): boolean {
+  return choice.blocker?.code === SERVICE_NOT_ALLOWED;
+}
+
+function withAllowedRoutes(choice: SelectorChoice): SelectorChoice {
+  const routes = choice.route_selection;
+  if (!routes?.options.some((option) => option.disabled_code === SERVICE_NOT_ALLOWED)) return choice;
+  return {
+    ...choice,
+    route_selection: {
+      ...routes,
+      options: routes.options.filter((option) => option.disabled_code !== SERVICE_NOT_ALLOWED),
+    },
+  };
+}
+
+/** Pickers hide what the project's Allowed services setting refuses; every
+ *  other kind of unavailability keeps its own presentation. A group left
+ *  with nothing to offer is dropped. */
+export function withoutRefusedServices(response: HttpSelectorChoicesResponse): HttpSelectorChoicesResponse {
+  return {
+    ...response,
+    groups: response.groups.flatMap((group) => {
+      const choices = group.choices.filter((choice) => !refused(choice)).map(withAllowedRoutes);
+      return choices.length === 0 && group.choices.length > 0 ? [] : [{ ...group, choices }];
+    }),
+    orphaned_current: response.orphaned_current && !refused(response.orphaned_current)
+      ? withAllowedRoutes(response.orphaned_current)
+      : null,
+  };
+}
 
 /** Readiness never borrows a default when an explicit orphaned choice exists. */
 export function currentSelectorChoice(state: Pick<SelectorChoicesState, 'response' | 'stale' | 'error'>): SelectorChoice | null {

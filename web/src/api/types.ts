@@ -1353,6 +1353,9 @@ export interface ActionCatalogUiHints {
   /** Host-owned param-validator declarations: param name -> validator key
    *  (server/param_validation.py). Server-truthful preflight, never JS RegExp. */
   param_validators?: Record<string, string>;
+  /** Every service the action needs is refused by the project's Allowed
+   *  services setting, so it is not offered. */
+  service_not_allowed?: boolean;
   [key: string]: unknown;
 }
 

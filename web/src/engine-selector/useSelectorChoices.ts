@@ -9,6 +9,7 @@ import { selectorChoicesApi } from '../api/selectorChoices';
 import type { ModelPullDto } from '../api/types';
 import { useModelPullPolling } from '../hooks/useModelPullPolling';
 import { CLOUD_CONNECTION_CHANGED } from '../cloud/connectionChanged';
+import { withoutRefusedServices } from './selectorProjection';
 
 export type SelectorChoicesLoader = (
   projectId: string,
@@ -287,7 +288,7 @@ export function useSelectorChoices({
           revision,
           scopeKey,
           presentationKey,
-          response,
+          response: withoutRefusedServices(response),
         });
         settleRefresh(scopeKey, revision, true);
       })

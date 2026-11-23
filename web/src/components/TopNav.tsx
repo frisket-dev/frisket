@@ -51,6 +51,7 @@ import { canReviewProject } from '../api/projectRole';
 import { useEditionModule } from '../editions/module';
 import type { ExportTarget } from '../exportTargets';
 import { navigate } from '../routes';
+import { restrictedServicesLabel } from '../allowedServices';
 import { useShellIdentity } from '../shellIdentity';
 import { useNativePopover } from '../hooks/useNativePopover';
 import { anchoredPopoverStyle, useAnchoredPosition, type AnchoredPosition } from '../hooks/useAnchoredPosition';
@@ -608,6 +609,7 @@ export function ProjectMenu({
     gap: 4,
   });
 
+  const servicesLabel = restrictedServicesLabel(project.allowed_services);
   return (
     <div className="project-menu" ref={rootRef}>
       <button
@@ -620,6 +622,15 @@ export function ProjectMenu({
       >
         <span className="brand-project-label">{project.name}</span><DropdownIndicator />
       </button>
+      {servicesLabel && (
+        <span
+          className="project-services-state"
+          data-testid="project-services-state"
+          title={`Allowed services: ${servicesLabel}`}
+        >
+          {servicesLabel}
+        </span>
+      )}
       {open && (
         <ProjectMenuPopover
           popoverRef={menuRef}

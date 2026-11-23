@@ -1,5 +1,6 @@
 import '../grid/SheetGrid.css';
 import { Suspense, useCallback, useEffect, useMemo, useState, useSyncExternalStore } from 'react';
+import { offeredActionTemplates } from '../actions/model';
 import type { CellValue, ColumnDef, HistoryState, ProjectInfo, Row } from '../api/open';
 import { subscribeMapPointsMeta } from '../api/mapPointsMeta';
 import { PreviewTable } from '../components/PreviewTable';
@@ -184,7 +185,11 @@ export function useWorkspaceModel({
     actionCatalog.store,
     (state) => state.resolvedTemplates,
   );
-  const actActionTemplates = catalogActionTemplates;
+  const catalogPayload = useSelector(actionCatalog.store, (state) => state.catalog);
+  const actActionTemplates = useMemo(
+    () => offeredActionTemplates(catalogActionTemplates, catalogPayload),
+    [catalogActionTemplates, catalogPayload],
+  );
   const actSurface = useActSurfaceHandle();
   const actionLaunch = useSelector(actSurface.store, (s) => s.actionLaunch);
   const actionLaunchId = useSelector(actSurface.store, (s) => s.actionLaunchId);
