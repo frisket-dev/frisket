@@ -32,7 +32,7 @@ def test_same_actual_messages_drive_estimate_hash_even_when_price_is_unchanged(
 ):
     monkeypatch.setattr(
         "frisket.ops.group_summary.model_pricing",
-        lambda model: SimpleNamespace(
+        lambda model, _model_servers: SimpleNamespace(
             price=(0.1, 0.1), cost_source="catalog", pricing_key=model
         ),
     )
@@ -55,7 +55,8 @@ def test_same_actual_messages_drive_estimate_hash_even_when_price_is_unchanged(
 
 def test_unknown_group_estimate_never_claims_zero(monkeypatch):
     monkeypatch.setattr(
-        "frisket.ops.group_summary.model_pricing", lambda _: SimpleNamespace(price=None)
+        "frisket.ops.group_summary.model_pricing",
+        lambda _model, _model_servers: SimpleNamespace(price=None),
     )
     groups = group_summary_rows({2: {"story": False}}, source=["story"], group_by=None)
     messages = [group_summary_messages("Summarize", group) for group in groups]

@@ -1228,7 +1228,7 @@ export const LOCAL_MODEL_LAB_ENDPOINT_NAME = 'Local model lab server';
 export const LOCAL_MODEL_LAB_WALKTHROUGH: WalkthroughDefinition = {
   id: 'local-model-lab',
   title: 'Learn what a small local model can — and cannot — do',
-  description: 'Connect a named local model server, run a dependable labeling task, then compare a harder reasoning task with an answer key.',
+  description: 'Connect a named model server, run a dependable labeling task, then compare a harder reasoning task with an answer key.',
   requirements: 'Requires Ollama and an AI call mode that permits live requests. The recommended qwen3:0.6b model is a 523 MB download.',
   editions: ['local', 'team'],
   steps: [
@@ -1265,14 +1265,14 @@ export const LOCAL_MODEL_LAB_WALKTHROUGH: WalkthroughDefinition = {
     {
       id: 'configure-local-providers',
       title: 'Open AI providers',
-      instruction: 'Choose AI providers to add and probe a named local server.',
+      instruction: 'Choose AI providers to add and probe a named model server.',
       target: { kind: 'element', id: 'settings-nav-personal-ai-providers' },
       advance: 'click-target',
     },
     {
       id: 'open-local-server-form',
-      title: 'Add a local server',
-      instruction: 'Click Add local server. Every server gets its own stable identity, even when two machines offer the same model name.',
+      title: 'Add a model server',
+      instruction: 'Click Add model server. Every server gets its own stable identity, even when two machines offer the same model name.',
       target: { kind: 'element', id: 'local-endpoint-add' },
       advance: 'click-target',
     },

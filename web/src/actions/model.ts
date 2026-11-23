@@ -108,7 +108,7 @@ const PROVIDER_LABELS: Record<string, string> = {
   openai: 'OpenAI',
   gemini: 'Gemini',
   openrouter: 'OpenRouter',
-  ollama: 'Local server',
+  ollama: 'Model server',
 };
 
 export function providerLabel(provider: string): string {

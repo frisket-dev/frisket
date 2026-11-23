@@ -269,6 +269,8 @@ def test_sparse_response_models_match_actual_producer_nullability(
         "authority": "instance",
         "source": "stored",
         "detail": None,
+        "local": True,
+        "configured_models": [],
         "protocol": "unknown",
         "auth_status": "unknown",
         "token_configured": False,

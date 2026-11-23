@@ -1,6 +1,7 @@
 import { observeSetup, trackSetupSubmission } from '../telemetry/setupTelemetry';
 import { httpContract, type ContractErrorFactory, type RequestOptions } from "./httpContract";
 import type {
+  LocalHttpEndpointEntry,
   LocalProviderCatalog,
   LocalProviderEntry,
   LocalEndpointDiscoveryResponse,
@@ -22,7 +23,13 @@ type AtLeastOne<T, Keys extends keyof T = keyof T> = Keys extends keyof T
   ? Required<Pick<T, Keys>> & Partial<Omit<T, Keys>>
   : never;
 
-export type LocalEndpointPatch = AtLeastOne<Omit<LocalEndpointInput, "origin">>;
+/** One model configured on a model server: typed by hand (`entered`), or a
+ *  listed model carrying a price (USD per million tokens). */
+export type ModelServerModelEntry = LocalHttpEndpointEntry["configured_models"][number];
+
+export type LocalEndpointPatch = AtLeastOne<
+  Omit<LocalEndpointInput, "origin"> & { models?: ModelServerModelEntry[] }
+>;
 
 export function createLocalProvidersApi(errorFactory?: ContractErrorFactory) {
   return {

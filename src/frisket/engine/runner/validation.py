@@ -22,6 +22,7 @@ from frisket.ai.llm import (
     model_pricing,
     request_key,
 )
+from frisket.ai.llm.pricing import ModelServers
 from frisket.ai.llm.pdf_estimates import (
     PDF_ESTIMATE_WARNING,
     estimate_input_tokens,
@@ -931,6 +932,7 @@ def estimate_run(
     scope_row_ids: list[int] | None = None,
     consent_coverage: ConsentCoverage | None = None,
     cache_mode: str | None = None,
+    model_servers: ModelServers = (),
 ) -> dict:
     """Pre-run estimate for the cost gate. Token math is crude but stable.
 
@@ -973,6 +975,7 @@ def estimate_run(
         scope_row_ids=scope_row_ids,
         consent_coverage=consent_coverage,
         cache_mode=cache_mode,
+        model_servers=model_servers,
     ).presentation
 
 
@@ -988,6 +991,7 @@ def _estimate_run(
     scope_row_ids: list[int] | None = None,
     consent_coverage: ConsentCoverage | None = None,
     cache_mode: str | None = None,
+    model_servers: ModelServers = (),
 ) -> _EstimateRunResult:
     action_program = program if program is not None else action_program_for_spec(spec)
     rows = (
@@ -1144,7 +1148,7 @@ def _estimate_run(
     avg_in = sum(tokens or 0 for tokens in sample_tokens) / max(1, len(sample_tokens))
     pdf_disclosure = {"warning": PDF_ESTIMATE_WARNING} if pdf_inputs else {}
     est_out = 150 + 50 * len(spec.get("fields", []) or [1])
-    pricing = model_pricing(spec.get("model", ""))
+    pricing = model_pricing(spec.get("model", ""), model_servers)
     if pricing.price is None or not estimate_known:
         out = {
             "cost": None,
@@ -1387,6 +1391,7 @@ def validate_spec(
             pricing_policy=pricing_policy,
             consent_coverage=consent_coverage,
             cache_mode=cache_mode,
+            model_servers=composition.model_servers,
             resolution=(
                 resolution_refusal
                 if resolution_refusal is not None
@@ -1550,6 +1555,7 @@ def validate_spec(
             resume_run_id=resume_run_id,
             consent_coverage=consent_coverage,
             cache_mode=cache_mode,
+            model_servers=composition.model_servers,
         )
         backfill_est = backfill_result.presentation
         if isinstance(resume_outcome, ResolvedExecution):

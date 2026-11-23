@@ -165,7 +165,7 @@ export function LocalServerGuidance({ entry, variant, onRecheck }: LocalServerGu
     if (variant === 'compact') {
       body = (
         <p className="local-server-guidance-copy">
-          No local model server reachable on the machine that will run your
+          No model server reachable on the machine that will run your
           models. Install one there, then Recheck.
         </p>
       );
@@ -174,7 +174,7 @@ export function LocalServerGuidance({ entry, variant, onRecheck }: LocalServerGu
       body = (
         <>
           <p className="local-server-guidance-copy">
-            Install a local model server on the machine that will run your
+            Install a model server on the machine that will run your
             models — that may not be the computer you are using right now.
           </p>
           <div className="tab-list" role="tablist" aria-label="Install platform">

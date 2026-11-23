@@ -8,6 +8,7 @@ from decimal import Decimal
 
 import pytest
 
+from frisket.ai.llm.endpoint_config import LocalModelEndpointConfig
 from frisket.engine.store.media_blobs import (
     MediaBlobStore,
     owned_media_metadata_document,
@@ -119,6 +120,12 @@ def test_known_own_key_audio_price_stays_visible() -> None:
     [
         ("ollama/@desk/unlisted", Decimal("0"), "free_local", None),
         (
+            "ollama/@lan-box/unlisted",
+            None,
+            "unknown",
+            "ollama/@lan-box/unlisted.audio_second",
+        ),
+        (
             "openai/whisper-1",
             Decimal("0.0001"),
             "pricing_data",
@@ -138,7 +145,23 @@ def test_audio_rate_lookup_carries_provenance_by_value(
     source: str,
     key: str | None,
 ) -> None:
-    estimated = byok_audio_second_rate(engine)
+    # A model server is free only at a loopback origin, and only the
+    # workspace's configured servers say which servers exist.
+    model_servers = (
+        LocalModelEndpointConfig(
+            endpoint_id="desk",
+            display_name="Desk",
+            origin="http://127.0.0.1:11434",
+            source="local_file",
+        ),
+        LocalModelEndpointConfig(
+            endpoint_id="lan-box",
+            display_name="LAN box",
+            origin="http://192.168.1.20:11434",
+            source="local_file",
+        ),
+    )
+    estimated = byok_audio_second_rate(engine, model_servers)
     assert estimated.rate == rate
     assert estimated.cost_source == source
     assert estimated.pricing_key == key

@@ -5,7 +5,7 @@ import { KeyRound, RefreshCw, Save, Trash2 } from 'lucide-react';
 import { ProviderKeyForm } from '../engine-selector/ProviderKeyForm';
 import { ModelsGatewaySettings } from '../engine-selector/ModelsGatewaySettings';
 import { LocalServerGuidance } from '../components/LocalServerGuidance';
-import { type LocalEndpointPatch } from '../api/localProviders';
+import { type LocalEndpointPatch, type ModelServerModelEntry } from '../api/localProviders';
 import {
   createLocalEndpoint,
   discoverLocalEndpoints,
@@ -21,6 +21,7 @@ import {
   type LocalProviderEntry,
   type LocalEndpointDiscoveryCandidate,
   type LocalHttpEndpointEntry,
+  type LocalProviderModel,
   type ProjectInfo,
   type ProjectProviderKeyInfo,
   type ProjectProviderKeys,
@@ -29,7 +30,7 @@ import { useWorkspaceStores } from '../bind/useWorkspaceStores';
 import { canOwnProject } from '../api/projectRole';
 import { ModelPullHistory } from './ModelPullHistory';
 import { PanelNotice, StatusChip } from '../components/PanelPrimitives';
-import { formatUsdOrNone } from '../format';
+import { formatUsd, formatUsdOrNone } from '../format';
 import { projectProviderKeySource } from './projectProviderKeySource';
 import { ProjectCloudRoutingSettings, type ProjectCloudRoutingView } from '../cloud/ProjectCloudRoutingSettings';
 import { cloudConnectionApi, projectCloudRoutingApi } from '../api/cloudConnection';
@@ -168,7 +169,7 @@ export function ProjectAiProvidersSettings({
 // shared ProviderKeyForm controls (validate before save) and a
 // SettingsTable of provider rows with Test/Delete — but backed by the
 // workspace catalog (/api/providers → <ws>/.frisket/provider_keys.json),
-// plus the canonical local endpoint list. Exported for component tests.
+// plus the canonical model server list. Exported for component tests.
 export function WorkspaceAiProvidersSettings() {
   const catalog = useLoader<LocalProviderCatalog>(() => listProviders(), []);
   const [adding, setAdding] = useState(false);
@@ -347,11 +348,14 @@ function LocalEndpointsSettings({
 
   return (
     <div className="content-stack" data-testid="local-endpoints">
-      <div className="settings-section-kicker">Local model servers</div>
+      <div className="settings-section-kicker">Model servers</div>
       <p className="form-hint">
         Connect several OpenAI-compatible servers at once. Each server keeps a
         stable identity, so the same model name on two machines routes to the
-        machine you selected.
+        machine you selected. A server at a loopback address (localhost,
+        127.0.0.1 or ::1) runs on this machine and is free. Any other server
+        may forward to a paid provider: its models have an unknown price until
+        you enter one, and runs on them ask before they start.
       </p>
       {endpoints.map((endpoint) => (
         <LocalEndpointRow
@@ -383,11 +387,11 @@ function LocalEndpointsSettings({
         disabled={busy}
         onClick={() => void discover()}
       >
-        <RefreshCw size={14} /> Find local servers
+        <RefreshCw size={14} /> Find servers on this machine
       </Button>
       {!adding ? (
         <Button type="button" data-testid="local-endpoint-add" disabled={busy} onClick={() => setAdding(true)}>
-          Add local server
+          Add model server
         </Button>
       ) : (
         <form className="form-inline" data-testid="local-endpoint-add-form" onSubmit={add}>
@@ -395,7 +399,7 @@ function LocalEndpointsSettings({
 
             <TextInput
               data-testid="local-endpoint-add-name"
-              aria-label="Local server name"
+              aria-label="Model server name"
               value={name}
               disabled={busy}
               placeholder="LM Studio — gaming PC"
@@ -407,7 +411,7 @@ function LocalEndpointsSettings({
             <TextInput
               data-testid="local-endpoint-add-origin"
               type="url"
-              aria-label="Local server URL"
+              aria-label="Model server URL"
               value={url}
               disabled={busy}
               placeholder="http://localhost:1234"
@@ -474,7 +478,7 @@ function LocalEndpointRow({
   const remove = async () => {
     if (busy || endpoint.read_only) return;
     if (!window.confirm(
-      `Delete ${endpoint.label}? Existing sheets keep their model IDs, but future runs using this endpoint will fail until you choose another endpoint.`,
+      `Delete ${endpoint.label}? Its entered models and prices are removed. Existing sheets keep their model IDs, but future runs using this server will fail until you choose another server.`,
     )) return;
     await action.run(async () => {
       await deleteLocalEndpoint(endpointId);
@@ -513,14 +517,20 @@ function LocalEndpointRow({
           <StatusChip tone={endpoint.reachable ? 'info' : 'neutral'}>
             {endpoint.reachable ? 'reachable' : 'not running'}
           </StatusChip>
+        </span>{' '}
+        <span data-testid={`local-endpoint-location-${endpointId}`}>
+          <StatusChip tone="neutral">
+            {endpoint.local ? 'on this machine' : 'not on this machine'}
+          </StatusChip>
         </span>
       </p>
       <p className="form-hint">
-        This URL is the endpoint's immutable identity. To move it to another
+        This URL is the server's immutable identity. To move it to another
         URL, add a new server and then delete this one.
-        {endpoint.read_only && ' This endpoint is managed by the server environment and cannot be edited here.'}
+        {endpoint.read_only && ' This server is managed by the server environment and cannot be edited here.'}
       </p>
       <LocalEndpointProbeDetail endpoint={endpoint} />
+      <ModelServerModels endpoint={endpoint} onReload={onReload} />
       <form className="form-inline" onSubmit={save}>
         <FormField label="Name" >
 
@@ -636,5 +646,175 @@ function LocalEndpointProbeDetail({ endpoint }: { endpoint: LocalHttpEndpointEnt
         {endpoint.detail}
       </code>
     </details>
+  );
+}
+
+function modelPriceLabel(model: LocalProviderModel, onThisMachine: boolean): string {
+  if (onThisMachine) return 'Free (runs on this machine)';
+  if (!model.price) return 'Price unknown: runs ask before starting';
+  return `${formatUsd(model.price.input)} input, ${formatUsd(model.price.output)} output per million tokens`;
+}
+
+function parseRate(value: string): number | null {
+  if (!value.trim()) return null;
+  const rate = Number(value);
+  return Number.isFinite(rate) && rate >= 0 ? rate : null;
+}
+
+/** Listed and hand-entered models of one server, with the prices the person
+ *  entered. The PATCH replaces the server's whole configured list, so every
+ *  edit starts from `configured_models`, which the server returns even when
+ *  it is unreachable. */
+function ModelServerModels({
+  endpoint,
+  onReload,
+}: {
+  endpoint: LocalHttpEndpointEntry;
+  onReload: () => Promise<void>;
+}) {
+  const action = useAction();
+  const { busy, error } = action;
+  const [modelId, setModelId] = useState('');
+  const [drafts, setDrafts] = useState<Record<string, { input: string; output: string }>>({});
+  const endpointId = endpoint.endpoint_id;
+  const configured = endpoint.configured_models;
+  const editable = !endpoint.read_only;
+
+  const save = (models: ModelServerModelEntry[]) => action.run(async () => {
+    await updateLocalEndpoint(endpointId, { models });
+    await onReload();
+  });
+
+  const addModel = async (event: FormEvent) => {
+    event.preventDefault();
+    const name = modelId.trim();
+    if (busy || !name) return;
+    if (endpoint.models.some((model) => model.label === name)) {
+      setModelId('');
+      return;
+    }
+    await save([...configured, { name, entered: true, price: null }]);
+    setModelId('');
+  };
+
+  const setPrice = async (name: string, price: ModelServerModelEntry['price']) => {
+    if (busy) return;
+    const existing = configured.find((model) => model.name === name);
+    const entered = existing?.entered ?? false;
+    const others = configured.filter((model) => model.name !== name);
+    if (!entered && price === null) {
+      await save(others);
+    } else if (existing) {
+      await save(configured.map((model) => (model.name === name ? { ...model, price } : model)));
+    } else {
+      await save([...configured, { name, entered, price }]);
+    }
+    setDrafts((current) => {
+      const next = { ...current };
+      delete next[name];
+      return next;
+    });
+  };
+
+  return (
+    <div className="content-stack" data-testid={`model-server-models-${endpointId}`}>
+      <p className="settings-meta-label">Models</p>
+      {endpoint.models.length === 0 ? (
+        <p className="form-hint" data-testid={`model-server-models-empty-${endpointId}`}>
+          This server lists no models. If it does not answer a model listing,
+          enter the model ids it serves.
+        </p>
+      ) : (
+        <ul className="content-stack">
+          {endpoint.models.map((model) => {
+            const draft = drafts[model.label] ?? { input: '', output: '' };
+            const input = parseRate(draft.input);
+            const output = parseRate(draft.output);
+            return (
+              <li key={model.id} data-testid={`model-server-model-${model.id}`}>
+                <span>{model.label}</span>{' '}
+                <StatusChip tone="neutral">{model.entered ? 'entered' : 'listed'}</StatusChip>{' '}
+                <span className="form-hint" data-testid={`model-server-model-price-${model.id}`}>
+                  {modelPriceLabel(model, endpoint.local)}
+                </span>
+                {editable && model.entered && (
+                  <button
+                    className="icon-btn"
+                    type="button"
+                    disabled={busy}
+                    aria-label={`Remove ${model.label}`}
+                    onClick={() => void save(configured.filter((entry) => entry.name !== model.label))}
+                  >
+                    <Trash2 size={14} />
+                  </button>
+                )}
+                {editable && !endpoint.local && (
+                  <form
+                    className="form-inline"
+                    onSubmit={(event) => {
+                      event.preventDefault();
+                      if (input === null || output === null) return;
+                      void setPrice(model.label, { input, output });
+                    }}
+                  >
+                    <FormField label="Input, USD per million tokens">
+                      <TextInput
+                        type="number"
+                        min="0"
+                        step="any"
+                        aria-label={`Input price for ${model.label}`}
+                        value={draft.input}
+                        disabled={busy}
+                        onChange={(event) => setDrafts((current) => ({
+                          ...current, [model.label]: { ...draft, input: event.target.value },
+                        }))}
+                      />
+                    </FormField>
+                    <FormField label="Output, USD per million tokens">
+                      <TextInput
+                        type="number"
+                        min="0"
+                        step="any"
+                        aria-label={`Output price for ${model.label}`}
+                        value={draft.output}
+                        disabled={busy}
+                        onChange={(event) => setDrafts((current) => ({
+                          ...current, [model.label]: { ...draft, output: event.target.value },
+                        }))}
+                      />
+                    </FormField>
+                    <Button type="submit" disabled={busy || input === null || output === null}>
+                      Save price
+                    </Button>
+                    {model.price && (
+                      <Button type="button" disabled={busy} onClick={() => void setPrice(model.label, null)}>
+                        Clear price
+                      </Button>
+                    )}
+                  </form>
+                )}
+              </li>
+            );
+          })}
+        </ul>
+      )}
+      {editable && (
+        <form className="form-inline" data-testid={`model-server-add-model-${endpointId}`} onSubmit={addModel}>
+          <FormField label="Model id">
+            <TextInput
+              aria-label={`Model id for ${endpoint.label}`}
+              value={modelId}
+              disabled={busy}
+              placeholder="gpt-4o-mini"
+              onChange={(event) => setModelId(event.target.value)}
+            />
+          </FormField>
+          <Button type="submit" disabled={busy || !modelId.trim()}>
+            Add model
+          </Button>
+        </form>
+      )}
+      {error && <p className="panel-notice" data-tone="error">{error}</p>}
+    </div>
   );
 }

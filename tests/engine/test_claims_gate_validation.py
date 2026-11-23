@@ -279,19 +279,20 @@ def test_priced_free_local_model_estimates_zero_and_never_gates(audio_project):
     """Any canonical local model carries known zero through admission."""
     project, sheet_id = audio_project
     spec = _model_spec(sheet_id, model="ollama/@test-local/frisket-new-unlisted-model")
-    est = validation.estimate_run(project, spec, program=_program(spec))
+    loopback = LocalModelEndpointConfig(
+        endpoint_id="test-local",
+        display_name="Test local",
+        origin="http://127.0.0.1:11434",
+        source="local_file",
+    )
+    est = validation.estimate_run(
+        project, spec, program=_program(spec), model_servers=(loopback,)
+    )
     assert est["cost"] == 0.0
     assert est["cost"] is not None
     router = ModelRouter(
         model_call_policy=LOCAL_PURCHASE_POLICY,
-        local_endpoints=(
-            LocalModelEndpointConfig(
-                endpoint_id="test-local",
-                display_name="Test local",
-                origin="http://127.0.0.1:11434",
-                source="local_file",
-            ),
-        ),
+        local_endpoints=(loopback,),
     )
     _validate(project, spec, router=router)  # must not raise CostGate
 

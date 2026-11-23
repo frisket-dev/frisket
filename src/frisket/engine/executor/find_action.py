@@ -39,6 +39,7 @@ from frisket.engine.executor.map_find_publication import (
 from frisket.engine.executor.map_find_scan import scan_find_plans
 from frisket.engine.executor.map_find_source import _snapshot_payload
 from frisket.engine.store.receipts import ReceiptStore
+from frisket.execution.consent_coverage import effective_consent_coverage
 
 
 class FindRefused(ValueError):
@@ -61,8 +62,9 @@ class PreparedFindPlan:
 
 
 class AdmittedFindScanner:
-    def __init__(self, project, bound):
+    def __init__(self, project, bound, model_servers=()):
         self.project, self.bound = project, bound
+        self.model_servers = model_servers
         self.plans: dict[PreparedFind, PreparedFindPlan] = {}
 
     def prepare(self, source, *, options):
@@ -108,7 +110,7 @@ class AdmittedFindScanner:
             target_sheet_name=request.sheet_name,
             output_names=names,
         )
-        scan = _prepare_find_scan(self.project, operation)
+        scan = _prepare_find_scan(self.project, operation, self.model_servers)
         if isinstance(scan, ActionError):
             raise FindRefused(scan)
         handle = PreparedFind(len(scan.sources), len(scan.plans))
@@ -116,10 +118,10 @@ class AdmittedFindScanner:
         return handle
 
 
-def prepare_find_action(project, bound):
+def prepare_find_action(project, bound, *, model_servers=()):
     if getattr(bound.action.definition.run, "capabilities", ()) != (FindScanner,):
         raise TypeError("Find preparation requires the admitted FindScanner capability")
-    scanner = AdmittedFindScanner(project, bound)
+    scanner = AdmittedFindScanner(project, bound, model_servers)
     handle = bound.action.definition.run.handler(bound.params, scanner)
     if not isinstance(handle, PreparedFind) or handle not in scanner.plans:
         raise ValueError("Find must return a preparation issued by this invocation")
@@ -170,13 +172,13 @@ def _admission(bound, prepared, *, consent_coverage):
     }
 
 
-def prepare_typed_find_admission(project, bound, *, consent_coverage=None):
-    from frisket.execution.consent_coverage import effective_consent_coverage
-
+def prepare_typed_find_admission(
+    project, bound, *, model_servers=(), consent_coverage=None
+):
     try:
         return _admission(
             bound,
-            prepare_find_action(project, bound),
+            prepare_find_action(project, bound, model_servers=model_servers),
             consent_coverage=effective_consent_coverage(project, consent_coverage),
         )
     except (TypeError, ValueError) as exc:
@@ -192,8 +194,12 @@ def prepare_typed_find_admission(project, bound, *, consent_coverage=None):
 
 
 def reserve_typed_find_action_job(
-    project, project_id, bound, *, edition_run_context=None, consent_coverage=None
+    project, project_id, bound, *, edition_run_context=None, deps=None
 ):
+    """Admit and queue one Find scan.
+
+    ``deps.router`` is the request's router: its configured model servers
+    price the scan. Without one a model-server model's price is unknown."""
     from frisket.engine.executor.action_jobs import probe_queued_action_job_receipt
     from frisket.engine.executor.map_rows_action import typed_request_hash
 
@@ -205,8 +211,12 @@ def reserve_typed_find_action_job(
     )
     if replay is not None:
         return replay
+    router = getattr(deps, "router", None)
     admission = prepare_typed_find_admission(
-        project, bound, consent_coverage=consent_coverage
+        project,
+        bound,
+        model_servers=router.local_endpoints if router is not None else (),
+        consent_coverage=getattr(deps, "consent_coverage", None),
     )
     if isinstance(admission, ActionError):
         return ActionResult(
@@ -239,6 +249,51 @@ def reserve_typed_find_action_job(
     return replace(envelope, resolved_snapshot=admission)
 
 
+def _durable_admission(receipt):
+    if not receipt:
+        return None
+    return next(
+        (
+            item.ref.get("admission")
+            for item in receipt.records
+            if item.ref.get("kind") == "find_admission"
+        ),
+        None,
+    )
+
+
+def _dispatch_refusal(project, bound, prepared, admitted, deps):
+    """Why a prepared scan may not dispatch on its earlier admission.
+
+    The scan must be the one admitted, and its admitted rate is not authority
+    for a later dispatch: re-rated with the servers configured now, it must
+    pass the same cost decision admission applied, or it asks again before
+    any request."""
+    scan = prepared.scan
+    if (
+        prepared.operation.model_dump(mode="json") != admitted.get("operation")
+        or _snapshot_payload(scan.sources) != admitted.get("sources")
+        or scan.target != admitted.get("target")
+        or scan.estimate["resolved_prompt_hash"] != admitted.get("resolved_prompt_hash")
+    ):
+        return ActionError(
+            code="source_changed",
+            message="Find sources, target or actual scan changed after admission",
+            action_kind=bound.action.action_id,
+        )
+    try:
+        _admission(
+            bound,
+            prepared,
+            consent_coverage=effective_consent_coverage(
+                project, getattr(deps, "consent_coverage", None)
+            ),
+        )
+    except FindRefused as exc:
+        return exc.error
+    return None
+
+
 def run_typed_find_action_job(project, envelope, *, execution, deps=None):
     from frisket.ai.llm.router import model_call_cannot_go_live
     from frisket.ai.llm.types import provider_from_model_id
@@ -256,18 +311,7 @@ def run_typed_find_action_job(project, envelope, *, execution, deps=None):
     # The worker adds its queue identity after admission. It is transport
     # bookkeeping, not an admitted source, target, prompt, or consent fact.
     admitted.pop("job_id", None)
-    durable = (
-        next(
-            (
-                item.ref.get("admission")
-                for item in receipt.records
-                if item.ref.get("kind") == "find_admission"
-            ),
-            None,
-        )
-        if receipt
-        else None
-    )
+    durable = _durable_admission(receipt)
     if durable != admitted:
         return _failure_before_egress(
             project,
@@ -278,8 +322,11 @@ def run_typed_find_action_job(project, envelope, *, execution, deps=None):
                 action_kind=envelope.action_kind,
             ),
         )
+    router = project_scoped_router(project, getattr(deps, "router", None))
     try:
-        prepared = prepare_find_action(project, bound)
+        prepared = prepare_find_action(
+            project, bound, model_servers=router.local_endpoints
+        )
     except (TypeError, ValueError) as exc:
         return _failure_before_egress(
             project,
@@ -293,25 +340,11 @@ def run_typed_find_action_job(project, envelope, *, execution, deps=None):
             ),
         )
     scan = prepared.scan
-    if (
-        prepared.operation.model_dump(mode="json") != admitted.get("operation")
-        or _snapshot_payload(scan.sources) != admitted.get("sources")
-        or scan.target != admitted.get("target")
-        or scan.estimate["resolved_prompt_hash"] != admitted.get("resolved_prompt_hash")
-    ):
-        return _failure_before_egress(
-            project,
-            envelope,
-            ActionError(
-                code="source_changed",
-                message="Find sources, target or actual scan changed after admission",
-                action_kind=envelope.action_kind,
-            ),
-        )
+    refusal = _dispatch_refusal(project, bound, prepared, admitted, deps)
+    if refusal is not None:
+        return _failure_before_egress(project, envelope, refusal)
     execution.check()
-    router = project_scoped_router(
-        project, getattr(deps, "router", None)
-    ).for_execution(execution)
+    router = router.for_execution(execution)
     if not model_call_cannot_go_live(router):
         if (
             project.effective_network_policy() == "off"

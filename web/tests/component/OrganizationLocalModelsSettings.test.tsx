@@ -53,6 +53,8 @@ function endpoint(overrides: Partial<LocalHttpEndpointEntry> = {}): LocalHttpEnd
     provisioning_token_configured: false,
     edge_auth: false,
     pull_enabled: true,
+    local: true,
+    configured_models: [],
     ...overrides,
   };
 }
@@ -67,6 +69,7 @@ function models(...names: string[]): LocalHttpEndpointEntry['models'] {
     label: name,
     price: null,
     local: true,
+    entered: false,
   }));
 }
 

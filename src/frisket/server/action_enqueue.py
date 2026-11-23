@@ -6,7 +6,7 @@ import json
 import logging
 from collections.abc import Callable, Mapping, MutableMapping
 from contextlib import nullcontext
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any
 
@@ -750,7 +750,9 @@ def queue_v1_action_run(
                     project_id,
                     bound,
                     edition_run_context=execution_context.edition_snapshot,
-                    consent_coverage=ctx.request_executor_deps().consent_coverage,
+                    deps=replace(
+                        ctx.request_executor_deps(), router=ctx.router_for(project)
+                    ),
                 )
             elif getattr(bound.action.definition.run, "capabilities", ()) == (
                 IndexRefresher,

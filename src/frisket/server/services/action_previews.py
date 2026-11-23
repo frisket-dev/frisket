@@ -66,7 +66,7 @@ def _action_error(status_code: int, detail: str) -> ActionPreviewRouteError:
 
 
 def _prepared_model_estimate(
-    bound: Any, prepared: Any, *, consent_coverage
+    bound: Any, prepared: Any, estimate: dict[str, Any], *, consent_coverage
 ) -> dict[str, Any]:
     """Expose the actual prepared quote with the execution gate's consent identity."""
     from frisket.contracts.http.action_estimate_validation import ActionEstimate
@@ -79,7 +79,6 @@ def _prepared_model_estimate(
         rate_estimate,
     )
 
-    estimate = prepared.estimate
     if POLICY_ID_KEY not in estimate or BILLED_COST_KEY not in estimate:
         estimate = rate_estimate(estimate, policy=default_pricing_policy())
     token = mint_confirmation_hash(
@@ -233,7 +232,12 @@ class ActionPreviewService:
                         ) from exc
                     if refresh.prepared_group is not None:
                         estimate = _prepared_model_estimate(
-                            typed, refresh.prepared_group, consent_coverage=coverage
+                            typed,
+                            refresh.prepared_group,
+                            refresh.prepared_group.estimate_for(
+                                self._workspace.model_servers()
+                            ),
+                            consent_coverage=coverage,
                         )
                     else:
                         assert refresh.prepared is not None
@@ -301,13 +305,18 @@ class ActionPreviewService:
 
                 if capabilities in ((FindScanner,), (GroupSummarizer,)):
                     typed = resolve_action_selection(get_project(), typed)
-                    prepare = (
-                        prepare_find_action
-                        if capabilities == (FindScanner,)
-                        else prepare_group_summary_action
-                    )
+                    model_servers = self._workspace.model_servers()
                     try:
-                        prepared = prepare(get_project(), typed)
+                        if capabilities == (FindScanner,):
+                            prepared = prepare_find_action(
+                                get_project(), typed, model_servers=model_servers
+                            )
+                            prepared_estimate = prepared.estimate
+                        else:
+                            prepared = prepare_group_summary_action(
+                                get_project(), typed
+                            )
+                            prepared_estimate = prepared.estimate_for(model_servers)
                     except (FindRefused, GroupSummaryRefused) as exc:
                         raise ActionPreviewRouteError(
                             400, exc.error.model_dump(mode="json"), bare_json=True
@@ -317,7 +326,10 @@ class ActionPreviewService:
                         "action": {"kind": typed.action.action_id},
                         "project_id": project_id,
                         "estimate": _prepared_model_estimate(
-                            typed, prepared, consent_coverage=coverage
+                            typed,
+                            prepared,
+                            prepared_estimate,
+                            consent_coverage=coverage,
                         ),
                     }
 

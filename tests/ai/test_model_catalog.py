@@ -16,7 +16,9 @@ from frisket.ai.llm.model_catalog import (
     MODEL_ENTRIES,
     install_model_catalog,
 )
+from frisket.ai.llm.endpoint_config import LocalModelEndpointConfig
 from frisket.ai.llm.pricing import (
+    cost_with_pricing,
     audio_price,
     cost_of_with_source,
     model_cost_source,
@@ -172,9 +174,20 @@ def test_pricing_uses_specific_model_before_family_prefix() -> None:
     )
 
 
+# The workspace's configured model servers: one on this machine.
+_DESK = (
+    LocalModelEndpointConfig(
+        endpoint_id="desk",
+        display_name="Desk",
+        origin="http://127.0.0.1:11434",
+        source="local_file",
+    ),
+)
+
+
 def test_canonical_local_identity_is_zero_before_provider_stripping() -> None:
-    assert model_price("ollama/@desk/gpt-5") == (0.0, 0.0)
-    assert audio_price("ollama/@desk/whisper-1") == {"per_second": 0.0}
+    assert model_price("ollama/@desk/gpt-5", _DESK) == (0.0, 0.0)
+    assert audio_price("ollama/@desk/whisper-1", _DESK) == {"per_second": 0.0}
 
     # The same bare names keep their hosted catalog prices. Locality belongs
     # to the canonical endpoint-qualified identity, never the model substring.
@@ -184,16 +197,16 @@ def test_canonical_local_identity_is_zero_before_provider_stripping() -> None:
 
 def test_every_canonical_local_model_is_known_zero_without_catalog_entry() -> None:
     model = "frisket-new-unlisted-model"
-    assert model_price(f"ollama/@desk/{model}") == (0.0, 0.0)
-    assert audio_price(f"ollama/@desk/{model}") == {"per_second": 0.0}
+    assert model_price(f"ollama/@desk/{model}", _DESK) == (0.0, 0.0)
+    assert audio_price(f"ollama/@desk/{model}", _DESK) == {"per_second": 0.0}
     assert model_price(f"openai/{model}") is None
     assert audio_price(f"openai/{model}") is None
-    assert model_price("ollama/@desk/qwen3:8b") == (0.0, 0.0)
+    assert model_price("ollama/@desk/qwen3:8b", _DESK) == (0.0, 0.0)
     assert model_price("openrouter/qwen/qwen3-vl-8b-instruct") == (0.25, 0.75)
 
 
 def test_text_cost_carries_local_pinned_and_unknown_source_by_value() -> None:
-    assert cost_of_with_source("ollama/@desk/unlisted", 10, 5) == (
+    assert cost_with_pricing(model_pricing("ollama/@desk/unlisted", _DESK), 10, 5) == (
         0.0,
         "free_local",
     )
@@ -211,7 +224,7 @@ def test_openrouter_open_weight_model_is_curated_remote_and_priced() -> None:
     assert entries["qwen/qwen3-vl-8b-instruct"]["label"] == "Qwen3-VL 8B"
     assert model_price("openrouter/qwen/qwen3-vl-8b-instruct") == (0.25, 0.75)
     assert model_cost_source("openrouter/qwen/qwen3-vl-8b-instruct") == "pricing_data"
-    assert model_price("ollama/@desk/qwen3:8b") == (0.0, 0.0)
+    assert model_price("ollama/@desk/qwen3:8b", _DESK) == (0.0, 0.0)
 
     assert entries["minimax/minimax-m3"]["label"] == "MiniMax M3"
     assert model_price("openrouter/minimax/minimax-m3") == (0.3, 1.2)

@@ -355,6 +355,7 @@ def test_team_local_model_dto_accept_reject_and_endpoint_catalog_matrix() -> Non
                         "label": "smollm:135m",
                         "price": {"input": 0.0, "output": 0.0},
                         "local": True,
+                        "entered": False,
                     }
                 ],
                 "reachable": True,
@@ -362,6 +363,8 @@ def test_team_local_model_dto_accept_reject_and_endpoint_catalog_matrix() -> Non
                 "authority": "organization",
                 "source": "environment",
                 "detail": None,
+                "local": True,
+                "configured_models": [],
                 "installed_models": ["smollm:135m"],
                 "protocol": "ollama_native",
                 "auth_status": "ok",

@@ -51,6 +51,7 @@ from frisket.execution.targets import (
     TargetEngineSupport,
     require_clean,
 )
+from frisket.ai.llm.endpoint_config import LocalModelEndpointConfig
 from frisket.project_identity import ProjectStorageKey
 
 if TYPE_CHECKING:
@@ -406,6 +407,12 @@ class ExecutionComposition:
     # True when this request carries the selected Cloud account's current
     # route catalog, including an authoritative empty catalog.
     cloud_inventory_known: bool = field(default=False, kw_only=True)
+    # The model servers configured for this request's workspace, read when the
+    # request's router was built. Model-server prices and locality come only
+    # from here; an absent server prices as unknown.
+    model_servers: tuple[LocalModelEndpointConfig, ...] = field(
+        default=(), kw_only=True
+    )
 
     def __post_init__(self) -> None:
         if not isinstance(self.credential_use_context, CredentialUseContext):
@@ -846,4 +853,5 @@ def open_execution_composition(
             ),
         ),
         credential_use_context=credential_context,
+        model_servers=tuple(getattr(router, "local_endpoints", ())),
     )

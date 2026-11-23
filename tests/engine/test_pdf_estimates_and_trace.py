@@ -127,7 +127,7 @@ def test_runner_pdf_estimate_discloses_approximation_and_preserves_unknown(monke
     monkeypatch.setattr(
         validation,
         "model_pricing",
-        lambda _model: SimpleNamespace(
+        lambda _model, _model_servers: SimpleNamespace(
             price=(1.0, 2.0), cost_source="known", pricing_key="openai/test"
         ),
     )

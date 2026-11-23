@@ -23,6 +23,7 @@ from frisket.engine.executor.action_families._errors import (
     receipt_stale_replay_error,
 )
 from frisket.engine.executor.action_inventory import _TypedProjectEnvelope
+from frisket.ai.llm.pricing import ModelServers
 from frisket.engine.executor.group_summary_plan import GroupSummaryPlan
 from frisket.engine.store.writer_fence import WriterFence
 from frisket.engine.executor.action_receipts import (
@@ -362,11 +363,12 @@ def _reduce_group_summary_messages(
 def _estimate_reduce_group_summary_cost(
     params: GroupSummaryPlan,
     resolved: dict[str, Any],
+    model_servers: ModelServers = (),
 ) -> dict[str, Any]:
     resolved_messages = (
         _reduce_group_summary_messages(params, group) for group in resolved["groups"]
     )
-    return estimate_group_summary(params.model, resolved_messages)
+    return estimate_group_summary(params.model, resolved_messages, model_servers)
 
 
 def _group_source_binding(resolved: Mapping[str, Any]) -> dict[str, list[int]]:
@@ -408,6 +410,9 @@ async def _complete_reduce_group_summaries(
         "fields": program.output_fields({}),
     }
     store = RunResultStore(project)
+    cost_estimate = _estimate_reduce_group_summary_cost(
+        params, resolved, composition.model_servers
+    )["cost"]
     if publication.recovery_run is not None:
         change_id = int(publication.recovery_run["change_id"])
         run_id = int(publication.recovery_run["id"])
@@ -426,7 +431,7 @@ async def _complete_reduce_group_summaries(
             prompt_hash=_text_hash(params.instruction),
             params={},
             total_rows=len(resolved["groups"]),
-            cost_estimate=_estimate_reduce_group_summary_cost(params, resolved)["cost"],
+            cost_estimate=cost_estimate,
         )
     authority = AttemptAuthority(project, composition=composition)
     commitment = authority.mint(
@@ -449,7 +454,12 @@ async def _complete_reduce_group_summaries(
     )
     publication.start(
         resolved,
-        {"change_id": change_id, "run_id": run_id, "attempt_id": commitment.attempt_id},
+        {
+            "change_id": change_id,
+            "run_id": run_id,
+            "attempt_id": commitment.attempt_id,
+            "cost_estimate": cost_estimate,
+        },
     )
     write = publication.write
     spec["sheet_id"] = write.sheet_id

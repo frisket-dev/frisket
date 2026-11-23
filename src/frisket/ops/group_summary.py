@@ -12,6 +12,7 @@ from collections.abc import Iterable, Mapping, Sequence
 from typing import Any
 
 from frisket.ai.llm import estimate_tokens, model_pricing
+from frisket.ai.llm.pricing import ModelServers
 
 
 def group_summary_rows(
@@ -87,12 +88,14 @@ def group_summary_messages(
 
 
 def estimate_group_summary(
-    model: str, messages: Iterable[list[dict[str, str]]]
+    model: str,
+    messages: Iterable[list[dict[str, str]]],
+    model_servers: ModelServers = (),
 ) -> dict[str, Any]:
     """Quote the same resolved messages that the host will actually dispatch."""
     digest = hashlib.sha256(b"[")
     groups, total_tokens, token_cost = 0, 0, 0.0
-    pricing = model_pricing(model)
+    pricing = model_pricing(model, model_servers)
     for value in messages:
         tokens = estimate_tokens(json.dumps(value))
         if groups:

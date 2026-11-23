@@ -205,6 +205,9 @@ def test_group_refresh_estimate_matches_gate_without_model_or_writes(
         def router_for(self, project):
             raise AssertionError("estimate cannot construct provider transport")
 
+        def model_servers(self):
+            return ()
+
     body = {
         "action_id": "sheet.refresh",
         "scope": {"kind": "project"},

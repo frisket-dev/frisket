@@ -35,6 +35,8 @@ function localEntry(overrides: Partial<LocalHttpEndpointEntry> & Pick<LocalHttpE
     provisioning_token_configured: false,
     edge_auth: false,
     pull_enabled: false,
+    local: true,
+    configured_models: [],
     ...overrides,
   };
 }
@@ -86,7 +88,7 @@ describe('defaultActionModel', () => {
         endpoint_id: 'desktop',
         label: 'Local server',
         reachable: true,
-        models: [{ id: 'ollama/@desktop/llama3.1', label: 'llama3.1', price: null, local: true }],
+        models: [{ id: 'ollama/@desktop/llama3.1', label: 'llama3.1', price: null, local: true, entered: false }],
       }),
     ]);
 
@@ -111,6 +113,7 @@ describe('defaultActionModel', () => {
           label: 'qwen',
           price: null,
           local: true,
+          entered: false,
         }],
       }),
     ]);
@@ -125,7 +128,7 @@ describe('defaultActionModel', () => {
         endpoint_id: 'desktop',
         label: 'Local server',
         reachable: true,
-        models: [{ id: 'ollama/@desktop/llama3.1', label: 'llama3.1', price: null, local: true }],
+        models: [{ id: 'ollama/@desktop/llama3.1', label: 'llama3.1', price: null, local: true, entered: false }],
       }),
     ]);
 
@@ -152,7 +155,7 @@ describe('defaultActionModel', () => {
         label: 'OpenRouter',
         kind: 'platform_api',
         configured: true,
-        models: [{ id: 'openrouter/anthropic/claude-3.5-sonnet', label: 'Claude 3.5 Sonnet', price: null, local: false }],
+        models: [{ id: 'openrouter/anthropic/claude-3.5-sonnet', label: 'Claude 3.5 Sonnet', price: null, local: false, entered: false }],
       }),
     ]);
 

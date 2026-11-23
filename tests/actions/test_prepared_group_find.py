@@ -22,6 +22,7 @@ from frisket.actions.group_summary_types import (
 )
 from frisket.actions.system import BoundTypedActionRequest
 from frisket.actions.types import ActionParams, ActionRequest, ModelRef
+from frisket.engine.executor.action_inventory import ExecutorDeps
 from frisket.engine.executor.find_action import prepare_find_action
 from frisket.engine.executor.group_summary_action import (
     prepare_group_summary_action,
@@ -242,7 +243,6 @@ def test_find_queue_pins_actual_author_arguments_before_model_calls(
 
     from frisket.actions import system
     from frisket.actions.core import ActionNamespace, ActionRegistry
-    from frisket.engine.executor.action_inventory import ExecutorDeps
     from frisket.engine.executor.action_jobs import (
         ActionJobEnvelope,
         run_action_run_job,
@@ -280,7 +280,7 @@ def test_find_queue_pins_actual_author_arguments_before_model_calls(
         ActionRegistry([ActionNamespace("custom", actions=[bound.action.definition])]),
     )
     refusal = reserve_typed_find_action_job(
-        project, "test", bound, consent_coverage=consent_coverage
+        project, "test", bound, deps=ExecutorDeps(consent_coverage=consent_coverage)
     )
     assert refusal.status == "needs_confirmation"
     assert project.db.execute("SELECT count(*) FROM receipts").fetchone()[0] == 0
@@ -291,7 +291,7 @@ def test_find_queue_pins_actual_author_arguments_before_model_calls(
         ),
     )
     envelope = reserve_typed_find_action_job(
-        project, "test", bound, consent_coverage=consent_coverage
+        project, "test", bound, deps=ExecutorDeps(consent_coverage=consent_coverage)
     )
     assert isinstance(envelope, ActionJobEnvelope)
     admitted = envelope.resolved_snapshot

@@ -55,7 +55,7 @@ class SpendService:
 
 
 def _unpriced_models_with_usage(project: Project) -> set[str]:
-    """Every engine on this project whose spend we could not price.
+    """Every engine on this project whose recorded spend could not be priced.
 
     TWO SURFACES, ONE ANSWER (bug pattern 2). ``has_unknown_costs`` is
     ``bool()`` of this set, and it used to be derived from ``runs.model``
@@ -65,23 +65,33 @@ def _unpriced_models_with_usage(project: Project) -> set[str]:
     1``, and this dashboard answered ``has_unknown_costs: false`` about the
     same run. Two computations of one fact, disagreeing.
 
-    So the second half reads the FACTS the receipt's own unmetered counter
-    is derived from: a ``model_calls`` row with a NULL ``provider_cost_usd``
-    is precisely "a call we could not price". Local and sidecar facts are
-    never NULL there (``ModelCallMeta.local``/``.sidecar`` write an explicit
-    0.0, ``cost_source="free_local"``), so genuinely free work does not
-    appear; cache hits are excluded because a replayed answer costs the
-    provider nothing.
+    So the answer reads the FACTS the receipt's own unmetered counter is
+    derived from: a ``model_calls`` row with a NULL ``provider_cost_usd`` is
+    precisely "a call we could not price". Local and sidecar facts are never
+    NULL there (``ModelCallMeta.local``/``.sidecar`` write an explicit 0.0,
+    ``cost_source="free_local"``), so genuinely free work does not appear;
+    cache hits are excluded because a replayed answer costs the provider
+    nothing.
+
+    Recorded spend is history: today's settings never reprice it. A run with
+    model-call facts is judged by those facts alone. Only a token-bearing run
+    with no facts at all falls back, to its recorded ``cost_actual`` (NULL is
+    unknown) and to the built-in price table, which holds no configured
+    model-server rates; a model-server run without facts is unknown.
     """
     out: set[str] = set()
     for row in project.db.execute(
-        "SELECT DISTINCT r.model FROM runs r "
-        "WHERE r.model IS NOT NULL AND EXISTS ("
+        "SELECT r.model, r.cost_actual FROM runs r "
+        "WHERE r.model IS NOT NULL "
+        "AND NOT EXISTS (SELECT 1 FROM model_calls mc WHERE mc.run_id = r.id) "
+        "AND EXISTS ("
         "  SELECT 1 FROM results res WHERE res.run_id = r.id "
         "  AND (COALESCE(res.tokens_in, 0) > 0 OR COALESCE(res.tokens_out, 0) > 0))"
     ):
         model = row["model"]
-        if model_price(model) is None and audio_price(model) is None:
+        if row["cost_actual"] is None or (
+            model_price(model) is None and audio_price(model) is None
+        ):
             out.add(model)
     for row in project.db.execute(
         "SELECT DISTINCT engine FROM model_calls "
