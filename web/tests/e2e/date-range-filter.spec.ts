@@ -62,7 +62,7 @@ test('date-range filters use date columns and round-trip through views', async (
   await expect(page.getByTestId('grid')).toBeVisible({ timeout: 15_000 });
 
   // Date ranges live in the friendly sidebar alongside the other facets.
-  await openFriendlyFilterSidebar(page, importedColumns, 'published');
+  await openFriendlyFilterSidebar(page, await sheetColumns(page.request, pid, sheetId), 'published');
   await page.getByTestId('facet-range-end-published').fill('2026-03-31');
 
   const filteredResponse = page.waitForResponse((res) => {
@@ -134,7 +134,7 @@ test('relative date filters stay relative on the wire', async ({ page }) => {
 
   await openProject(page, pid, sheetId);
   await expect(page.getByTestId('grid')).toBeVisible({ timeout: 15_000 });
-  await openFriendlyFilterSidebar(page, importedColumns, 'published');
+  await openFriendlyFilterSidebar(page, await sheetColumns(page.request, pid, sheetId), 'published');
   const filedFacet = page.getByTestId('friendly-facet-published');
   await filedFacet.getByRole('button', { name: 'More filter options' }).click();
   await page.getByTestId('facet-advanced-operator-published').selectOption('date_relative');

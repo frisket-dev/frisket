@@ -117,10 +117,10 @@ describe('facet logic', () => {
     expect(selectionWithoutFacet(current, 1).filters.map((item) => item.column_id)).toEqual([2]);
   });
 
-  it('facets short values and searches long-form text', () => {
+  it('facets text values, including generated ones, and searches markdown', () => {
     expect(isFacetColumn(column('filename', 'text'))).toBe(true);
     expect(isFacetColumn(column('markdown', 'text', { format: 'markdown' }))).toBe(false);
-    expect(isFacetColumn(column('ocr_text', 'text', { ai: { actionName: 'OCR', prompt: '', model: 'm', costSoFar: 0, versions: [] } }))).toBe(false);
+    expect(isFacetColumn(column('label', 'text', { ai: { actionName: 'Classify', prompt: '', model: 'm', costSoFar: 0, versions: [] } }))).toBe(true);
     expect(facetColumnsOf([column('size', 'number'), column('kind', 'category')]).map((item) => item.name))
       .toEqual(['kind', 'size']);
   });

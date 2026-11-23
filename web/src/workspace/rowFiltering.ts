@@ -49,9 +49,9 @@ export interface RowFilterChip {
 
 const CHIP_VALUE_LIMIT = 24;
 
-/** Long-form text (generated output, markdown) is searched, not faceted. */
+/** Markdown documents are searched, not faceted. */
 function isLongFormText(column: ColumnDef): boolean {
-  return column.type === 'text' && (column.ai !== undefined || column.format === 'markdown');
+  return column.type === 'text' && column.format === 'markdown';
 }
 
 export function isFacetColumn(column: ColumnDef): boolean {
