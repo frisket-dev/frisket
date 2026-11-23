@@ -86,6 +86,34 @@ type NavScope = 'home' | 'recent' | 'starred' | 'archive';
 type HomeView = 'grid' | 'list';
 
 const SAMPLE_PROJECT_NAME = 'Sample project';
+const HOME_COUNT_CONCURRENCY = 4;
+
+interface CountPump {
+  queue: string[];
+  inFlight: number;
+  signal: AbortSignal | null;
+}
+
+/** Starts queued count requests until HOME_COUNT_CONCURRENCY are in flight;
+ *  each answer starts the next. Nothing starts once the signal aborts. */
+function pumpCounts(
+  pump: CountPump,
+  onCount: (projectId: string, entry: CardCounts) => void,
+): void {
+  const { signal } = pump;
+  while (signal && !signal.aborted && pump.inFlight < HOME_COUNT_CONCURRENCY) {
+    const projectId = pump.queue.shift();
+    if (projectId === undefined) return;
+    pump.inFlight += 1;
+    void fetchProjectSheetCounts(projectId, { signal })
+      .then((entry) => onCount(projectId, entry))
+      .catch(() => undefined)
+      .finally(() => {
+        pump.inFlight -= 1;
+        pumpCounts(pump, onCount);
+      });
+  }
+}
 
 /** Per-project sheet/row counts for a home card. Hoisted to module scope so the
  * network call lives outside the effect (react-doctor no-fetch-in-effect); a
@@ -164,20 +192,27 @@ function useHomeProjects(
     ? { message: welcomeMessage, key: welcomeKey }
     : null;
 
-  // Lazily fetch real per-project sheet/row counts for the meta line. Local
-  // workspaces hold a handful of projects, so one cheap /sheets call per card
-  // (real data, never fabricated) is fine; results are memoized per id.
+  // Real per-project sheet/row counts for the meta line, one /sheets call per
+  // card, memoized per id. A few run at a time and the rest wait in order, so
+  // a workspace with many projects never fills the browser's connections;
+  // leaving Home cancels whatever has not answered, so the next page's
+  // requests are not queued behind counts nobody will see.
+  const countPump = useRef<CountPump>({ queue: [], inFlight: 0, signal: null });
+  useEffect(() => {
+    const controller = new AbortController();
+    countPump.current.signal = controller.signal;
+    return () => controller.abort();
+  }, []);
   useEffect(() => {
     if (!projects) return;
     for (const p of projects) {
       if (countsRequested.current!.has(p.id)) continue;
       countsRequested.current!.add(p.id);
-      void fetchProjectSheetCounts(p.id)
-        .then((entry) => {
-          setCounts((prev) => ({ ...prev, [p.id]: entry }));
-        })
-        .catch(() => undefined);
+      countPump.current.queue.push(p.id);
     }
+    pumpCounts(countPump.current, (projectId, entry) => {
+      setCounts((prev) => ({ ...prev, [projectId]: entry }));
+    });
   }, [projects]);
 
   const dismissWelcome = () => {
