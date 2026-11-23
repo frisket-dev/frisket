@@ -16,12 +16,15 @@ export function AllowedServicesChoice({
   onChange,
   disabled = false,
   onManageEndpoints,
+  legendVisible = true,
 }: {
   value: AllowedServices;
   offered: readonly AllowedServices[];
   onChange(next: AllowedServices): void;
   disabled?: boolean;
   onManageEndpoints?: () => void;
+  /** False where a heading already names the setting; the group keeps its label. */
+  legendVisible?: boolean;
 }) {
   const name = useId();
   const legendId = useId();
@@ -34,7 +37,7 @@ export function AllowedServicesChoice({
       disabled={disabled}
       data-testid="allowed-services"
     >
-      <legend className="allowed-services-legend" id={legendId}>Allowed services</legend>
+      <legend className={legendVisible ? 'allowed-services-legend' : 'sr-only'} id={legendId}>Allowed services</legend>
       <div className="allowed-services-options">
         {shown.map((option) => (
           <label

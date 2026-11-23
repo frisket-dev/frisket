@@ -97,6 +97,7 @@ export function ProjectServiceSettings({
             offered={runtime.data?.allowed_services_offered ?? [current]}
             onChange={choose}
             disabled={!canMutate || busy}
+            legendVisible={false}
             onManageEndpoints={() => navigate({
               kind: 'settings',
               scope: identityMode ? 'organization' : 'personal',
