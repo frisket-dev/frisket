@@ -164,10 +164,7 @@ class GroupPublication:
 
     def _start(self, resolved, envelope):
         from .group_summary_refresh import validate_target
-        from .group_summary_runtime import (
-            _group_source_binding,
-            _estimate_reduce_group_summary_cost,
-        )
+        from .group_summary_runtime import _group_source_binding
         from frisket.actions.group_summary_types import GROUP_SUMMARY_COLUMNS
 
         self.envelope = envelope
@@ -383,9 +380,7 @@ class GroupPublication:
                 sheet_id=write.sheet_id,
                 params=op_spec["params"],
                 total_rows=len(rows),
-                cost_estimate=_estimate_reduce_group_summary_cost(params, resolved)[
-                    "cost"
-                ],
+                cost_estimate=envelope["cost_estimate"],
             )
             store.record_run_row_scope(run_id, rows)
             db.commit()

@@ -61,8 +61,9 @@ class PreparedFindPlan:
 
 
 class AdmittedFindScanner:
-    def __init__(self, project, bound):
+    def __init__(self, project, bound, model_servers=()):
         self.project, self.bound = project, bound
+        self.model_servers = model_servers
         self.plans: dict[PreparedFind, PreparedFindPlan] = {}
 
     def prepare(self, source, *, options):
@@ -108,7 +109,7 @@ class AdmittedFindScanner:
             target_sheet_name=request.sheet_name,
             output_names=names,
         )
-        scan = _prepare_find_scan(self.project, operation)
+        scan = _prepare_find_scan(self.project, operation, self.model_servers)
         if isinstance(scan, ActionError):
             raise FindRefused(scan)
         handle = PreparedFind(len(scan.sources), len(scan.plans))
@@ -116,10 +117,10 @@ class AdmittedFindScanner:
         return handle
 
 
-def prepare_find_action(project, bound):
+def prepare_find_action(project, bound, *, model_servers=()):
     if getattr(bound.action.definition.run, "capabilities", ()) != (FindScanner,):
         raise TypeError("Find preparation requires the admitted FindScanner capability")
-    scanner = AdmittedFindScanner(project, bound)
+    scanner = AdmittedFindScanner(project, bound, model_servers)
     handle = bound.action.definition.run.handler(bound.params, scanner)
     if not isinstance(handle, PreparedFind) or handle not in scanner.plans:
         raise ValueError("Find must return a preparation issued by this invocation")
@@ -170,13 +171,15 @@ def _admission(bound, prepared, *, consent_coverage):
     }
 
 
-def prepare_typed_find_admission(project, bound, *, consent_coverage=None):
+def prepare_typed_find_admission(
+    project, bound, *, model_servers=(), consent_coverage=None
+):
     from frisket.execution.consent_coverage import effective_consent_coverage
 
     try:
         return _admission(
             bound,
-            prepare_find_action(project, bound),
+            prepare_find_action(project, bound, model_servers=model_servers),
             consent_coverage=effective_consent_coverage(project, consent_coverage),
         )
     except (TypeError, ValueError) as exc:
@@ -192,8 +195,12 @@ def prepare_typed_find_admission(project, bound, *, consent_coverage=None):
 
 
 def reserve_typed_find_action_job(
-    project, project_id, bound, *, edition_run_context=None, consent_coverage=None
+    project, project_id, bound, *, edition_run_context=None, deps=None
 ):
+    """Admit and queue one Find scan.
+
+    ``deps.router`` is the request's router: its configured model servers
+    price the scan. Without one a model-server model's price is unknown."""
     from frisket.engine.executor.action_jobs import probe_queued_action_job_receipt
     from frisket.engine.executor.map_rows_action import typed_request_hash
 
@@ -205,8 +212,12 @@ def reserve_typed_find_action_job(
     )
     if replay is not None:
         return replay
+    router = getattr(deps, "router", None)
     admission = prepare_typed_find_admission(
-        project, bound, consent_coverage=consent_coverage
+        project,
+        bound,
+        model_servers=router.local_endpoints if router is not None else (),
+        consent_coverage=getattr(deps, "consent_coverage", None),
     )
     if isinstance(admission, ActionError):
         return ActionResult(
@@ -278,8 +289,11 @@ def run_typed_find_action_job(project, envelope, *, execution, deps=None):
                 action_kind=envelope.action_kind,
             ),
         )
+    router = project_scoped_router(project, getattr(deps, "router", None))
     try:
-        prepared = prepare_find_action(project, bound)
+        prepared = prepare_find_action(
+            project, bound, model_servers=router.local_endpoints
+        )
     except (TypeError, ValueError) as exc:
         return _failure_before_egress(
             project,
@@ -309,9 +323,7 @@ def run_typed_find_action_job(project, envelope, *, execution, deps=None):
             ),
         )
     execution.check()
-    router = project_scoped_router(
-        project, getattr(deps, "router", None)
-    ).for_execution(execution)
+    router = router.for_execution(execution)
     if not model_call_cannot_go_live(router):
         if (
             project.effective_network_policy() == "off"

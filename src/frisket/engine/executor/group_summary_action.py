@@ -8,6 +8,7 @@ from functools import partial
 from typing import Any
 from uuid import uuid4
 
+from frisket.ai.llm.pricing import ModelServers
 from frisket.actions.group_summary_types import (
     GROUP_SUMMARY_COLUMNS,
     GroupSummaryColumn,
@@ -43,10 +44,15 @@ class GroupSummaryRefused(ValueError):
 class PreparedGroupSummaryPlan:
     operation: GroupSummaryPlan
     resolved: dict[str, Any]
-    estimate: dict[str, Any]
     output_fields: tuple[dict[str, str], ...]
     creates_sheet: bool = True
     required_capabilities: tuple[str, ...] = ("project:write", "model:complete")
+
+    def estimate_for(self, model_servers: ModelServers) -> dict[str, Any]:
+        """The grouped work's estimate, priced by the request's model servers."""
+        return runtime._estimate_reduce_group_summary_cost(
+            self.operation, self.resolved, model_servers
+        )
 
 
 class AdmittedGroupSummarizer:
@@ -135,7 +141,6 @@ class AdmittedGroupSummarizer:
         self.plans[handle] = PreparedGroupSummaryPlan(
             operation,
             resolved,
-            runtime._estimate_reduce_group_summary_cost(operation, resolved),
             tuple({"key": key, "column_type": typ} for key, typ in fields),
         )
         return handle
@@ -205,7 +210,21 @@ def run_typed_group_summary_action(
                 code="invalid_params", message=str(exc), action_kind=action.kind
             )
         )
-    estimate = rate_estimate(prepared.estimate, policy=default_pricing_policy())
+    router = project_scoped_router(project, router)
+    from frisket.execution.provider import (
+        ExecutionCompositionContext,
+        open_execution_composition,
+    )
+
+    composition = deps.execution_composition if deps is not None else None
+    if composition is None:
+        composition = open_execution_composition(
+            project, router, ExecutionCompositionContext.direct()
+        )
+    estimate = rate_estimate(
+        prepared.estimate_for(composition.model_servers),
+        policy=default_pricing_policy(),
+    )
     price = estimated_usd(estimate)
     token = mint_confirmation_hash(
         action_confirmation(
@@ -235,17 +254,6 @@ def run_typed_group_summary_action(
                     },
                 )
             ],
-        )
-    router = project_scoped_router(project, router)
-    from frisket.execution.provider import (
-        ExecutionCompositionContext,
-        open_execution_composition,
-    )
-
-    composition = deps.execution_composition if deps is not None else None
-    if composition is None:
-        composition = open_execution_composition(
-            project, router, ExecutionCompositionContext.direct()
         )
     if not model_call_cannot_go_live(router):
         if (

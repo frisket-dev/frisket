@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from frisket.ai.llm.pricing import audio_price, model_price
+from frisket.ai.llm.pricing import ModelServers, audio_price, model_price
 from frisket.server.workspace import Workspace
 from frisket.engine.store import Project
 
@@ -45,7 +45,9 @@ class SpendService:
                         "cost": cost,
                     }
                 )
-            unknown_models |= _unpriced_models_with_usage(project)
+            unknown_models |= _unpriced_models_with_usage(
+                project, self._workspace.model_servers()
+            )
         return {
             "rows": rows,
             "total_cost": total,
@@ -54,7 +56,9 @@ class SpendService:
         }
 
 
-def _unpriced_models_with_usage(project: Project) -> set[str]:
+def _unpriced_models_with_usage(
+    project: Project, model_servers: ModelServers
+) -> set[str]:
     """Every engine on this project whose spend we could not price.
 
     TWO SURFACES, ONE ANSWER (bug pattern 2). ``has_unknown_costs`` is
@@ -81,7 +85,10 @@ def _unpriced_models_with_usage(project: Project) -> set[str]:
         "  AND (COALESCE(res.tokens_in, 0) > 0 OR COALESCE(res.tokens_out, 0) > 0))"
     ):
         model = row["model"]
-        if model_price(model) is None and audio_price(model) is None:
+        if (
+            model_price(model, model_servers) is None
+            and audio_price(model, model_servers) is None
+        ):
             out.add(model)
     for row in project.db.execute(
         "SELECT DISTINCT engine FROM model_calls "

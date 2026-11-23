@@ -693,7 +693,9 @@ async def test_research_executes_installed_plugin_and_grants_its_receipt(
         write_mode="full_access",
         max_turns=None,
     )
-    session = ResearchSession(ledger, research["id"], authorize=lambda: None)
+    session = ResearchSession(
+        ledger, research["id"], authorize=lambda: None, model_servers=()
+    )
     host = ProjectAskActionHost(
         workspace,
         project_id,

@@ -488,6 +488,14 @@ class Workspace:
         configs, _notes = local_provider_config.resolve_local_endpoints(self.root)
         return configs
 
+    def model_servers(self):
+        """The model servers ``router_for`` would configure, read now, without
+        building a router or any provider transport."""
+
+        if self._router is not None:
+            return self._router.local_endpoints
+        return self._local_endpoints()
+
     def search_service(self):
         """Build the effective search provider from this edition's keys."""
 

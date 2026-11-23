@@ -707,6 +707,7 @@ class ProjectQAService:
                         authorize=lambda: self._authorize_run(
                             project_id, context, record["skills"]
                         ),
+                        model_servers=self.workspace.model_servers(),
                         context=context,
                     )
                     self._research_sessions[key] = research

@@ -1701,7 +1701,9 @@ def owned_research(make_project):
         write_mode="ask_each",
         max_turns=None,
     )
-    session = ResearchSession(ledger, run["id"], authorize=lambda: None)
+    session = ResearchSession(
+        ledger, run["id"], authorize=lambda: None, model_servers=()
+    )
     yield project, qa, turn, ledger, run, session
 
 
@@ -2150,7 +2152,9 @@ def _runtime(
         write_mode="ask_overwrite",
         max_turns=max_turns,
     )
-    session = ResearchSession(ledger, research["id"], authorize=lambda: None)
+    session = ResearchSession(
+        ledger, research["id"], authorize=lambda: None, model_servers=()
+    )
     adapter = ScriptedAdapter(responses)
     router = ModelRouter(
         keys={"gemini": "test-key"},
@@ -2354,7 +2358,7 @@ async def test_model_budget_settles_once_and_revocation_blocks_next_request(
         if not allowed:
             raise PermissionError("Project access revoked")
 
-    session = ResearchSession(ledger, run["id"], authorize=authorize)
+    session = ResearchSession(ledger, run["id"], authorize=authorize, model_servers=())
     request = LLMRequest(
         model="openai/gpt-4o",
         messages=[{"role": "user", "content": "Analyze"}],
@@ -2399,7 +2403,9 @@ async def test_model_budget_uses_authoritative_cloud_cost_and_zero_for_cache(
         write_mode="ask_overwrite",
         max_turns=None,
     )
-    session = ResearchSession(ledger, run["id"], authorize=lambda: None)
+    session = ResearchSession(
+        ledger, run["id"], authorize=lambda: None, model_servers=()
+    )
     request = LLMRequest(
         model="openai/gpt-4o",
         messages=[{"role": "user", "content": "Analyze"}],
@@ -2453,7 +2459,9 @@ async def test_unpriced_model_pauses_without_consuming_budget_or_turn(make_proje
         write_mode="ask_each",
         max_turns=None,
     )
-    session = ResearchSession(ledger, run["id"], authorize=lambda: None)
+    session = ResearchSession(
+        ledger, run["id"], authorize=lambda: None, model_servers=()
+    )
     published = asyncio.Event()
     original_update = ledger.publish_pause
 

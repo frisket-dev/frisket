@@ -107,6 +107,9 @@ def preview_project(make_project):
                 "Prepared estimates must not construct provider transport"
             )
 
+        def model_servers(self):
+            return ()
+
     workspace = Workspace()
     yield (
         project,
