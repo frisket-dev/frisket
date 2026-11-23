@@ -202,6 +202,28 @@ def _rewrite_receipt_ref(ref: dict[str, Any]) -> tuple[dict[str, Any], bool]:
         if isinstance(request, dict):
             rewritten["request"], request_changed = _rewrite_request(request)
             changed = request_changed or changed
+    if rewritten.get("kind") == "exported_operations":
+        operations = rewritten.get("operations")
+        if isinstance(operations, list):
+            rewritten["operations"] = []
+            for operation in operations:
+                updated, operation_changed = _rewrite_keys(
+                    operation, {"op_id": "change_id"}
+                )
+                rewritten["operations"].append(updated)
+                changed = operation_changed or changed
+    if rewritten.get("kind") == "exported_receipts":
+        receipts = rewritten.get("receipts")
+        if isinstance(receipts, list):
+            for receipt in receipts:
+                if not isinstance(receipt, dict):
+                    continue
+                action_kind = receipt.get("action_kind")
+                if isinstance(action_kind, str) and action_kind in _ACTION_KIND_MAP:
+                    receipt["action_kind"] = _ACTION_KIND_MAP[action_kind]
+                    changed = True
+                for section in ("outputs", "records"):
+                    changed = _rewrite_receipt_io_list(receipt.get(section)) or changed
     affected_refs = rewritten.get("affected_refs")
     if isinstance(affected_refs, list):
         rewritten["affected_refs"] = []
@@ -434,10 +456,11 @@ def _migrate_consumed_sources(db: sqlite3.Connection) -> None:
 
 def _migrate_effect_checkpoints(db: sqlite3.Connection) -> None:
     rows = db.execute(
-        "SELECT id, state, payload FROM effect_checkpoints "
-        "WHERE family='row_effect' AND payload LIKE '%\"op_id\"%'"
+        "SELECT id, family, state, payload FROM effect_checkpoints "
+        "WHERE family IN ('row_effect','embedding_index_refresh') "
+        "AND payload LIKE '%\"op_id\"%'"
     ).fetchall()
-    for checkpoint_id, state, raw in rows:
+    for checkpoint_id, family, state, raw in rows:
         if not isinstance(raw, str):
             continue
         try:
@@ -446,33 +469,47 @@ def _migrate_effect_checkpoints(db: sqlite3.Connection) -> None:
             continue
         if not isinstance(parsed, dict):
             continue
-        # Returned payload keys are authored output names; each cell's value
-        # and model/provider payloads are opaque. Reserved payloads hold only
-        # the source capture envelope.
-        cells = [parsed] if state == "reserved" else list(parsed.values())
-        changed = False
-        for cell in cells:
-            if not isinstance(cell, dict):
-                continue
-            if isinstance(cell.get("__consumed_sources"), dict):
-                cell["__consumed_sources"], capture_changed = _rewrite_capture(
-                    cell["__consumed_sources"]
-                )
-                changed = capture_changed or changed
-            reads = cell.get("row_file_calls")
-            if isinstance(reads, list):
-                for read in reads:
-                    if isinstance(read, dict) and isinstance(read.get("source"), dict):
-                        read["source"], source_changed = _rewrite_locator(
-                            read["source"], {"op_id": "change_id"}
-                        )
-                        changed = source_changed or changed
+        if family == "embedding_index_refresh":
+            # This envelope identifies the original accounting run; neither
+            # the provider result nor the provider fact owns these fields.
+            effect, changed = _rewrite_keys(
+                parsed.get("effect"), {"op_id": "change_id"}
+            )
+            if changed:
+                parsed["effect"] = effect
+        else:
+            changed = _rewrite_row_effect_payload(parsed, state)
         if not changed:
             continue
         db.execute(
             "UPDATE effect_checkpoints SET payload=? WHERE id=?",
             (json.dumps(parsed), checkpoint_id),
         )
+
+
+def _rewrite_row_effect_payload(parsed: dict[str, Any], state: str) -> bool:
+    # Returned payload keys are authored output names; each cell's value
+    # and model/provider payloads are opaque. Reserved payloads hold only
+    # the source capture envelope.
+    cells = [parsed] if state == "reserved" else list(parsed.values())
+    changed = False
+    for cell in cells:
+        if not isinstance(cell, dict):
+            continue
+        if isinstance(cell.get("__consumed_sources"), dict):
+            cell["__consumed_sources"], capture_changed = _rewrite_capture(
+                cell["__consumed_sources"]
+            )
+            changed = capture_changed or changed
+        reads = cell.get("row_file_calls")
+        if isinstance(reads, list):
+            for read in reads:
+                if isinstance(read, dict) and isinstance(read.get("source"), dict):
+                    read["source"], source_changed = _rewrite_locator(
+                        read["source"], {"op_id": "change_id"}
+                    )
+                    changed = source_changed or changed
+    return changed
 
 
 def _rewrite_submission_draft(parsed: dict[str, Any]) -> bool:

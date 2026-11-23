@@ -26,6 +26,7 @@ from frisket.engine.store.consumed_sources import (
     verify_bundle,
 )
 from frisket.engine.store.feeds import FeedStore
+from frisket.engine.store.effect_checkpoints import EffectCheckpointStore
 from frisket.engine.store.project_qa import ProjectQAStore
 from frisket.engine.store.receipts import ReceiptStore
 from frisket.engine.store.runs import RunResultStore
@@ -43,6 +44,155 @@ from frisket.upgrades.project.changes_migration import (
     _rewrite_submission_draft,
 )
 from tests.engine.historical_schema import restore_pre_changes_schema
+
+
+@pytest.mark.parametrize("case", ["reserved", "returned", "provider_error"])
+def test_upgrade_retains_embedding_refresh_checkpoint_accounting_owner(
+    tmp_path: Path, case: str
+) -> None:
+    bundle_path = tmp_path / "embedding-refresh.frisket"
+    with closing(Project.create(bundle_path, name="Embedding refresh")) as seed:
+        sheet_id = seed.add_sheet("Records")
+        change_id = seed.append_change("embedding.index_refresh", {})
+        run_id = RunResultStore(seed).start_run(
+            change_id, sheet_id, "embedding.index_refresh", total_rows=1
+        )
+    # The pre-cutover producer stores accounting ownership in effect, for
+    # both the reservation and the durable provider response/error.
+    effect = {"op_id": change_id, "run_id": run_id, "attempt_id": "attempt-1"}
+    payload = {"effect": effect}
+    if case == "returned":
+        payload.update(
+            {
+                "result": {
+                    "provider_id": "openai",
+                    "provider_kind": "platform_api",
+                    "actual_model_id": "text-embedding-3-small",
+                    "vectors": [[0.1, 0.2]],
+                    "usage": {"input_count": 1},
+                    "extension": {"op_id": 81},
+                },
+                "provider_fact": {
+                    "id": f"embedding_refresh_{run_id}_batch",
+                    "provider": "openai",
+                    "provider_cost_usd": 0.01,
+                    "extension": {"op_id": 82},
+                },
+            }
+        )
+    elif case == "provider_error":
+        payload["error"] = {
+            "code": "embedding_provider_error",
+            "message": "Unavailable",
+        }
+    before = json.loads(json.dumps(payload))
+    state = "reserved" if case == "reserved" else "returned"
+    accounting_persisted = int(case == "returned")
+    raw = sqlite3.connect(bundle_path / "project.db")
+    try:
+        restore_pre_changes_schema(raw)
+        raw.execute(
+            "INSERT INTO effect_checkpoints "
+            "(id,family,group_key,unit_key,action_kind,identity,state,payload,accounting_persisted) "
+            "VALUES ('refresh','embedding_index_refresh','index:1','batch:1',"
+            "'embedding.index_refresh','identity',?,?,?)",
+            (state, json.dumps(payload), accounting_persisted),
+        )
+        raw.commit()
+    finally:
+        raw.close()
+    with closing(Project(bundle_path)) as upgraded:
+        checkpoint = EffectCheckpointStore(upgraded.db).find_unit(
+            family="embedding_index_refresh", group_key="index:1", unit_key="batch:1"
+        )
+        assert checkpoint is not None
+        saved = checkpoint["payload"]
+        assert saved["effect"] == {
+            "change_id": change_id,
+            "run_id": run_id,
+            "attempt_id": "attempt-1",
+        }
+        assert checkpoint["state"] == state
+        assert checkpoint["accounting_persisted"] == accounting_persisted
+        original_run = RunResultStore(upgraded).get_run(saved["effect"]["run_id"])
+        assert original_run is not None
+        assert original_run["change_id"] == saved["effect"]["change_id"]
+        assert {key: value for key, value in saved.items() if key != "effect"} == {
+            key: value for key, value in before.items() if key != "effect"
+        }
+
+
+def test_upgrade_rewrites_exported_metadata_without_entering_exported_user_values(
+    tmp_path: Path,
+) -> None:
+    bundle_path = tmp_path / "export-metadata.frisket"
+    with closing(Project.create(bundle_path, name="Export metadata")):
+        pass
+    user_schema = {"type": "object", "properties": {"op_id": {"type": "integer"}}}
+    nested = {
+        "receipt_id": "prior-python",
+        "action_kind": "convert.python",
+        "outputs": [
+            {
+                "name": "values",
+                "ref": {
+                    "kind": "named_result",
+                    "op_id": 5,
+                    "schema": user_schema,
+                },
+            }
+        ],
+        "records": [
+            {
+                "ref": {
+                    "kind": "typed_action_request",
+                    "op_id": 5,
+                    "action_id": "convert.python",
+                    "params": {"return_schema": user_schema},
+                }
+            }
+        ],
+    }
+    receipt = Receipt(
+        receipt_id="work-log",
+        project_id="project",
+        action_id="export-action",
+        action_kind="export.work_log",
+        status="completed",
+    ).model_dump(mode="json")
+    receipt["records"] = [
+        {
+            "ref": {
+                "kind": "exported_operations",
+                "operations": [
+                    {"op_id": 5, "kind": "convert.python", "status": "applied"},
+                ],
+            }
+        },
+        {"ref": {"kind": "exported_receipts", "receipts": [nested]}},
+    ]
+    raw = sqlite3.connect(bundle_path / "project.db")
+    try:
+        restore_pre_changes_schema(raw)
+        raw.execute(
+            "INSERT INTO receipts(id,action_kind,status,body) "
+            "VALUES ('work-log','export.work_log','completed',?)",
+            (json.dumps(receipt),),
+        )
+        raw.commit()
+    finally:
+        raw.close()
+    with closing(Project(bundle_path)) as upgraded:
+        saved = ReceiptStore(upgraded).require_parsed("work-log")
+        assert saved.records[0].ref["operations"] == [
+            {"change_id": 5, "kind": "convert.python", "status": "applied"}
+        ]
+        exported = saved.records[1].ref["receipts"][0]
+        assert exported["outputs"][0]["ref"]["change_id"] == 5
+        assert exported["outputs"][0]["ref"]["schema"] == user_schema
+        request = exported["records"][0]["ref"]
+        assert request["change_id"] == 5
+        assert request["params"] == {"return_schema": user_schema}
 
 
 def test_locator_upgrade_rewrites_source_identity_without_entering_user_data() -> None:
