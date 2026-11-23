@@ -19,9 +19,11 @@ export type SettingsSectionComponentKey =
   | 'personal.preferences'
   | 'personal.privacy'
   | 'personal.aiProviders'
+  | 'personal.approvedEndpoints'
   | 'personal.diagnostics'
   | 'personal.skills'
   | 'organization.aiProviders'
+  | 'organization.approvedEndpoints'
   | 'organization.secrets'
   | 'organization.apiKeys'
   | 'organization.spend'
@@ -123,6 +125,19 @@ export const SETTINGS_SECTIONS: readonly OpenSettingsSectionDefinition[] = [
     permission: 'personal',
     component: 'personal.aiProviders',
     summary: 'Provider keys and your local AI server for this workspace.',
+  },
+  {
+    id: 'personal.approved-endpoints',
+    scope: 'personal',
+    section: 'approved-endpoints',
+    routePattern: globalRoute('personal', 'approved-endpoints'),
+    title: 'Approved endpoints',
+    navGroup: 'Personal',
+    searchLabels: ['approved endpoints', 'approved services', 'allowed services', 'hosts', 'service access policy'],
+    visibility: 'local-only',
+    permission: 'personal',
+    component: 'personal.approvedEndpoints',
+    summary: 'Destinations projects set to Approved services may use.',
   },
   {
     // The self-probe canonical home: the same GET /api/diagnose facts
@@ -252,6 +267,19 @@ export const SETTINGS_SECTIONS: readonly OpenSettingsSectionDefinition[] = [
     permission: 'organization-admin',
     component: 'organization.aiProviders',
     summary: 'Organization provider keys.',
+  },
+  {
+    id: 'organization.approved-endpoints',
+    scope: 'organization',
+    section: 'approved-endpoints',
+    routePattern: globalRoute('organization', 'approved-endpoints'),
+    title: 'Approved endpoints',
+    navGroup: 'Organization',
+    searchLabels: ['approved endpoints', 'approved services', 'allowed services', 'hosts', 'service access policy'],
+    visibility: 'hosted-only',
+    permission: 'organization-admin',
+    component: 'organization.approvedEndpoints',
+    summary: 'Destinations your organization\'s projects set to Approved services may use.',
   },
   {
     id: 'organization.env-vars',
