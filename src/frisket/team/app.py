@@ -23,7 +23,19 @@ import sqlalchemy as sa
 from fastapi import FastAPI, Form, HTTPException, Request, Response
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from filelock import FileLock
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
+
+from frisket.project_settings import (
+    DEFAULT_USAGE_DATA_SHARING,
+    USAGE_DATA_SHARING_VALUES,
+    UsageDataSharing,
+)
+from frisket.server.services.projects import UNTITLED_PROJECT_NAME
+from frisket.service_access import (
+    ALLOWED_SERVICES_VALUES,
+    DEFAULT_ALLOWED_SERVICES,
+    AllowedServices,
+)
 
 from frisket.contracts.http.api_tokens import (
     ApiTokenCreateRequest,
@@ -212,11 +224,13 @@ def _warn_if_control_plane_locator_diverges() -> None:
         )
 
 
-class _Body(BaseModel):
-    email: str = ""
+class _CreateProjectBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    # An empty name creates "Untitled project".
     name: str = ""
-    role: str = ""
-    sensitive: bool = False
+    allowed_services: AllowedServices = DEFAULT_ALLOWED_SERVICES
+    usage_data_sharing: UsageDataSharing = DEFAULT_USAGE_DATA_SHARING
 
 
 class _DeleteBody(BaseModel):
@@ -579,6 +593,20 @@ def _sync_project_network_policy(
         )
 
 
+def _intent_usage_data_sharing(intent: Any) -> UsageDataSharing:
+    for value in USAGE_DATA_SHARING_VALUES:
+        if intent.usage_data_sharing == value:
+            return value
+    return "off" if intent.sensitive else "inherit"
+
+
+def _intent_allowed_services(intent: Any) -> AllowedServices:
+    for value in ALLOWED_SERVICES_VALUES:
+        if intent.allowed_services == value:
+            return value
+    return DEFAULT_ALLOWED_SERVICES
+
+
 def _complete_project_intent(
     engine: sa.Engine, workspace: Any, *, slug: str
 ) -> dict[str, Any]:
@@ -602,7 +630,9 @@ def _complete_project_intent(
                 "description": "",
                 "sensitive": bool(existing.sensitive),
             }
-        requested_sensitive = bool(intent.sensitive)
+        requested_usage = _intent_usage_data_sharing(intent)
+        requested_allowed = _intent_allowed_services(intent)
+        requested_sensitive = requested_usage == "off"
         bundle = workspace.root / f"{slug}.frisket"
         if bundle.exists() and not _valid_project_bundle(bundle, slug=slug):
             quarantine = workspace.root / ".quarantine"
@@ -612,13 +642,17 @@ def _complete_project_intent(
             made = workspace.create(
                 str(intent.name),
                 project_id=slug,
-                usage_data_sharing="off" if requested_sensitive else "inherit",
+                allowed_services=requested_allowed,
+                usage_data_sharing=requested_usage,
             )
         else:
             project = workspace.get(slug)
-            if project.project_metadata()["sensitive"] != requested_sensitive:
-                project.set_usage_data_sharing(
-                    "off" if requested_sensitive else "inherit"
+            if project.usage_data_sharing() != requested_usage:
+                project.set_usage_data_sharing(requested_usage)
+            if project.allowed_services() != requested_allowed:
+                # Completing the creator's own request, not a later loosening.
+                project.set_allowed_services(
+                    requested_allowed, confirm_allowed_services=requested_allowed
                 )
             made = project.project_metadata()
         exists = cx.execute(
@@ -1431,21 +1465,25 @@ def create_team_app(
     )
 
     @app.post("/api/projects")
-    def create_project(request: Request, body: _Body) -> dict[str, Any]:
+    def create_project(request: Request, body: _CreateProjectBody) -> dict[str, Any]:
         user = require_organization_member(request)
-        if not body.name.strip():
-            raise HTTPException(400, "project name is required")
+        name = body.name.strip() or UNTITLED_PROJECT_NAME
+        choices = {
+            "allowed_services": body.allowed_services,
+            "usage_data_sharing": body.usage_data_sharing,
+            "sensitive": body.usage_data_sharing == "off",
+        }
         key = request.headers.get("idempotency-key", "").strip()
         if not key:
-            slug = _project_intent_slug(body.name)
+            slug = _project_intent_slug(name)
             with engine.begin() as cx:
                 cx.execute(
                     project_creation_intents.insert().values(
                         slug=slug,
                         organization_id=organization_id,
                         creator_user_id=user["id"],
-                        name=body.name.strip(),
-                        sensitive=body.sensitive,
+                        name=name,
+                        **choices,
                     )
                 )
             return _complete_project_intent(engine, core.state.workspace, slug=slug)
@@ -1462,18 +1500,28 @@ def create_team_app(
         with FileLock(str(receipt_root / f"{digest}.lock"), timeout=-1):
             if receipt_path.exists():
                 receipt = json.loads(receipt_path.read_text())
-                if (
-                    receipt["name"] != body.name.strip()
-                    or receipt["sensitive"] != body.sensitive
-                ):
+                # Receipts written before creation carried both choices hold
+                # only ``sensitive``.
+                recorded = {
+                    "allowed_services": receipt.get(
+                        "allowed_services", DEFAULT_ALLOWED_SERVICES
+                    ),
+                    "usage_data_sharing": receipt.get(
+                        "usage_data_sharing",
+                        "off" if receipt["sensitive"] else "inherit",
+                    ),
+                    "sensitive": receipt["sensitive"],
+                }
+                if receipt["name"] != name or recorded != choices:
                     raise HTTPException(
                         409, "Idempotency key was used with different project details"
                     )
+                receipt = {**receipt, **recorded}
             else:
                 receipt = {
-                    "slug": _project_intent_slug(body.name),
-                    "name": body.name.strip(),
-                    "sensitive": body.sensitive,
+                    "slug": _project_intent_slug(name),
+                    "name": name,
+                    **choices,
                     "storage_identity": None,
                 }
                 scratch = receipt_path.with_suffix(".tmp")
@@ -1503,6 +1551,8 @@ def create_team_app(
                             organization_id=organization_id,
                             creator_user_id=user["id"],
                             name=receipt["name"],
+                            allowed_services=receipt["allowed_services"],
+                            usage_data_sharing=receipt["usage_data_sharing"],
                             sensitive=receipt["sensitive"],
                         )
                     )

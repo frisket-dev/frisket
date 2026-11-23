@@ -11,7 +11,8 @@ REJECTED rather than guessed at.  Once the split schema exists, however,
 versioned upgrades preserve its data in place (v6 -> v7 adds the user
 allowance column; v7 -> v8 renames it to `allowance_usd`; v8 -> v9 renames
 the organization tables and foreign-key columns to `organizations` /
-`organization_id`).
+`organization_id`; v9 -> v10 adds the creator's Allowed services and
+usage-data choices to project creation intents).
 
 `ensure_clean_control_plane_schema` is that gate, and it is shared: an
 external hosted composition runs it too, via its own bootstrap module, so
@@ -29,7 +30,7 @@ from frisket.team.schema import metadata
 # Bumped only when the identity schema changes shape in a way that an existing
 # database cannot serve. The split itself is version 1: there is no version 0
 # to upgrade from, because pre-split databases are dropped, not migrated.
-SCHEMA_VERSION = 9
+SCHEMA_VERSION = 10
 
 TEAM_EDITION = "team"
 
@@ -137,6 +138,43 @@ def _apply_v8_to_v9(cx: sa.Connection, tables: set[str]) -> None:
                 columns.add(new_col)
 
 
+def _apply_v9_to_v10(cx: sa.Connection, tables: set[str]) -> None:
+    """Add the creation-intent settings columns; existing intents keep NULL.
+
+    A database without the intents table gets it whole from ``create_all``.
+    """
+    if "project_creation_intents" not in tables:
+        return
+    columns = {
+        column["name"]
+        for column in sa.inspect(cx).get_columns("project_creation_intents")
+    }
+    for name in ("allowed_services", "usage_data_sharing"):
+        if name not in columns:
+            cx.execute(
+                sa.text(
+                    f"ALTER TABLE project_creation_intents ADD COLUMN {name} VARCHAR"
+                )
+            )
+
+
+def _apply_upgrades_from(cx: sa.Connection, version: int, tables: set[str]) -> int:
+    """Run each in-place upgrade from ``version`` on; return the version reached."""
+    if version == 6:
+        _apply_v6_to_v7(cx)
+        version = 7
+    if version == 7:
+        _apply_v7_to_v8(cx)
+        version = 8
+    if version == 8:
+        _apply_v8_to_v9(cx, tables)
+        version = 9
+    if version == 9:
+        _apply_v9_to_v10(cx, set(sa.inspect(cx).get_table_names()))
+        version = 10
+    return version
+
+
 def _upgrade_identity_schema_to_current(
     engine: sa.Engine, *, edition: str | None
 ) -> bool:
@@ -163,20 +201,12 @@ def _upgrade_identity_schema_to_current(
         version = markers[0].schema_version
         if version == SCHEMA_VERSION:
             return True
-        if version not in (6, 7, 8):
+        if version not in (6, 7, 8, 9):
             return False
         tables = set(sa.inspect(cx).get_table_names())
         if "users" not in tables:
             return False
-        if version == 6:
-            _apply_v6_to_v7(cx)
-            version = 7
-        if version == 7:
-            _apply_v7_to_v8(cx)
-            version = 8
-        if version == 8:
-            _apply_v8_to_v9(cx, tables)
-            version = 9
+        version = _apply_upgrades_from(cx, version, tables)
         cx.execute(
             schema_marker.update()
             .where(schema_marker.c.id == 1)
@@ -211,7 +241,7 @@ def ensure_clean_control_plane_schema(
             version = markers[0].schema_version
             if version == SCHEMA_VERSION:
                 return
-            if version in (6, 7, 8) and _upgrade_identity_schema_to_current(
+            if version in (6, 7, 8, 9) and _upgrade_identity_schema_to_current(
                 engine, edition=edition
             ):
                 return

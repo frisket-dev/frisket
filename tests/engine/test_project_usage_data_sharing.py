@@ -20,6 +20,9 @@ from frisket.engine.store import Project
 from frisket.server.app import create_app
 from frisket.server.workspace import Workspace
 from frisket.upgrades.project import upgrade_project
+from frisket.upgrades.project.usage_data_sharing_migration import (
+    upgrade_usage_data_sharing,
+)
 
 
 def _db_meta(bundle: Path) -> dict[str, str]:
@@ -192,10 +195,6 @@ def test_upgrade_turns_the_sensitive_flag_into_the_override(
 
 
 def test_upgrade_rerun_writes_the_stored_override_to_the_manifest(tmp_path) -> None:
-    from frisket.upgrades.project.usage_data_sharing_migration import (
-        upgrade_usage_data_sharing,
-    )
-
     bundle = tmp_path / "bundle"
     project = Project.create(bundle, "Notes", usage_data_sharing="off")
     manifest_path = bundle / "manifest.json"

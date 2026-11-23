@@ -453,7 +453,7 @@ def test_sample_origin_is_persisted_and_project_events_are_enriched(
         {"action": "map.extract", "walkthrough": "none", "walkthroughState": "active"},
     ]:
         assert client.post(path, json=_body("Action.opened", props)).status_code == 422
-    project.set_project_sensitivity(True)
+    project.set_usage_data_sharing("off")
     previous = len(destination.signals)
     assert (
         client.post(

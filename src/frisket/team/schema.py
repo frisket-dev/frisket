@@ -277,6 +277,11 @@ project_creation_intents = sa.Table(
         default=False,
         server_default=sa.false(),
     ),
+    # The creator's Allowed services and usage-data choices. NULL in intents
+    # written before these columns existed: All services, and the usage-data
+    # override derived from ``sensitive``.
+    sa.Column("allowed_services", sa.String),
+    sa.Column("usage_data_sharing", sa.String),
     sa.Column(
         "created_at", sa.DateTime(timezone=True), default=lambda: datetime.now(UTC)
     ),
