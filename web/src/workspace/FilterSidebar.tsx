@@ -308,6 +308,10 @@ function FilterTab() {
   const gridView = useGridViewHandle();
   const focusFacet = useSelector(gridView.store, (s) => s.sidebar.focusFacet);
   const selection = useCurrentViewSelection(sheet);
+  const ensureFacetEligibility = facetEligibility.ensure;
+  useEffect(() => {
+    ensureFacetEligibility();
+  }, [ensureFacetEligibility]);
   const hiddenFacets = useMemo(
     () => new Set([...facetEligibility.searchOnly, ...facetEligibility.pending]),
     [facetEligibility],

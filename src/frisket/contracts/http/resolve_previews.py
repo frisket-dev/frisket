@@ -39,6 +39,11 @@ class ColumnValuesPreviewRequest(_CompatibleRequest):
     selection: Any = None
 
 
+class ColumnValueCountsRequest(_CompatibleRequest):
+    sheet_id: Any = None
+    input_columns: Any = None
+
+
 class ReplaceRulesPreviewRequest(_CompatibleRequest):
     sheet_id: Any = None
     input_column: Any = None
@@ -202,6 +207,21 @@ class ColumnValuesPreviewResponse(_OpenPreviewResponse):
     scope: ColumnValuesScope | None = None
 
 
+class ColumnDistinctCount(_OpenPreviewResponse):
+    """One column's whole-column counts."""
+
+    input_column: str
+    distinct: int
+    omitted_rows: int
+    list_distinct: int | None
+
+
+class ColumnValueCountsResponse(_OpenPreviewResponse):
+    schema_version: Literal["frisket.column_value_counts.v1"]
+    sheet_id: int
+    columns: list[ColumnDistinctCount]
+
+
 class ReplaceRuleMatchCount(_OpenPreviewResponse):
     index: int
     matched_rows: int
@@ -229,6 +249,8 @@ class ReplaceRulesPreviewResponse(_OpenPreviewResponse):
 __all__ = [
     "ClusterPreviewRequest",
     "ClusterPreviewResponse",
+    "ColumnValueCountsRequest",
+    "ColumnValueCountsResponse",
     "ColumnValuesPreviewRequest",
     "ColumnValuesPreviewResponse",
     "ReplaceRulesPreviewRequest",

@@ -27,6 +27,7 @@ from frisket.engine.store.current_value_windows import read_current_column
 from frisket.engine.store.project import ProjectReadSnapshot
 
 COLUMN_VALUES_PREVIEW_SCHEMA_VERSION = "frisket.column_values_preview.v1"
+COLUMN_VALUE_COUNTS_SCHEMA_VERSION = "frisket.column_value_counts.v1"
 COLUMN_VALUES_DEFAULT_LIMIT = 500
 COLUMN_VALUES_MAX_LIMIT = 2_000
 FACET_HISTOGRAM_BINS = 12
@@ -635,3 +636,48 @@ def _resolve_column_values_preview_snapshot(
             "distribution_counts": scoped_bins,
         }
     return payload
+
+
+def resolve_column_value_counts(
+    project: Project, *, sheet_id: Any, input_columns: Any
+) -> dict[str, Any]:
+    """Whole-column distinct counts for several columns in one read snapshot.
+
+    Each count is the bounded preview's: ``distinct`` non-blank values,
+    ``omitted_rows`` cells too large to inspect, and ``list_distinct`` members
+    for a list-valued JSON column.
+    """
+    if not isinstance(input_columns, list) or not all(
+        isinstance(name, str) for name in input_columns
+    ):
+        raise ColumnValuesPreviewError(
+            "invalid_params",
+            "input_columns must be a list of column names",
+            field="input_columns",
+        )
+    with project.read_snapshot() as snapshot:
+        columns = []
+        for name in input_columns:
+            preview = _resolve_column_values_preview_snapshot(
+                snapshot,
+                sheet_id=sheet_id,
+                input_column=name,
+                limit=1,
+                value_mode="bounded",
+            )
+            list_facet = preview.get("list_facet")
+            columns.append(
+                {
+                    "input_column": preview["input_column"],
+                    "distinct": preview["distinct"],
+                    "omitted_rows": preview["omitted_rows"],
+                    "list_distinct": None
+                    if list_facet is None
+                    else list_facet["distinct"],
+                }
+            )
+    return {
+        "schema_version": COLUMN_VALUE_COUNTS_SCHEMA_VERSION,
+        "sheet_id": sheet_id,
+        "columns": columns,
+    }

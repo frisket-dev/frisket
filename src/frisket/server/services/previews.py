@@ -15,6 +15,7 @@ from frisket.preview.cluster import (
 )
 from frisket.preview.column_values import (
     ColumnValuesPreviewError,
+    resolve_column_value_counts,
     resolve_column_values_preview,
 )
 from frisket.preview.entity_mention_detail import (
@@ -189,6 +190,18 @@ class PreviewService:
                 offset=offset,
                 value_mode=value_mode,
                 scope_row_ids=scope_row_ids,
+            )
+        except ColumnValuesPreviewError as exc:
+            raise PreviewRequestError.from_domain(exc) from exc
+
+    def column_value_counts(
+        self, project_id: str, *, sheet_id: Any, input_columns: Any
+    ) -> dict[str, Any]:
+        """Whole-column distinct counts that decide which columns get facets."""
+        project = self._workspace.get(project_id)
+        try:
+            return resolve_column_value_counts(
+                project, sheet_id=sheet_id, input_columns=input_columns
             )
         except ColumnValuesPreviewError as exc:
             raise PreviewRequestError.from_domain(exc) from exc

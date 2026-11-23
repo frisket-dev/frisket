@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { SheetMeta } from '../api/types';
 import { useWorkspaceStores } from '../bind/useWorkspaceStores';
 import { facetBehaviorFor } from '../grid/typeRegistry';
@@ -9,11 +9,16 @@ interface FacetEligibility {
   searchOnly: ReadonlySet<string>;
   /** Not yet counted; no card is shown until the count arrives. */
   pending: ReadonlySet<string>;
+  /** Counts the sheet's candidate columns, once per sheet and data version.
+   *  Nothing is requested until a caller (the Filter sidebar, a column menu)
+   *  asks. */
+  ensure(): void;
 }
 
 /** Which of a sheet's facetable columns get a facet card. The decision uses
  *  each column's whole-column distinct count from the server, never the rows
- *  the browser has loaded. Range columns need no count. */
+ *  the browser has loaded, fetched for every column in one request. Range
+ *  columns need no count. */
 export function useFacetEligibility(sheet: SheetMeta | null | undefined, dataVersion: number): FacetEligibility {
   const { projectApi } = useWorkspaceStores();
   const candidates = useMemo(
@@ -21,35 +26,40 @@ export function useFacetEligibility(sheet: SheetMeta | null | undefined, dataVer
     [sheet],
   );
   const sheetId = sheet?.id ?? null;
+  const key = `${sheetId}:${dataVersion}:${candidates.map((column) => `${column.id}/${column.type}`).join(',')}`;
   const [decided, setDecided] = useState<{ key: string; searchOnly: Map<string, boolean> }>({
     key: '', searchOnly: new Map(),
   });
-  const key = `${sheetId}:${dataVersion}:${candidates.map((column) => `${column.id}/${column.type}`).join(',')}`;
-
+  const requested = useRef('');
+  const alive = useRef(true);
   useEffect(() => {
-    if (sheetId === null) return undefined;
-    let alive = true;
-    for (const column of candidates) {
-      void projectApi
-        .columnValuesPreview({ sheetId, inputColumn: column.name, valueMode: 'bounded', limit: 1 })
-        .then((preview) => {
-          const collection = facetBehaviorFor(column.type)?.kind === 'collection';
-          const distinct = collection ? preview.listFacet?.distinct ?? 0 : preview.distinct;
-          return isSearchOnly(column, { distinct, omittedRows: preview.omittedRows });
-        })
-        .catch(() => false)
-        .then((searchOnly) => {
-          if (!alive) return;
-          setDecided((current) => {
-            const map = new Map(current.key === key ? current.searchOnly : []);
-            map.set(column.name, searchOnly);
-            return { key, searchOnly: map };
-          });
-        });
-    }
+    alive.current = true;
     return () => {
-      alive = false;
+      alive.current = false;
     };
+  }, []);
+
+  const ensure = useCallback(() => {
+    if (sheetId === null || candidates.length === 0 || requested.current === key) return;
+    requested.current = key;
+    void projectApi
+      .columnValueCounts({ sheetId, inputColumns: candidates.map((column) => column.name) })
+      .then(({ columns }) => {
+        const counts = new Map(columns.map((count) => [count.inputColumn, count]));
+        return new Map(candidates.map((column) => {
+          const count = counts.get(column.name);
+          if (!count) return [column.name, false];
+          const collection = facetBehaviorFor(column.type)?.kind === 'collection';
+          return [column.name, isSearchOnly(column, {
+            distinct: collection ? count.listDistinct ?? 0 : count.distinct,
+            omittedRows: count.omittedRows,
+          })];
+        }));
+      })
+      .catch(() => new Map(candidates.map((column) => [column.name, false])))
+      .then((searchOnly) => {
+        if (alive.current) setDecided({ key, searchOnly });
+      });
   }, [candidates, key, projectApi, sheetId]);
 
   return useMemo(() => {
@@ -57,6 +67,7 @@ export function useFacetEligibility(sheet: SheetMeta | null | undefined, dataVer
     return {
       searchOnly: new Set([...known].filter(([, value]) => value).map(([name]) => name)),
       pending: new Set(candidates.filter((column) => !known.has(column.name)).map((column) => column.name)),
+      ensure,
     };
-  }, [candidates, decided, key]);
+  }, [candidates, decided, ensure, key]);
 }

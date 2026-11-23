@@ -127,6 +127,11 @@ export function WorkspaceHeaderMenuSlot() {
   );
 
   const menuColumn = visibleHeaderMenu?.column ?? null;
+  const ensureFacetEligibility = facetEligibility.ensure;
+  const menuOpen = Boolean(visibleHeaderMenu);
+  useEffect(() => {
+    if (menuOpen) ensureFacetEligibility();
+  }, [ensureFacetEligibility, menuOpen]);
   const facetColumn = menuColumn ? isFacetColumn(menuColumn) && !facetEligibility.searchOnly.has(menuColumn.name) : false;
   const search = searchOf({ selection, filter: activeFilter });
   const columnCondition = menuColumn ? activeFilter?.[menuColumn.name] : undefined;

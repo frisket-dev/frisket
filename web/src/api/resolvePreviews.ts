@@ -43,6 +43,17 @@ interface ReplaceRulesPreviewInput {
 }
 
 type ClusterPreviewWire = HttpContractSuccessResponse<'tenant.cluster_preview.post'>;
+type ColumnValueCountsWire =
+  HttpContractSuccessResponse<'tenant.column_value_counts.post'>;
+
+/** One column's whole-column counts, as facet eligibility reads them. */
+export interface ColumnValueCounts {
+  inputColumn: string;
+  distinct: number;
+  omittedRows: number;
+  listDistinct: number | null;
+}
+
 type ColumnValuesPreviewWire =
   HttpContractSuccessResponse<'tenant.column_values_preview.post'>;
 type ReplaceRulesPreviewWire =
@@ -295,6 +306,30 @@ export function createResolvePreviewsApi(
           signal: options.signal,
         },
         columnValuesResult,
+      );
+    },
+
+    /** Whole-column distinct counts for several columns in one request
+     *  (POST /column-values/v1/counts). */
+    async columnValueCounts(
+      input: { sheetId: string; inputColumns: string[] },
+      options: RequestOptions = {},
+    ): Promise<{ columns: ColumnValueCounts[] }> {
+      return httpContract(
+        'tenant.column_value_counts.post',
+        {
+          pathParams: { pid: projectId },
+          body: { sheet_id: Number(input.sheetId), input_columns: input.inputColumns },
+          signal: options.signal,
+        },
+        (wire: ColumnValueCountsWire) => ({
+          columns: wire.columns.map((column) => ({
+            inputColumn: column.input_column,
+            distinct: column.distinct,
+            omittedRows: column.omitted_rows,
+            listDistinct: column.list_distinct,
+          })),
+        }),
       );
     },
 
