@@ -317,7 +317,7 @@ def _web_capture_page_row_results(
 ) -> list[dict[str, Any]]:
     row_results: list[dict[str, Any]] = []
     for row_id in row_ids:
-        if project.effective_network_policy() == "off":
+        if project.remote_services_refused():
             row_results.append(
                 _web_capture_page_error_row(
                     row_id=row_id,

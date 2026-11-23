@@ -111,7 +111,7 @@ def prepare_cluster_action(project, bound, *, router=None, admission=True):
                 "Semantic clustering requires an embedding backend",
             )
         model = backend[1]
-        if embedder_is_remote(model) and project.effective_network_policy() == "off":
+        if embedder_is_remote(model) and project.remote_services_refused():
             raise TypedMapRowsPlanError(
                 "network_disabled", str(NetworkDisabled("model:embed"))
             )

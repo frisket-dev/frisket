@@ -314,7 +314,7 @@ def run_typed_find_action_job(project, envelope, *, execution, deps=None):
     ).for_execution(execution)
     if not model_call_cannot_go_live(router):
         if (
-            project.effective_network_policy() == "off"
+            project.remote_services_refused()
             and provider_from_model_id(prepared.operation.model) != "ollama"
         ):
             return _failure_before_egress(

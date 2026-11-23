@@ -27,7 +27,10 @@ from frisket.ai.llm.pdf_estimates import (
     estimate_input_tokens,
     has_pdf_input,
 )
+from frisket.ai.llm.execution import ExecutionModelRouter
 from frisket.ops.base import ActionProgram
+from frisket.project_service_access import project_service_access
+from frisket.service_access import SERVICE_NOT_ALLOWED, ServiceNotAllowed
 from frisket.ops.builtin import get_action_program
 from frisket.engine.runner.confirmation_context import (
     MoneyConfirmationContext,
@@ -358,12 +361,25 @@ class NetworkDisabled(Exception):
     classification is entirely server-derived (runner/network_policy.py) —
     never the client-supplied ``capabilities`` field."""
 
-    def __init__(self, capability: str):
+    code = "network_disabled"
+
+    def __init__(self, capability: str, message: str | None = None):
         super().__init__(
-            f"this project's network setting is off; it blocks {capability}. "
+            message
+            or f"this project's network setting is off; it blocks {capability}. "
             "Turn network on in the project settings to run this."
         )
         self.capability = capability
+
+
+class ServiceRefused(NetworkDisabled):
+    """The project's Allowed services setting refuses the spec's destination.
+
+    A NetworkDisabled so every site that maps the network refusal maps this
+    one, with its own stable code and a message naming the setting.
+    """
+
+    code = SERVICE_NOT_ALLOWED
 
 
 class ProviderKeyRefusal(Exception):
@@ -822,17 +838,26 @@ def assert_network_policy(
     program: ActionProgram,
     spec: dict,
     *,
+    router: ModelRouter | ExecutionModelRouter,
     selected_egress_class: str | None = None,
 ) -> None:
-    """Raise NetworkDisabled when the spec
-    resolves a remote capability and the project's effective policy is
-    ``off``. Called from ``_validate_spec`` (fresh runs, resumes,
-    previews) and re-asserted per row in ``_execute_row``, which is a
-    public entry point any caller can reach without going through
-    ``_validate_spec`` — the re-assert is what keeps a remote engine from
-    egressing on such a path after the project flips ``off``. The policy
-    is read at validate/dispatch time and never joins the idempotency
-    hash or run identity."""
+    """Raise NetworkDisabled when the spec resolves a remote capability and
+    the project's effective network policy is ``off``, and ServiceNotAllowed
+    when its destination is one the project's Allowed services setting does
+    not allow. Called from ``_validate_spec`` (fresh runs, resumes, previews)
+    and re-asserted per row in ``_execute_row``, which is a public entry point
+    any caller can reach without going through ``_validate_spec`` — the
+    re-assert is what keeps a remote engine from egressing on such a path
+    after the project's setting changes. Both settings are read at
+    validate/dispatch time and never join the idempotency hash or run
+    identity."""
+    assert_allowed_services(
+        project,
+        program,
+        spec,
+        router=router,
+        selected_egress_class=selected_egress_class,
+    )
     if selected_egress_class is not None:
         assert_selected_egress_policy(project, selected_egress_class)
         return
@@ -841,6 +866,53 @@ def assert_network_policy(
         return
     if project.effective_network_policy() == "off":
         raise NetworkDisabled(capability)
+
+
+def assert_allowed_services(
+    project: Project,
+    program: ActionProgram,
+    spec: dict,
+    *,
+    router: ModelRouter | ExecutionModelRouter,
+    selected_egress_class: str | None,
+) -> None:
+    """Classify where the spec's work would be sent and refuse what the
+    project's Allowed services setting does not allow.
+
+    A model call is classified by the exact URL the router would send it to,
+    so a model server or self-hosted API is allowed when it is on this machine
+    or approved. Other remote capabilities and Frisket Cloud routes have no
+    approvable destination here and need All services.
+    """
+    access = project_service_access(project)
+    if access.allows_all_services:
+        return
+    destination = _model_destination(program, spec, router)
+    capability = remote_capability_for_spec(
+        program, spec, include_model_provider=destination is None
+    )
+    try:
+        if destination is not None:
+            access.check_url(destination)
+        if capability is not None:
+            access.check_remote_service(capability)
+        if selected_egress_class in {"frisket_shared", "frisket_dedicated_org"}:
+            access.check_remote_service("Frisket Cloud")
+    except ServiceNotAllowed as exc:
+        raise ServiceRefused(exc.destination, str(exc)) from None
+
+
+def _model_destination(
+    program: ActionProgram, spec: dict, router: ModelRouter | ExecutionModelRouter
+) -> str | None:
+    try:
+        program_is_llm = bool(program.is_llm(spec))
+    except Exception:
+        program_is_llm = False
+    model = spec.get("model")
+    if not program_is_llm or not isinstance(model, str) or not model:
+        return None
+    return router.destination_for_model(model)
 
 
 def assert_selected_egress_policy(project: Project, egress_class: str) -> None:
@@ -1313,7 +1385,7 @@ def validate_spec(
     # Keep the code-owned engine/provider fence ahead of credential and quote
     # remediation. A later check uses the successfully selected route's exact
     # egress, catching Cloud routes for otherwise local/sidecar identities.
-    assert_network_policy(project, action_program, spec)
+    assert_network_policy(project, action_program, spec, router=router)
 
     # Strict replay proves only the cached model call cannot egress. Other
     # remote subeffects still require consent.
@@ -1361,6 +1433,7 @@ def validate_spec(
             project,
             action_program,
             spec,
+            router=router,
             selected_egress_class=(
                 resolved_execution.resolution.facts.egress_class
                 if resolved_execution is not None

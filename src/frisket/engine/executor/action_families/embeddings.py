@@ -1176,7 +1176,7 @@ def _validate_refresh_remote_policy(
     remote = provider_kind in REMOTE_PROVIDER_KINDS
     automatic = _is_automatic_refresh(req.params)
     if provider_network_blocked(
-        provider_kind, network_off=project.effective_network_policy() == "off"
+        provider_kind, network_off=project.remote_services_refused()
     ):
         return _error(
             req.action,
@@ -1365,7 +1365,7 @@ def _validate_create_probe_policy(
         )
     if provider_network_blocked(
         cap["provider_kind"],
-        network_off=project.effective_network_policy() == "off",
+        network_off=project.remote_services_refused(),
     ):
         return _error(
             req.action,

@@ -546,6 +546,7 @@ async def _execute_row(
         project,
         program,
         spec,
+        router=router,
         selected_egress_class=(
             admission.route.egress_class if admission is not None else None
         ),

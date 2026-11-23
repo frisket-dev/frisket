@@ -84,7 +84,7 @@ class AdmittedOpenCorporates:
             raise RowError(
                 "preview_unsupported", "OpenCorporates requires a confirmed run."
             )
-        if ctx.project.effective_network_policy() == "off":
+        if ctx.project.remote_services_refused():
             raise RowError(
                 "network_disabled", "OpenCorporates requires network access."
             )

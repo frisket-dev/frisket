@@ -81,7 +81,7 @@ class AdmittedWebSearcher:
                 "preview_unsupported", "Web search requires a run"
             )
         project = self._ctx.project
-        if project is not None and project.effective_network_policy() == "off":
+        if project is not None and project.remote_services_refused():
             raise ActionProgramInvocationHalt(
                 "network_disabled", "Web search requires network access"
             )

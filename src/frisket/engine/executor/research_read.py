@@ -48,7 +48,7 @@ class AdmittedResearcher:
             raise ActionProgramInvocationHalt(
                 "preview_unsupported", "Agent Research requires an admitted run"
             )
-        if self._ctx.project.effective_network_policy() == "off":
+        if self._ctx.project.remote_services_refused():
             raise ActionProgramInvocationHalt(
                 "network_disabled", "Agent Research requires network access"
             )

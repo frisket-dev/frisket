@@ -341,7 +341,7 @@ class _ClusterProgram(_TypedMapBatchProgram):
                         assert_provider_spend_cap,
                     )
 
-                    if ctx.project.effective_network_policy() == "off":
+                    if ctx.project.remote_services_refused():
                         raise ActionProgramInvocationHalt(
                             "network_disabled", str(NetworkDisabled("model:embed"))
                         )

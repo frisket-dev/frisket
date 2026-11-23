@@ -401,6 +401,16 @@ class ModelRouter:
             return None
         return endpoint.origin
 
+    def destination_for_model(self, model: str) -> str | None:
+        """The URL a live call for ``model`` is sent to, if an adapter serves it."""
+        provider = provider_from_model_id(model)
+        if provider == "ollama":
+            return self.local_endpoint_url_for_model(model)
+        adapter = self._adapters.get(provider)
+        if isinstance(adapter, (AnthropicAdapter, OpenAICompatAdapter)):
+            return adapter.base_url
+        return None
+
     def _resolve_local_model(
         self, model: str
     ) -> tuple[LocalModelEndpointConfig, OpenAICompatAdapter, str]:

@@ -605,7 +605,7 @@ def _manual_query(
                 field="anchor.text",
             )
         assert isinstance(accounting_project, Project)
-        if accounting_project.effective_network_policy() == "off":
+        if accounting_project.remote_services_refused():
             raise SimilarityError(
                 "network_disabled",
                 "this project's network setting blocks remote query embedding",

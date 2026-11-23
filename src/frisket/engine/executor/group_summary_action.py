@@ -249,7 +249,7 @@ def run_typed_group_summary_action(
         )
     if not model_call_cannot_go_live(router):
         if (
-            project.effective_network_policy() == "off"
+            project.remote_services_refused()
             and provider_from_model_id(prepared.operation.model) != "ollama"
         ):
             return ActionCtx(project_id, action.kind).fail(

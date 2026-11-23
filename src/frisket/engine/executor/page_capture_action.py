@@ -158,7 +158,7 @@ def run_typed_page_capture_action(
             action=action,
         )
     try:
-        if project.effective_network_policy() == "off":
+        if project.remote_services_refused():
             raise CaptureRefused(
                 ActionError(
                     code="network_disabled",

@@ -83,7 +83,7 @@ _REFUSAL_FIELDS: tuple[tuple[type[Exception], _RefusalFields], ...] = (
     (
         NetworkDisabled,
         lambda exc, site: {
-            "code": "network_disabled",
+            "code": exc.code,
             "message": str(exc),
             "details": {"capability": exc.capability},
         },

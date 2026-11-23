@@ -22,6 +22,9 @@ class ExecutionModelRouter:
     def local_endpoint_identity(self, model: str) -> tuple[str, str]:
         return self._router.local_endpoint_identity(model)
 
+    def destination_for_model(self, model: str) -> str | None:
+        return self._router.destination_for_model(model)
+
     def secret_values_for_model(self, model: str) -> tuple[str, ...]:
         return self._router.secret_values_for_model(model)
 
