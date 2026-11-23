@@ -178,6 +178,12 @@ export const HTTP_CONTRACT_ARTIFACT = {
       "request": null
     },
     {
+      "id": "outer.list_organization_approved_endpoints.get",
+      "method": "GET",
+      "path": "/api/organization/approved-endpoints",
+      "request": null
+    },
+    {
       "id": "outer.list_organization_env_vars.get",
       "method": "GET",
       "path": "/api/organization/env",
@@ -254,6 +260,15 @@ export const HTTP_CONTRACT_ARTIFACT = {
       "method": "DELETE",
       "path": "/api/projects/{pid}/members/{email}",
       "request": null
+    },
+    {
+      "id": "outer.replace_organization_approved_endpoints.put",
+      "method": "PUT",
+      "path": "/api/organization/approved-endpoints",
+      "request": {
+        "mediaType": "application/json",
+        "required": true
+      }
     },
     {
       "id": "outer.request_link.post",
@@ -15999,6 +16014,18 @@ export type HttpContractOperationMap = {
       readonly "500": HttpError;
     };
   };
+  readonly "outer.list_organization_approved_endpoints.get": {
+    readonly pathParams: HttpInline_d746974fa9afd5e9;
+    readonly query: HttpInline_d746974fa9afd5e9;
+    readonly request: undefined;
+    readonly responses: {
+      readonly "200": HttpApprovedEndpoints;
+      readonly "401": HttpError;
+      readonly "403": HttpError;
+      readonly "409": HttpError;
+      readonly "500": HttpError;
+    };
+  };
   readonly "outer.list_organization_env_vars.get": {
     readonly pathParams: HttpInline_d746974fa9afd5e9;
     readonly query: HttpInline_d746974fa9afd5e9;
@@ -16135,6 +16162,18 @@ export type HttpContractOperationMap = {
       readonly "403": HttpError;
       readonly "404": HttpError;
       readonly "409": HttpError;
+      readonly "500": HttpError;
+    };
+  };
+  readonly "outer.replace_organization_approved_endpoints.put": {
+    readonly pathParams: HttpInline_d746974fa9afd5e9;
+    readonly query: HttpInline_d746974fa9afd5e9;
+    readonly request: HttpApprovedEndpoints;
+    readonly responses: {
+      readonly "200": HttpApprovedEndpoints;
+      readonly "401": HttpError;
+      readonly "403": HttpError;
+      readonly "422": HttpError;
       readonly "500": HttpError;
     };
   };
@@ -18444,6 +18483,8 @@ export type HttpContractOperationMap = {
     readonly request: undefined;
     readonly responses: {
       readonly "200": HttpApprovedEndpoints;
+      readonly "401": HttpError;
+      readonly "403": HttpError;
       readonly "409": HttpError;
       readonly "500": HttpError;
     };
@@ -19329,6 +19370,8 @@ export type HttpContractOperationMap = {
     readonly request: HttpApprovedEndpoints;
     readonly responses: {
       readonly "200": HttpApprovedEndpoints;
+      readonly "401": HttpError;
+      readonly "403": HttpError;
       readonly "422": HttpError;
       readonly "500": HttpError;
     };

@@ -477,6 +477,8 @@ def _case_local_team_surface(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) ->
         "outer.list_tokens.get",
         "outer.revoke_token.delete",
         "outer.set_organization_key.post",
+        "outer.list_organization_approved_endpoints.get",
+        "outer.replace_organization_approved_endpoints.put",
         "outer.set_organization_env_var.post",
         "outer.validate_organization_key.post",
         "outer.delete_organization_key.delete",

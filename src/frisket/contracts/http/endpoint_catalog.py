@@ -214,6 +214,8 @@ _OUTER_SESSION: tuple[RouteSpec, ...] = (
     ("set_member", "POST"),
     ("set_organization_env_var", "POST"),
     ("set_organization_key", "POST"),
+    ("list_organization_approved_endpoints", "GET"),
+    ("replace_organization_approved_endpoints", "PUT"),
     ("validate_organization_key", "POST"),
 )
 
@@ -1132,6 +1134,8 @@ _BROWSER_CLIENT_IDS = (
             "outer.list_tokens.get",
             "outer.revoke_token.delete",
             "outer.set_organization_key.post",
+            "outer.list_organization_approved_endpoints.get",
+            "outer.replace_organization_approved_endpoints.put",
             "outer.set_organization_env_var.post",
             "outer.validate_organization_key.post",
             "outer.delete_organization_key.delete",

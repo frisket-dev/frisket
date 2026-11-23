@@ -1026,6 +1026,12 @@ CANONICAL_OPERATION_IDS: Mapping[RouteIdentity, str] = MappingProxyType(
             "update_runtime_config",
             "PATCH",
         ): "tenant.update_runtime_config.patch",
+        ("outer", "list_organization_approved_endpoints", "GET"): (
+            "outer.list_organization_approved_endpoints.get"
+        ),
+        ("outer", "replace_organization_approved_endpoints", "PUT"): (
+            "outer.replace_organization_approved_endpoints.put"
+        ),
         ("tenant", "list_approved_endpoints", "GET"): (
             "tenant.list_approved_endpoints.get"
         ),

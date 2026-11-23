@@ -8,7 +8,10 @@ destination the setting does not allow is refused before the request is sent.
 
 This is a best-effort check over Frisket's own code paths. It is not network
 isolation: it does not stop a plugin, a subprocess or the operating system from
-reaching the network.
+reaching the network. Plugin subprocesses and notification delivery are not
+checked. API-call and research fetches are judged by their declared category,
+not their host, so an approved host does not allow them; they need All
+services.
 
 Approved endpoints live at the workspace level, next to the model servers and
 provider keys in ``<workspace>/.frisket/``. They are not secrets, so they keep
