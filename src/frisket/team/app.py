@@ -618,18 +618,14 @@ def _complete_project_intent(
         ).first()
         if intent is None:
             existing = cx.execute(
-                sa.select(projects.c.name, projects.c.sensitive).where(
-                    projects.c.slug == slug
-                )
+                sa.select(projects.c.id).where(projects.c.slug == slug)
             ).first()
             if existing is None:
                 raise LookupError(f"project creation intent disappeared: {slug}")
-            return {
-                "id": slug,
-                "name": existing.name,
-                "description": "",
-                "sensitive": bool(existing.sensitive),
-            }
+            # Already registered: report what the bundle stores, which the
+            # control-plane row cannot (its ``sensitive`` reads the same for
+            # an "on" and an "inherit" usage-data override).
+            return workspace.get(slug).project_metadata()
         requested_usage = _intent_usage_data_sharing(intent)
         requested_allowed = _intent_allowed_services(intent)
         requested_sensitive = requested_usage == "off"
