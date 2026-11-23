@@ -3,10 +3,10 @@ import {
   createProject,
   gridReadSelection,
   importCsv,
-  openDiscoverTab,
   openProject,
   sheetColumns,
   uniqueName,
+  openFilterSidebar,
 } from './helpers';
 
 const TIPS_CSV = [
@@ -20,15 +20,13 @@ const TIPS_CSV = [
     `Synthetic category ${index + 1}.,status-${String(index + 1).padStart(2, '0')},${100 + index},2026-04-${String(index + 1).padStart(2, '0')}`),
 ].join('\n');
 
-// workbench-ia-right-edge-v1 (increment 4): FriendlyFiltersPanel re-homed from the
-// left sidebar into the Discover panel's Facets tab (its single home now — the
-// earlier leftSidebar+rightInspector two-host "portable" duplication is retired
-// with the region contract). What this test proves is portability: the panel is
-// mounted through the contribution system (data-host reflects its declared
-// leftSidebar placement, the host context is the real WorkbenchHostContextV1)
-// and its interactions — pre-populated facets, server-side high-cardinality
-// search, combined filters, and range controls — all work from that host.
-test('FriendlyFiltersPanel renders and operates in the Discover panel', async ({ page, request }) => {
+// FriendlyFiltersPanel's home is the sheet's Filter sidebar. What this test
+// proves is portability: the panel is mounted through the contribution system
+// (data-host reflects its declared rightInspector placement, the host context
+// is the real WorkbenchHostContextV1) and its interactions — pre-populated
+// facets, server-side high-cardinality search, combined filters, and range
+// controls — all work from that host.
+test('FriendlyFiltersPanel renders and operates in the sheet Filter sidebar', async ({ page, request }) => {
   const pid = await createProject(request, uniqueName('e2e-portable-facets'));
   const sheetId = await importCsv(request, pid, 'tips.csv', TIPS_CSV);
   const amountId = (await sheetColumns(request, pid, sheetId)).find((column) => column.name === 'amount')!.id;
@@ -41,21 +39,20 @@ test('FriendlyFiltersPanel renders and operates in the Discover panel', async ({
   await openProject(page, pid, sheetId);
 
   const contributionTestId = 'workbench-contribution-frisket-investigative-panel-friendly-filters';
-  await openDiscoverTab(page, 'Facets');
+  await openFilterSidebar(page);
   await expect(page.getByTestId(contributionTestId)).toHaveCount(1);
 
-  const discover = page.getByTestId('discover-panel');
-  const facets = discover.getByTestId(contributionTestId);
+  const sidebar = page.getByTestId('filter-sidebar');
+  const facets = sidebar.getByTestId(contributionTestId);
   await expect(facets).toBeVisible();
   await expect(facets).toHaveAttribute(
     'data-contribution-id',
     'frisket.investigative.panel.friendly_filters',
   );
-  await expect(facets).toHaveAttribute('data-host', 'leftSidebar');
-  await expect(facets).toHaveAttribute('data-slot', 'scope');
+  await expect(facets).toHaveAttribute('data-host', 'rightInspector');
   await expect(facets).toHaveAttribute('data-host-context', 'WorkbenchHostContextV1');
 
-  // No second collapse level: the Facets tab already labels this panel, so
+  // No second collapse level: the Filter tab already labels this panel, so
   // its body renders open as soon as the tab mounts (no toggle to click).
   await expect(facets.getByTestId('friendly-filters-panel')).toBeVisible();
 
@@ -73,7 +70,7 @@ test('FriendlyFiltersPanel renders and operates in the Discover panel', async ({
   await expect(facets.getByTestId('friendly-facet-status')).toContainText('25 values');
 
   // Keep the target facet at a stable height while filtered counts refresh in
-  // the facets above it; this isolates the active-summary insertion regression.
+  // the facets above it; this isolates the chip insertion from the pointer target.
   await facets.getByTestId('friendly-facet-body').locator('.friendly-facet-header').click();
 
   // The search box searches the SERVER: 'closed-late' is proven to come back
@@ -88,10 +85,10 @@ test('FriendlyFiltersPanel renders and operates in the Discover panel', async ({
   const targetBeforeFilter = await closedLate.boundingBox();
   expect(targetBeforeFilter).not.toBeNull();
   await closedLate.check();
-  await expect(facets.getByTestId('facets-active-filter')).toContainText('status eq closed-late');
+  await expect(page.getByTestId('row-filter-chip-facet:status')).toHaveText('status closed-late');
 
-  // The active-filter summary is below the facet stack, so inserting its first
-  // row cannot move the checkbox out from under the pointer.
+  // The active-filter chip sits above the grid, so showing it cannot move the
+  // checkbox out from under the pointer.
   const targetAfterFilter = await closedLate.boundingBox();
   expect(targetAfterFilter).toEqual(targetBeforeFilter);
 
@@ -100,12 +97,12 @@ test('FriendlyFiltersPanel renders and operates in the Discover panel', async ({
     targetBeforeFilter!.y + targetBeforeFilter!.height / 2,
   );
   await expect(closedLate).not.toBeChecked();
-  await expect(facets.getByTestId('facets-active-filter')).toHaveCount(0);
+  await expect(page.getByTestId('row-filter-chip-facet:status')).toHaveCount(0);
 
   await closedLate.check();
-  await expect(facets.getByTestId('facets-active-filter')).toContainText('status eq closed-late');
-  await facets.getByTestId('facets-clear-status').click();
-  await expect(facets.getByTestId('facets-active-filter')).toHaveCount(0);
+  await expect(page.getByTestId('row-filter-chip-facet:status')).toHaveText('status closed-late');
+  await facets.getByTestId('friendly-facet-status').getByRole('button', { name: 'Clear status filter' }).click();
+  await expect(page.getByTestId('row-filter-chip-facet:status')).toHaveCount(0);
 
   // Numeric ranges are backed by an exact histogram and use the same filter
   // spec, so they compose with categorical facets instead of replacing them.
@@ -129,7 +126,8 @@ test('FriendlyFiltersPanel renders and operates in the Discover panel', async ({
   });
   await amountEnd.fill('60');
   await finalRangeResponse;
-  await expect(facets.getByTestId('facets-active-filter')).toHaveCount(2);
-  await expect(page.getByTestId('active-grid-filter')).toContainText('status eq open');
-  await expect(page.getByTestId('active-grid-filter')).toContainText('amount between 15 and 60');
+  await expect(page.locator('[data-testid^="row-filter-chip-facet:"]')).toHaveCount(2);
+  await expect(page.getByTestId('filter-badge')).toHaveText('2');
+  await expect(page.getByTestId('row-filter-chips')).toContainText('status open');
+  await expect(page.getByTestId('row-filter-chips')).toContainText('amount 15–60');
 });

@@ -310,7 +310,7 @@ describe('applyRoute fixed six-class matrix', () => {
       ribbonMode: 'ribbon',
       activeRibbonTab: 'analyze',
       discoverOpen: true,
-      discoverTab: 'Facets',
+      discoverTab: 'Mentions',
       promotedViews: [],
       openSplit: null,
       documentView: null,

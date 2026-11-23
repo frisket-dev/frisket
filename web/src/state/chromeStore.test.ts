@@ -66,8 +66,8 @@ describe('createChromeStore', () => {
     expect(createChromeState(PROJECT_ID).activeRibbonTab).toBe('act');
   });
 
-  it('discoverTab loads the stored value (first-party OR plugin id, unvalidated) or falls back to "Facets"', () => {
-    expect(createChromeState(PROJECT_ID).discoverTab).toBe('Facets');
+  it('discoverTab loads the stored value (first-party OR plugin id, unvalidated) or falls back to "Mentions"', () => {
+    expect(createChromeState(PROJECT_ID).discoverTab).toBe('Mentions');
     localStorage.setItem(`frisket:discover-tab:${PROJECT_ID}`, 'some.plugin.panel');
     expect(createChromeState(PROJECT_ID).discoverTab).toBe('some.plugin.panel');
     localStorage.setItem(`frisket:discover-tab:${PROJECT_ID}`, 'Watches');

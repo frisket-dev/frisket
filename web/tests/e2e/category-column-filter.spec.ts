@@ -7,10 +7,10 @@ import {
   createProject,
   gridReadSelection,
   importCsv,
-  openDiscoverTab,
   openProject,
   sheetColumns,
   uniqueName,
+  openFilterSidebar,
 } from './helpers';
 
 test('category promotion prioritizes facets and a category pill filters in one click', async ({
@@ -41,7 +41,7 @@ test('category promotion prioritizes facets and a category pill filters in one c
   const status = promotedColumns.find((column) => column.name === 'status');
   expect(status?.type).toBe('category');
 
-  await openDiscoverTab(page, 'Facets');
+  await openFilterSidebar(page);
 
   const facets = page.getByTestId('friendly-filters-panel');
   await expect(facets.getByTestId('friendly-facet-status')).toContainText('2 values');
@@ -58,5 +58,5 @@ test('category promotion prioritizes facets and a category pill filters in one c
   await clickCell(page, promotedColumns, 'status', 0);
   const filtered = await (await filteredResponse).json();
   expect(filtered.total).toBe(2);
-  await expect(page.getByTestId('active-grid-filter')).toContainText('status eq active');
+  await expect(page.getByTestId('row-filter-chips')).toContainText('status active');
 });

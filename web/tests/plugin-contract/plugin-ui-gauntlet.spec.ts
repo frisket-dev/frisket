@@ -11,7 +11,7 @@ import {
   importCsv,
   mockBasemapTiles,
   openFriendlyFilterSidebar,
-  openAdvancedSortPanel,
+  setSheetSort,
   openDiscoverTab,
   openImportWorkspace,
   openProject,
@@ -2479,7 +2479,7 @@ test('generated plugin contexts expose grid read state only when declared', asyn
   // generated contributions are dock tabs, so nothing obstructs the popup).
   await openFriendlyFilterSidebar(page, gridStateColumns, 'status');
   await page.getByTestId('facet-check-status-open').check();
-  await expect(page.getByTestId('active-grid-filter')).toContainText('status');
+  await expect(page.getByTestId('row-filter-chips')).toContainText('status');
 
   await page.getByTestId(`bottom-dock-tab-${generatedPluginId}-Declaring${handlerSuffix}`).click();
   const declaring = page.getByTestId('contract-gridstate-declaring');
@@ -2492,9 +2492,7 @@ test('generated plugin contexts expose grid read state only when declared', asyn
   await expect(declaring).toHaveAttribute('data-has-actions', 'true');
   // Live SORT flows through too: sort by the status column and the declared
   // context reflects it.
-  await openAdvancedSortPanel(page, gridStateColumns, 'status');
-  await page.getByTestId('grid-sort-column').selectOption('status');
-  await page.getByTestId('apply-grid-sort').click();
+  await setSheetSort(page, 'status', 'asc');
   await expect(declaring).toHaveAttribute('data-grid-sort', /status/);
 
   // The non-declaring panel gets NO grid read state and NO actions section.
@@ -3048,7 +3046,7 @@ test('generated plugin view opens rows and applies bbox filters through host cap
   const filtered = await filteredResp.json();
   expect(filtered.total).toBe(2);
 
-  await expect(page.getByTestId('active-grid-filter')).toContainText('point in map area');
+  await expect(page.getByTestId('row-filter-chips')).toContainText('point in map area');
 });
 
 // plugin-host-library-injection-v1: a mainView descriptor declaring

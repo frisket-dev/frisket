@@ -237,7 +237,7 @@ export function FilterRowsControls({
   );
 }
 
-export function FilterRowsSection() {
+function FilterRowsSection() {
   const { sheet, applyRowSearch, applyRowLimit, applyRowOrder } = useMainViewModel();
   const gridView = useGridViewHandle();
   const filter = useSelector(gridView.store, (s) => s.applied.filter);

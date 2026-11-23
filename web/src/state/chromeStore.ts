@@ -29,19 +29,15 @@ export interface CitationViewerFocus {
 export type RibbonMode = 'ribbon' | 'menu';
 
 export type DiscoverTab =
-  | 'Facets'
   | 'Mentions'
   | 'Sources'
-  | 'Views'
   | 'Alerts'
   | 'Embeddings'
   | 'Notifications';
 
 export const DISCOVER_TABS: readonly DiscoverTab[] = [
-  'Facets',
   'Mentions',
   'Sources',
-  'Views',
   'Alerts',
   'Embeddings',
   'Notifications',

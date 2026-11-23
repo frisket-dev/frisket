@@ -377,7 +377,7 @@ export function createScopedChromePreferenceOwner(
           'project',
           'discoverTab',
           chromeStorageKeys.discoverTab(projectId),
-          'Facets',
+          'Mentions',
           (raw) => (raw === 'Watches' ? 'Alerts' : raw || undefined),
         ),
         promotedViews: readPreference(

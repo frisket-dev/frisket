@@ -43,7 +43,8 @@ export type FilterSidebarTab = 'filter' | 'views';
 
 /** The sheet's Filter sidebar. `focusFacet` names the facet card opened from a
  *  chip or a column menu; `focusSearch` increments each time a caller asks for
- *  the search box to take focus; `searchScope` is the scope the search box
+ *  the search box to take focus and is 0 when the last open did not ask;
+ *  `searchScope` is the scope the search box
  *  applies to its next text ('all' or a column name). */
 interface FilterSidebarState {
   open: boolean;
@@ -227,7 +228,7 @@ export function createGridViewStore(currentSheet: () => SheetMeta | undefined = 
           open: true,
           tab,
           focusFacet: focus.facet ?? null,
-          focusSearch: focus.search ? s.sidebar.focusSearch + 1 : s.sidebar.focusSearch,
+          focusSearch: focus.search ? s.sidebar.focusSearch + 1 : 0,
           searchScope: focus.scope ?? s.sidebar.searchScope,
         },
       }));

@@ -67,7 +67,7 @@ test('R2: Discover hosted panel bodies contribute zero own-padding; the host own
   const embeddings = await box(page.getByTestId('embeddings-panel'));
   expect(`${embeddings.pt} ${embeddings.pr} ${embeddings.pb} ${embeddings.pl}`).toBe(zero);
 
-  // The host gutter is stable across tabs (Facets / Sources too).
+  // The host gutter is stable across tabs (Sources too).
   await openDiscoverTab(page, 'Sources');
   const bodyS = await box(page.getByTestId('discover-body'));
   expect(`${bodyS.pt} ${bodyS.pr} ${bodyS.pb} ${bodyS.pl}`).toBe(gutter);

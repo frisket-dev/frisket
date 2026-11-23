@@ -97,12 +97,13 @@ test('Discover tabs switch content; collapse to rail; rail icon re-expands to th
 
   const panel = page.getByTestId('discover-panel');
   await expect(panel).toBeVisible();
-  // Default internal tab is Facets; its user-facing label is Filter.
-  const filterTab = page.getByTestId('discover-tab-Facets');
-  await expect(filterTab).toHaveAttribute('aria-selected', 'true');
-  await expect(filterTab).toHaveText('Filter');
+  // The default tab is Mentions; filtering lives in the sheet's Filter
+  // sidebar, not in Discover.
+  await expect(page.getByTestId('discover-tab-Mentions')).toHaveAttribute('aria-selected', 'true');
+  await expect(page.getByTestId('discover-tab-Facets')).toHaveCount(0);
+  await expect(page.getByTestId('discover-tab-Views')).toHaveCount(0);
   await expect(
-    panel.getByTestId('workbench-contribution-frisket-investigative-panel-friendly-filters'),
+    panel.getByTestId('workbench-contribution-frisket-investigative-panel-mentions'),
   ).toBeVisible();
 
   // Switch to Sources — the Sources panel contribution renders.
@@ -142,11 +143,11 @@ test('resident Discover controls collapse and re-expand the panel', async ({ pag
   await expect(page.getByTestId('discover-panel')).toHaveCount(0);
   await expect(page.getByTestId('discover-rail')).toBeVisible();
 
-  const filterRailButton = page.getByTestId('discover-rail-icon-Facets');
-  await expect(filterRailButton).toHaveAttribute('aria-label', 'Open Filter');
-  await filterRailButton.click();
+  const mentionsRailButton = page.getByTestId('discover-rail-icon-Mentions');
+  await expect(mentionsRailButton).toHaveAttribute('aria-label', 'Open Mentions');
+  await mentionsRailButton.click();
   await expect(page.getByTestId('discover-panel')).toBeVisible();
-  await expect(page.getByTestId('discover-tab-Facets')).toHaveAttribute('aria-selected', 'true');
+  await expect(page.getByTestId('discover-tab-Mentions')).toHaveAttribute('aria-selected', 'true');
 });
 
 test('Detail + Discover widths persist across reload', async ({ page, request }) => {

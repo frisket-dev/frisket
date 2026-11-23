@@ -12,10 +12,10 @@ import {
 import {
   createProject,
   listSheets,
-  openDiscoverTab,
   openProject,
   sheetData,
   uniqueName,
+  openFilterSidebar,
 } from './helpers';
 
 function instructionText(instruction: WalkthroughInstruction): string {
@@ -77,7 +77,7 @@ test('Combine values walkthrough clusters, combines agency names, verifies count
     await expect(page.getByTestId('grid-column-agency')).toBeVisible();
   });
   await walkthroughStep('open-raw-facets', async () => {
-    await openDiscoverTab(page, 'Facets');
+    await openFilterSidebar(page);
   });
   await walkthroughStep('choose-raw-agency-facet', async () => {
     await expect(page.getByTestId('friendly-facet-agency')).toContainText('12 values');
@@ -166,7 +166,10 @@ test('Combine values walkthrough clusters, combines agency names, verifies count
       ]);
   });
   await walkthroughStep('reopen-clean-facets', async () => {
-    await openDiscoverTab(page, 'Facets');
+    // The step advances on a click of the Filter toggle, so start closed.
+    const close = page.getByTestId('filter-sidebar-close');
+    if (await close.isVisible()) await close.click();
+    await openFilterSidebar(page);
   });
   await walkthroughStep('choose-clean-agency-facet', async () => {
     await page.getByTestId('facet-header-agency_clean').click();

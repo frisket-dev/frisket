@@ -5,13 +5,13 @@ import {
   createProject,
   importCsv,
   openProject,
-  openToolbarOverflow,
   primeMapRowsReplies,
   runAndWait,
   sheetColumns,
   typedActionRequest,
   uniqueName,
   type WireColumn,
+  openViewsTab,
 } from './helpers';
 import { prepareOwnModelReplay, REPLAY_MODEL } from './replayModelScenario';
 
@@ -164,10 +164,7 @@ test('native Glide AI column groups rename and hide support columns as layout st
   await expect(page.getByTestId('native-column-group-show-confidence')).not.toBeChecked();
   await expect(page.getByTestId('native-column-group-show-justification')).not.toBeChecked();
 
-  await openToolbarOverflow(page);
-  await page.getByTestId('open-views-submenu').click();
-  await page.getByTestId('views-overflow-open-panel').click();
-  await expect(page.getByTestId('views-panel')).toBeVisible();
+  await openViewsTab(page);
   await page.getByTestId('create-view').click();
   await page.getByTestId('view-name-input').fill('Triage layout');
   const viewResponse = page.waitForResponse((res) =>

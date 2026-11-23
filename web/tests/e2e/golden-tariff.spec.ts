@@ -22,10 +22,10 @@ import {
   reviewTableColumns,
   listSheets,
   openAction,
-  openAdvancedSortPanel,
   sheetColumns,
   sheetData,
   uniqueName,
+  setSheetSort,
 } from './helpers';
 import { runViaUi, waitForRun } from './goldenRun';
 
@@ -159,9 +159,6 @@ test('tariff country search: CSV → web search → summarize → score → sort
   expect(Math.max(...scores)).toBeGreaterThanOrEqual(5);
 
   // Sort by impact score through the real grid controls.
-  await openAdvancedSortPanel(page, columns, 'country');
-  await page.getByTestId('grid-sort-column').selectOption('tariff_impact');
-  await page.getByTestId('grid-sort-direction').selectOption('desc');
   const sortResponse = page.waitForResponse((res) => {
     if (res.request().method() !== 'GET') return false;
     const url = new URL(res.url());
@@ -170,7 +167,7 @@ test('tariff country search: CSV → web search → summarize → score → sort
       url.searchParams.has('sort')
     );
   });
-  await page.getByTestId('apply-grid-sort').click();
+  await setSheetSort(page, 'tariff_impact', 'desc');
   await sortResponse;
 
   // Export the sorted view as CSV through the project menu; keep it and a
