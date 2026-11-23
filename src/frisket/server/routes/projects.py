@@ -87,10 +87,7 @@ def register_project_lifecycle_routes(
         actor_id = user.get("id") if isinstance(user, dict) else None
         return Project.model_validate(
             service.create_project(
-                body.name,
-                allowed_services=body.allowed_services,
-                usage_data_sharing=body.usage_data_sharing,
-                cover_seed=body.cover_seed,
+                body,
                 idempotency_key=request.headers.get("idempotency-key"),
                 idempotency_scope=(
                     f"user:{int(actor_id)}" if actor_id is not None else None

@@ -9,7 +9,7 @@ from dataclasses import replace
 from typing import Any
 
 from filelock import FileLock
-from frisket.contracts.http.models import ProjectList
+from frisket.contracts.http.models import CreateProjectRequest, ProjectList
 from pydantic import ValidationError
 
 from frisket.ops.egress_policy import (
@@ -346,15 +346,15 @@ class ProjectLifecycleService:
 
     def create_project(
         self,
-        name: str,
+        request: CreateProjectRequest,
         *,
-        allowed_services: AllowedServices,
-        usage_data_sharing: UsageDataSharing,
-        cover_seed: str | None,
         idempotency_key: str | None = None,
         idempotency_scope: str | None = None,
     ) -> dict[str, Any]:
-        name = name.strip() or UNTITLED_PROJECT_NAME
+        name = request.name.strip() or UNTITLED_PROJECT_NAME
+        allowed_services = request.allowed_services
+        usage_data_sharing = request.usage_data_sharing
+        cover_seed = request.cover_seed
         self._require_offered(allowed_services)
         operation_key = (idempotency_key or "").strip()
         lock_path = self._workspace.root / ".project-creation-operations.lock"
