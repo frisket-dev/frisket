@@ -4,7 +4,7 @@ import {
   type RequestOptions,
 } from '../httpContract';
 import { errorFromContract } from '../contractErrors';
-import type { ProjectInfo } from '../types';
+import type { AllowedServices, ProjectInfo, UsageDataSharing } from '../types';
 import { isRecord } from '../wireValues';
 
 type ProjectWire = HttpContractSuccessResponse<'tenant.get_project.get'>;
@@ -34,6 +34,8 @@ function mapProject(wire: ProjectWire): ProjectInfo {
     name: wire.name,
     description: wire.description,
     sensitive: wire.sensitive,
+    allowed_services: wire.allowed_services,
+    usage_data_sharing: wire.usage_data_sharing,
     starred: wire.starred ?? false,
     archived: wire.archived ?? false,
   };
@@ -45,6 +47,7 @@ function mapProjectList(wire: ProjectListWire): ProjectInfo[] {
     name: project.name,
     description: project.description,
     sensitive: project.sensitive,
+    allowed_services: project.allowed_services,
     updated_at: project.updated_at,
     pending_review_count: project.pending_review_count,
     starred: project.starred,
@@ -104,12 +107,18 @@ export function getProjectContract(
   }, mapProject);
 }
 
+export interface CreateProjectInput {
+  name: string;
+  allowed_services?: AllowedServices;
+  usage_data_sharing?: UsageDataSharing;
+}
+
 export function createProject(
-  name: string,
+  input: CreateProjectInput,
   options: RequestOptions = {},
 ): Promise<ProjectInfo> {
   return httpContract('tenant.create_project.post', {
-    body: { name },
+    body: input,
     signal: options.signal,
   }, mapProject);
 }

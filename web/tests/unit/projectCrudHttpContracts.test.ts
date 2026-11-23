@@ -13,6 +13,8 @@ const projectWire = {
   name: 'Project One',
   description: '',
   sensitive: false,
+  allowed_services: 'all_services',
+  usage_data_sharing: 'inherit',
   starred: false,
   archived: false,
 };
@@ -184,7 +186,7 @@ describe('project CRUD HTTP contracts', () => {
     });
     vi.stubGlobal('fetch', fetchMock);
 
-    await expect(createProject('Project One')).resolves.toMatchObject({
+    await expect(createProject({ name: 'Project One' })).resolves.toMatchObject({
       id: 'project-1',
     });
 

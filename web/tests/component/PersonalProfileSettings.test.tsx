@@ -36,6 +36,7 @@ const runtimeConfig = (overrides: Partial<RuntimeConfig> = {}): RuntimeConfig =>
   plugins_available: false,
   plugin_management_available: false,
   product_telemetry_available: false,
+  allowed_services_offered: ['this_machine_only', 'approved_services', 'all_services'],
   ...overrides,
 });
 

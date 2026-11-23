@@ -67,9 +67,6 @@
 .home-filter { flex: 1 1 auto; border: none; background: transparent; color: var(--text); font-size: var(--font-size-body); outline: none; }
 .home-sample-btn { flex: 0 0 auto; }
 
-.home-create-row { display: flex; gap: var(--space-8); margin-bottom: 16px; align-items: center; }
-.home-create-row .form-input { flex: 1 1 auto; }
-
 .home-grid { display: grid; gap: var(--space-16); margin-top: 4px; }
 .home-grid-grid { grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); }
 .home-grid-list { grid-template-columns: 1fr; }
@@ -99,7 +96,14 @@
   display: flex; align-items: center; justify-content: center;
   overflow: hidden;
 }
+.home-card-cover[data-neutral="true"] { background: linear-gradient(135deg, var(--bg-hover), var(--border-strong)); }
 .home-card-glyph { font-size: 44px; color: rgba(33, 31, 27, 0.16); line-height: 1; }
+.home-card-services {
+  position: absolute; left: 8px; bottom: 8px;
+  display: flex; align-items: center; height: 22px; padding: 0 8px; border-radius: 11px;
+  background: rgba(255,255,255,0.92); color: var(--text-mid);
+  font-size: var(--font-size-meta); font-weight: 600; white-space: nowrap;
+}
 .home-card-chip {
   position: absolute; top: 8px; left: 10px;
   padding: 2px 8px; border-radius: 99px;
@@ -110,6 +114,7 @@
 .home-card-titlerow { display: flex; align-items: center; gap: var(--space-6); min-width: 0; }
 .home-card-star { color: var(--amber); flex: 0 0 auto; }
 .home-card-title { font-size: 13.5px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.home-card-title[data-placeholder="true"] { color: var(--text-light); }
 .home-card-pending { flex: 0 0 auto; margin-left: auto; }
 .home-card-meta { display: flex; flex-wrap: wrap; font-size: 11.5px; color: var(--text-light); font-family: var(--mono); }
 .home-card-meta-loading { color: var(--text-light); }

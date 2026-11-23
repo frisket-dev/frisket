@@ -23,6 +23,7 @@ import type {
   HttpOrganizationEnvList,
   HttpOrganizationKeyList,
   HttpOrganizationProviderCatalog,
+  HttpProject,
   HttpProjectAttemptsPage,
   HttpProjectInviteCreate,
   HttpProjectLineageResponse,
@@ -55,11 +56,20 @@ import type {
 } from '../generated/openHttpContracts';
 import { isRecord } from './wireValues';
 
+export type AllowedServices = HttpProject['allowed_services'];
+export type UsageDataSharing = HttpProject['usage_data_sharing'];
+
 export interface ProjectInfo {
   id: string;
   name: string;
   description?: string | null;
   sensitive?: boolean;
+  /** Which services Frisket may use with this project's data. Absent on a
+   *  payload that does not carry it reads as All services. */
+  allowed_services?: AllowedServices;
+  /** The project's usage-data override over the workspace-wide setting;
+   *  carried by the single-project payload, not the list. */
+  usage_data_sharing?: UsageDataSharing;
   role?: ProjectRole | null;
   /** ISO timestamp of the project bundle's last write (server: project.db
    *  mtime). Nullable for older/degenerate bundles missing project.db. */
@@ -153,6 +163,8 @@ export interface RuntimeConfig {
   plugin_management_available: boolean;
   /** Whether this deployment has a configured product-telemetry destination. */
   product_telemetry_available: boolean;
+  /** The Allowed services values this edition offers; the others are hidden. */
+  allowed_services_offered: AllowedServices[];
 }
 
 /** @see RuntimeConfig.recipe_fence_posture */
