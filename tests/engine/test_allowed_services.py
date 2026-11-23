@@ -12,6 +12,7 @@ import pytest
 from frisket.actions.registry import ACTION_REGISTRY
 from frisket.actions.system import BoundTypedActionRequest
 from frisket.actions.types import ActionRequest
+from frisket.ai.embeddings.capabilities import resolve_embedding_capability
 from frisket.ai.llm import ModelRouter
 from frisket.ai.llm.endpoint_config import LocalModelEndpointConfig
 from frisket.engine.executor import run_action_spec
@@ -369,3 +370,18 @@ def test_a_concurrent_tightening_is_not_loosened_without_confirmation(
     history = [row for row in project.history() if row["kind"] == "allowed_services"]
     assert outcome["a"] is not None or real_read(project) == "this_machine_only"
     assert history == []
+
+
+@pytest.mark.parametrize("provider", ["ollama", "frisket-models"])
+def test_no_text_embedding_space_resolves_to_a_model_server(provider: str) -> None:
+    """Embedding paths judge providers by category (in-process, or a provider
+    API that needs All services) because no text embedding space can be
+    served by a model server. If one becomes possible, its URL must go
+    through check_route like a model call."""
+    assert (
+        resolve_embedding_capability(
+            modality="text", provider=provider, model="nomic-embed-text"
+        )
+        is None
+    )
+    assert resolve_embedding_capability(modality="text", provider=provider) is None
