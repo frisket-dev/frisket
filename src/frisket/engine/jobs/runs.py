@@ -617,6 +617,9 @@ def project_scoped_router(project: Project, router: ModelRouter | None) -> Model
     return _router_for(
         project,
         ModelRouter(env_key_source="local", model_call_policy=LOCAL_PURCHASE_POLICY),
+        local_endpoints=resolve_run_local_endpoints(
+            project.path.parent, organization_id=None
+        ),
     )
 
 
