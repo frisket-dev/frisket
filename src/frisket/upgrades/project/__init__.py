@@ -3,6 +3,9 @@
 from __future__ import annotations
 
 from frisket.engine.store.schema import BundleSchemaMismatch, require_current_schema
+from frisket.upgrades.project.usage_data_sharing_migration import (
+    upgrade_usage_data_sharing,
+)
 
 
 def upgrade_project(project, *, project_id=None, recipes=None) -> None:
@@ -19,6 +22,8 @@ def upgrade_project(project, *, project_id=None, recipes=None) -> None:
 
         upgrade_project_schema(project.db, bundle_path=project.db_path)
         require_current_schema(project.db, bundle_path=project.path)
+    if project.get_meta("usage_data_sharing") is None:
+        upgrade_usage_data_sharing(project)
     if recipes is not None:
         from .extraction_recipes import (
             LEGACY_EXTRACTION_LAYOUTS_META_KEY,

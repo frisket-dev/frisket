@@ -1444,6 +1444,12 @@ export const HTTP_CONTRACT_ARTIFACT = {
       "request": null
     },
     {
+      "id": "tenant.list_approved_endpoints.get",
+      "method": "GET",
+      "path": "/api/approved-endpoints",
+      "request": null
+    },
+    {
       "id": "tenant.list_column_types.get",
       "method": "GET",
       "path": "/api/column-types",
@@ -1906,6 +1912,15 @@ export const HTTP_CONTRACT_ARTIFACT = {
       "request": null
     },
     {
+      "id": "tenant.replace_approved_endpoints.put",
+      "method": "PUT",
+      "path": "/api/approved-endpoints",
+      "request": {
+        "mediaType": "application/json",
+        "required": true
+      }
+    },
+    {
       "id": "tenant.replace_rules_preview.post",
       "method": "POST",
       "path": "/api/projects/{pid}/replace-rules/v1/preview",
@@ -2323,6 +2338,15 @@ export const HTTP_CONTRACT_ARTIFACT = {
       "id": "tenant.update_project.patch",
       "method": "PATCH",
       "path": "/api/projects/{pid}",
+      "request": {
+        "mediaType": "application/json",
+        "required": true
+      }
+    },
+    {
+      "id": "tenant.update_project_allowed_services.patch",
+      "method": "PATCH",
+      "path": "/api/projects/{pid}/allowed-services",
       "request": {
         "mediaType": "application/json",
         "required": true
@@ -4330,6 +4354,16 @@ export type HttpApiTokenRevokeResponse = ({
   "revoked": (boolean);
 });
 
+type HttpApprovedEndpoints_ApprovedEndpoint = ({
+  "host": (string);
+  "label"?: (string);
+  "port"?: (((number)) | ((null)));
+});
+
+export type HttpApprovedEndpoints = ({
+  "endpoints"?: (Array<(HttpApprovedEndpoints_ApprovedEndpoint)>);
+});
+
 export type HttpArtifactPullRequest = ({
   "ref": (string);
   "unpinned_acknowledged"?: (boolean);
@@ -5997,8 +6031,9 @@ export type HttpCreateProjectInviteRequest = ({
 });
 
 export type HttpCreateProjectRequest = ({
-  "name": (string);
-  "sensitive"?: (boolean);
+  "allowed_services"?: ("this_machine_only" | "approved_services" | "all_services") & (string);
+  "name"?: (string);
+  "usage_data_sharing"?: ("inherit" | "on" | "off") & (string);
 });
 
 type HttpDiagnosticBundleResult_JsonValue = JsonValue;
@@ -11909,12 +11944,14 @@ export type HttpProfilePatchRequest = ({
 });
 
 export type HttpProject = ({
+  "allowed_services": ("this_machine_only" | "approved_services" | "all_services") & (string);
   "archived"?: (boolean);
   "description": (string);
   "id": (string);
   "name": (string);
   "sensitive": (boolean);
   "starred"?: (boolean);
+  "usage_data_sharing": ("inherit" | "on" | "off") & (string);
 });
 
 type HttpProjectAttemptsPage_JsonValue = JsonValue;
@@ -12294,6 +12331,7 @@ export type HttpProjectLineageResponse = ({
 });
 
 type HttpProjectList_ProjectListItem = ({
+  "allowed_services": ("this_machine_only" | "approved_services" | "all_services") & (string);
   "archived": (boolean);
   "description": (string);
   "id": (string);
@@ -13279,6 +13317,7 @@ type HttpRuntimeConfigResponse_OIDCAuthMethod = ({
 export type HttpRuntimeConfigResponse = ({
   "allowance_editable": (boolean);
   "allowance_usd": (string);
+  "allowed_services_offered": (Array<("this_machine_only" | "approved_services" | "all_services") & (string)>);
   "auth_methods": (HttpRuntimeConfigResponse_AuthMethods);
   "cache_mode": ("replay" | "fresh" | "replay_strict" | "off") & (string);
   "cache_mode_editable": (boolean);
@@ -15201,6 +15240,11 @@ export type HttpTranslateComparisonResponse = ({
 })>);
 });
 
+export type HttpUpdateProjectAllowedServicesRequest = ({
+  "allowed_services": ("this_machine_only" | "approved_services" | "all_services") & (string);
+  "confirm_allowed_services"?: ((("this_machine_only" | "approved_services" | "all_services") & (string)) | ((null)));
+});
+
 export type HttpUpdateProjectRequest = ({
   "archived"?: (((boolean)) | ((null)));
   "description"?: (((string)) | ((null)));
@@ -16956,6 +17000,7 @@ export type HttpContractOperationMap = {
     readonly request: HttpCreateProjectRequest;
     readonly responses: {
       readonly "200": HttpProject;
+      readonly "400": HttpError;
       readonly "401": HttpError;
       readonly "422": HttpError;
       readonly "500": HttpError;
@@ -18392,6 +18437,16 @@ export type HttpContractOperationMap = {
       readonly "500": HttpError;
     };
   };
+  readonly "tenant.list_approved_endpoints.get": {
+    readonly pathParams: HttpInline_d746974fa9afd5e9;
+    readonly query: HttpInline_d746974fa9afd5e9;
+    readonly request: undefined;
+    readonly responses: {
+      readonly "200": HttpApprovedEndpoints;
+      readonly "409": HttpError;
+      readonly "500": HttpError;
+    };
+  };
   readonly "tenant.list_column_types.get": {
     readonly pathParams: HttpInline_d746974fa9afd5e9;
     readonly query: HttpInline_d746974fa9afd5e9;
@@ -19267,6 +19322,16 @@ export type HttpContractOperationMap = {
       readonly "503": HttpError;
     };
   };
+  readonly "tenant.replace_approved_endpoints.put": {
+    readonly pathParams: HttpInline_d746974fa9afd5e9;
+    readonly query: HttpInline_d746974fa9afd5e9;
+    readonly request: HttpApprovedEndpoints;
+    readonly responses: {
+      readonly "200": HttpApprovedEndpoints;
+      readonly "422": HttpError;
+      readonly "500": HttpError;
+    };
+  };
   readonly "tenant.replace_rules_preview.post": {
     readonly pathParams: HttpInline_87cacc773db826e7;
     readonly query: HttpInline_d746974fa9afd5e9;
@@ -20050,6 +20115,20 @@ export type HttpContractOperationMap = {
       readonly "403": HttpError;
       readonly "404": HttpError;
       readonly "409": HttpError;
+      readonly "422": HttpError;
+      readonly "500": HttpError;
+    };
+  };
+  readonly "tenant.update_project_allowed_services.patch": {
+    readonly pathParams: HttpInline_87cacc773db826e7;
+    readonly query: HttpInline_d746974fa9afd5e9;
+    readonly request: HttpUpdateProjectAllowedServicesRequest;
+    readonly responses: {
+      readonly "200": HttpProject;
+      readonly "400": HttpError;
+      readonly "401": HttpError;
+      readonly "403": HttpError;
+      readonly "404": HttpError;
       readonly "422": HttpError;
       readonly "500": HttpError;
     };

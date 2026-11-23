@@ -96,7 +96,7 @@ def register_product_telemetry_routes(
     )
     def project_event(pid: str, body: ProductTelemetryRequest) -> Response:
         project = workspace.get(pid)
-        if not project.project_metadata()["sensitive"]:
+        if project.shares_usage_data(workspace_shares=runtime.available):
             kind = project.get_meta("project_kind")
             accept(
                 body, "project", kind if kind in {"sample", "regular"} else "unknown"

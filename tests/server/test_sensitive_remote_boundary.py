@@ -9,11 +9,10 @@ def test_sensitive_project_flag_is_read_only_from_general_settings(client) -> No
     # `model_config = ConfigDict(extra="forbid")`, so a `sensitive` key in the
     # PATCH body is rejected outright (422) rather than silently dropped — a
     # strictly stronger enforcement of the same boundary this test pins.
-    pid = client.post("/api/projects", json={"name": "Sensitive"}).json()["id"]
+    pid = client.post(
+        "/api/projects", json={"name": "Sensitive", "usage_data_sharing": "off"}
+    ).json()["id"]
     manifest_path = client.app.state.workspace.root / f"{pid}.frisket" / "manifest.json"
-    manifest = json.loads(manifest_path.read_text())
-    manifest["sensitive"] = True
-    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
 
     response = client.patch(
         f"/api/projects/{pid}",

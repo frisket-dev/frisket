@@ -15,6 +15,20 @@ from typing import Any
 
 from filelock import FileLock
 
+from frisket.project_settings import (
+    DEFAULT_USAGE_DATA_SHARING as DEFAULT_USAGE_DATA_SHARING,
+    USAGE_DATA_SHARING_VALUES,
+    UsageDataSharing,
+)
+from frisket.service_access import (
+    ALLOWED_SERVICES_LABELS,
+    ALLOWED_SERVICES_VALUES,
+    DEFAULT_ALLOWED_SERVICES,
+    AllowedServices,
+    is_looser,
+)
+
+from .change_log import append_change_in_transaction
 from .schema import FORMAT_VERSION
 from .transactions import write_transaction
 
@@ -29,6 +43,15 @@ NETWORK_POLICY_META_KEY = "network_policy"
 
 
 STORAGE_ID_META_KEY = "storage_id"
+
+
+ALLOWED_SERVICES_META_KEY = "allowed_services"
+# An unreadable stored value reads as the strictest choice and is never
+# written back, so a damaged setting cannot quietly open the project up.
+UNREADABLE_ALLOWED_SERVICES: AllowedServices = "this_machine_only"
+ALLOWED_SERVICES_CHANGE_KIND = "allowed_services"
+
+USAGE_DATA_SHARING_META_KEY = "usage_data_sharing"
 
 
 SUPPORTED_RETENTION_VALUES = ("compactable", "pinned", "materialized")
@@ -181,9 +204,11 @@ def _write_manifest(project: Any, **updates: Any) -> None:
             # then written back into the control plane's projects.sensitive,
             # turning a lost manifest into a durably wrong record of which
             # projects are protected.
-            stored_sensitive = project.get_meta("sensitive")
-            if stored_sensitive is not None:
-                manifest["sensitive"] = stored_sensitive == "true"
+            manifest["sensitive"] = usage_data_sharing(project) == "off"
+        if USAGE_DATA_SHARING_META_KEY not in manifest:
+            manifest[USAGE_DATA_SHARING_META_KEY] = usage_data_sharing(project)
+        if ALLOWED_SERVICES_META_KEY not in manifest:
+            manifest[ALLOWED_SERVICES_META_KEY] = allowed_services(project)
         write_manifest_atomically(project.path, manifest)
 
 
@@ -221,11 +246,11 @@ def project_metadata(project: Any) -> dict[str, Any]:
         "description": str(
             manifest.get("description") or project.get_meta("description", "") or ""
         ),
-        "sensitive": bool(
-            manifest.get("sensitive")
-            if "sensitive" in manifest
-            else project.get_meta("sensitive", "false") == "true"
-        ),
+        # ``sensitive`` is the projection of usage-data sharing that Team's
+        # control plane and older readers of the manifest key on.
+        "sensitive": usage_data_sharing(project) == "off",
+        "usage_data_sharing": usage_data_sharing(project),
+        "allowed_services": allowed_services(project),
         # Shell/Home project flags: additive manifest booleans, default
         # False on legacy bundles that never wrote them.
         "starred": bool(manifest.get("starred", False)),
@@ -256,6 +281,8 @@ def set_project_metadata(
         name=next_name,
         description=next_description,
         sensitive=bool(current["sensitive"]),
+        usage_data_sharing=current["usage_data_sharing"],
+        allowed_services=current["allowed_services"],
         starred=next_starred,
         archived=next_archived,
         retention=project.retention_policy(),
@@ -263,12 +290,92 @@ def set_project_metadata(
     return project.project_metadata()
 
 
-def set_project_sensitivity(project: Any, sensitive: bool) -> dict[str, Any]:
-    """Persist the explicit project-level automated-egress safety flag."""
-    if not isinstance(sensitive, bool):
-        raise TypeError("sensitive must be a boolean")
-    project.set_meta("sensitive", "true" if sensitive else "false")
-    project._write_manifest(sensitive=sensitive)
+def usage_data_sharing(project: Any) -> UsageDataSharing:
+    """The project's usage-data override; an unreadable value shares nothing."""
+    stored = project.get_meta(USAGE_DATA_SHARING_META_KEY)
+    for value in USAGE_DATA_SHARING_VALUES:
+        if stored == value:
+            return value
+    return "off"
+
+
+def shares_usage_data(project: Any, *, workspace_shares: bool) -> bool:
+    """The effective value: the project's override, else the workspace's."""
+    override = usage_data_sharing(project)
+    if override == "inherit":
+        return workspace_shares
+    return override == "on"
+
+
+def set_usage_data_sharing(project: Any, value: UsageDataSharing) -> dict[str, Any]:
+    """Persist the usage-data override and its manifest projection."""
+    if value not in USAGE_DATA_SHARING_VALUES:
+        raise ValueError(f"unsupported usage_data_sharing: {value!r}")
+    project.set_meta(USAGE_DATA_SHARING_META_KEY, value)
+    project._write_manifest(usage_data_sharing=value, sensitive=value == "off")
+    return project.project_metadata()
+
+
+def allowed_services(project: Any) -> AllowedServices:
+    """The project's Allowed services setting; absent means All services."""
+    stored = project.get_meta(ALLOWED_SERVICES_META_KEY)
+    if stored is None:
+        return DEFAULT_ALLOWED_SERVICES
+    for value in ALLOWED_SERVICES_VALUES:
+        if stored == value:
+            return value
+    return UNREADABLE_ALLOWED_SERVICES
+
+
+class AllowedServicesConfirmationRequired(ValueError):
+    """A looser Allowed services value was requested without confirming it."""
+
+    def __init__(self, current: AllowedServices, requested: AllowedServices) -> None:
+        super().__init__(
+            f"Changing Allowed services from {ALLOWED_SERVICES_LABELS[current]} to "
+            f"{ALLOWED_SERVICES_LABELS[requested]} lets Frisket use more services; "
+            f"confirm by sending confirm_allowed_services={requested!r}."
+        )
+        self.current = current
+        self.requested = requested
+
+
+def set_allowed_services(
+    project: Any,
+    requested: AllowedServices,
+    *,
+    confirm_allowed_services: AllowedServices | None,
+) -> dict[str, Any]:
+    """Change the project's Allowed services setting.
+
+    A stricter value takes effect at once. A looser one needs the request to
+    name that value again in ``confirm_allowed_services`` and leaves an entry
+    in the project's history; it changes no data, so Undo passes over it.
+    """
+    if requested not in ALLOWED_SERVICES_VALUES:
+        raise ValueError(f"unsupported allowed_services: {requested!r}")
+    current = allowed_services(project)
+    looser = is_looser(current, requested)
+    if looser and confirm_allowed_services != requested:
+        raise AllowedServicesConfirmationRequired(current, requested)
+    if requested != current:
+        with write_transaction(project.db, what="project allowed services"):
+            project.db.execute(
+                "INSERT INTO meta (key, value) VALUES (?, ?) "
+                "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+                (ALLOWED_SERVICES_META_KEY, requested),
+            )
+            if looser:
+                append_change_in_transaction(
+                    project,
+                    ALLOWED_SERVICES_CHANGE_KIND,
+                    {"from": current, "to": requested},
+                    label=(
+                        f"Allowed services: {ALLOWED_SERVICES_LABELS[current]} to "
+                        f"{ALLOWED_SERVICES_LABELS[requested]}"
+                    ),
+                )
+        project._write_manifest(allowed_services=requested)
     return project.project_metadata()
 
 
@@ -387,6 +494,16 @@ def effective_network_policy(project: Any) -> str:
     if policy["mode"] in ("on", "off"):
         return str(policy["mode"])
     return str(policy["organization_default"] or "on")
+
+
+def remote_services_refused(project: Any) -> bool:
+    """Whether the project refuses services beyond this machine and approved
+    endpoints: its network setting is off, or Allowed services is not All
+    services. Sites with no destination to classify read this."""
+    return (
+        effective_network_policy(project) == "off"
+        or allowed_services(project) != "all_services"
+    )
 
 
 def _read_manifest(project: Any) -> dict[str, Any]:

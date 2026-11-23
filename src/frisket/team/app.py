@@ -39,6 +39,7 @@ from frisket.contracts.http.project_collaboration import (
     ProjectMemberSet,
     SetProjectMemberRequest,
 )
+from frisket.contracts.http.models import UpdateProjectUsageDataSharingRequest
 from frisket.contracts.http.project_config import (
     ProjectNetworkRequest,
     ProjectNetworkResponse,
@@ -611,12 +612,14 @@ def _complete_project_intent(
             made = workspace.create(
                 str(intent.name),
                 project_id=slug,
-                sensitive=requested_sensitive,
+                usage_data_sharing="off" if requested_sensitive else "inherit",
             )
         else:
             project = workspace.get(slug)
             if project.project_metadata()["sensitive"] != requested_sensitive:
-                project.set_project_sensitivity(requested_sensitive)
+                project.set_usage_data_sharing(
+                    "off" if requested_sensitive else "inherit"
+                )
             made = project.project_metadata()
         exists = cx.execute(
             sa.select(projects.c.id).where(
@@ -1529,17 +1532,18 @@ def create_team_app(
             scratch.replace(receipt_path)
             return made
 
-    @app.patch("/api/projects/{pid}/sensitivity", name="update_project_sensitivity")
-    def update_project_sensitivity(
-        pid: str, request: Request, body: _Body
+    @app.patch(
+        "/api/projects/{pid}/usage-data-sharing",
+        name="update_project_usage_data_sharing",
+    )
+    def update_project_usage_data_sharing(
+        pid: str, request: Request, body: UpdateProjectUsageDataSharingRequest
     ) -> dict[str, Any]:
-        """Team twin of the core /sensitivity route: writes the control-plane
-        projects.sensitive AND the bundle in one step, exactly like the
-        /network twin below. Without the control-plane half, a project marked
-        sensitive after creation carried `projects.sensitive = false` forever
-        — intent completion and the hosted admin surfaces read that column, so
-        the record of which projects are protected disagreed with the bundle
-        the egress gate actually reads."""
+        """Team twin of the core /usage-data-sharing route: writes the
+        control-plane projects.sensitive ("off" means sensitive) AND the bundle
+        in one step, exactly like the /network twin below. Intent completion
+        and the admin surfaces read that column, so it must agree with the
+        bundle the telemetry routes read."""
         actor = require_user(request)
         if not access.can_on_project(organization_id, pid, int(actor["id"]), "owner"):
             raise HTTPException(403, "project owner required")
@@ -1550,19 +1554,19 @@ def create_team_app(
                     projects.c.organization_id == organization_id,
                     projects.c.slug == pid,
                 )
-                .values(sensitive=body.sensitive)
+                .values(sensitive=body.usage_data_sharing == "off")
             )
             if written.rowcount == 0:
                 raise HTTPException(404, f"no project '{pid}'")
-            updated = core.state.workspace.get(pid).set_project_sensitivity(
-                body.sensitive
+            updated = core.state.workspace.get(pid).set_usage_data_sharing(
+                body.usage_data_sharing
             )
             record_audit(
                 cx,
                 user_id=actor["id"],
                 organization_id=organization_id,
                 action="project_sensitivity_updated",
-                detail=f"{pid}:{str(body.sensitive).lower()}",
+                detail=f"{pid}:{body.usage_data_sharing}",
             )
         return updated
 

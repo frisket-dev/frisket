@@ -19,7 +19,18 @@ from frisket.ops.egress_policy import (
 )
 from frisket.provider_definitions import KeyScope, provider_definition, providers_for
 from frisket.project_identity import validate_project_slug
-from frisket.project_settings import patch_project_settings, read_project_settings
+from frisket.engine.store.project_meta import AllowedServicesConfirmationRequired
+from frisket.project_settings import (
+    USAGE_DATA_SHARING_VALUES,
+    UsageDataSharing,
+    patch_project_settings,
+    read_project_settings,
+)
+from frisket.service_access import (
+    ALLOWED_SERVICES_VALUES,
+    AllowedServices,
+    allowed_services_offered,
+)
 from frisket.retrieval.content import TextSliceSpec, TranscriptChunkRecipe
 from frisket.retrieval.media import (
     AudioWindowRecipe,
@@ -58,6 +69,37 @@ from frisket.authoring.workbench.plugin_runtime_status import (
 )
 
 LOG = logging.getLogger("frisket.server")
+
+
+UNTITLED_PROJECT_NAME = "Untitled project"
+PROJECT_CREATION_OPERATION_SCHEMA = "frisket.project_creation_operation.v4"
+_PREVIOUS_CREATION_OPERATION_SCHEMA = "frisket.project_creation_operation.v3"
+
+
+def _current_operation_record(record: object) -> object:
+    """Read an operation record written before creation carried both settings.
+
+    Its ``sensitive`` binding becomes the usage-data override the bundle was
+    upgraded to, and the project was created allowing all services.
+    """
+    if (
+        not isinstance(record, dict)
+        or record.get("schema_version") != _PREVIOUS_CREATION_OPERATION_SCHEMA
+        or not isinstance(record.get("project"), dict)
+    ):
+        return record
+    project = dict(record["project"])
+    sensitive = project.pop("sensitive", None)
+    if not isinstance(sensitive, bool):
+        return record
+    project["usage_data_sharing"] = "off" if sensitive else "inherit"
+    project["allowed_services"] = "all_services"
+    project["sensitive"] = sensitive
+    return {
+        **record,
+        "schema_version": PROJECT_CREATION_OPERATION_SCHEMA,
+        "project": project,
+    }
 
 
 class ProjectNotFound(LookupError):
@@ -324,15 +366,22 @@ class ProjectLifecycleService:
         self,
         name: str,
         *,
-        sensitive: bool = False,
+        allowed_services: AllowedServices,
+        usage_data_sharing: UsageDataSharing,
         idempotency_key: str | None = None,
         idempotency_scope: str | None = None,
     ) -> dict[str, Any]:
+        name = name.strip() or UNTITLED_PROJECT_NAME
+        self._require_offered(allowed_services)
         operation_key = (idempotency_key or "").strip()
         lock_path = self._workspace.root / ".project-creation-operations.lock"
         if not operation_key:
             with FileLock(str(lock_path), timeout=-1):
-                return self._workspace.create(name, sensitive=sensitive)
+                return self._workspace.create(
+                    name,
+                    allowed_services=allowed_services,
+                    usage_data_sharing=usage_data_sharing,
+                )
 
         actor_scope = (idempotency_scope or "").strip()
         operation_identity = (
@@ -379,8 +428,13 @@ class ProjectLifecycleService:
             current_description = (
                 manifest.get("description", "") if isinstance(manifest, dict) else None
             )
-            current_sensitive = (
-                manifest.get("sensitive") if isinstance(manifest, dict) else None
+            current_allowed = (
+                manifest.get("allowed_services") if isinstance(manifest, dict) else None
+            )
+            current_usage = (
+                manifest.get("usage_data_sharing")
+                if isinstance(manifest, dict)
+                else None
             )
             current_starred = (
                 manifest.get("starred", False) if isinstance(manifest, dict) else None
@@ -396,7 +450,8 @@ class ProjectLifecycleService:
                 or not storage_id.startswith("frisket.bundle.v1:")
                 or not isinstance(current_name, str)
                 or not isinstance(current_description, str)
-                or not isinstance(current_sensitive, bool)
+                or current_allowed not in ALLOWED_SERVICES_VALUES
+                or current_usage not in USAGE_DATA_SHARING_VALUES
                 or not isinstance(current_starred, bool)
                 or not isinstance(current_archived, bool)
             ):
@@ -406,7 +461,8 @@ class ProjectLifecycleService:
                 )
             if require_creation_match and (
                 current_name != project["name"]
-                or current_sensitive != project["sensitive"]
+                or current_allowed != project["allowed_services"]
+                or current_usage != project["usage_data_sharing"]
             ):
                 raise RouteError(
                     409,
@@ -416,7 +472,9 @@ class ProjectLifecycleService:
                 "id": project_id,
                 "name": current_name,
                 "description": current_description,
-                "sensitive": current_sensitive,
+                "sensitive": current_usage == "off",
+                "usage_data_sharing": current_usage,
+                "allowed_services": current_allowed,
                 "starred": current_starred,
                 "archived": current_archived,
             }
@@ -424,11 +482,13 @@ class ProjectLifecycleService:
         with FileLock(str(lock_path), timeout=-1):
             if operation_path.exists():
                 try:
-                    record = json.loads(operation_path.read_text())
+                    record = _current_operation_record(
+                        json.loads(operation_path.read_text())
+                    )
                     if (
                         not isinstance(record, dict)
                         or record.get("schema_version")
-                        != "frisket.project_creation_operation.v3"
+                        != PROJECT_CREATION_OPERATION_SCHEMA
                         or record.get("operation_identity_sha256") != operation_digest
                         or record.get("state") not in {"pending", "complete"}
                     ):
@@ -439,7 +499,10 @@ class ProjectLifecycleService:
                         or not isinstance(project.get("id"), str)
                         or not isinstance(project.get("name"), str)
                         or not isinstance(project.get("description"), str)
-                        or not isinstance(project.get("sensitive"), bool)
+                        or project.get("allowed_services")
+                        not in ALLOWED_SERVICES_VALUES
+                        or project.get("usage_data_sharing")
+                        not in USAGE_DATA_SHARING_VALUES
                     ):
                         raise ValueError("project binding is invalid")
                     project_id = validate_project_slug(project["id"])
@@ -456,7 +519,11 @@ class ProjectLifecycleService:
                     raise RuntimeError(
                         "project creation operation record is invalid"
                     ) from exc
-                if project["name"] != name or project["sensitive"] != sensitive:
+                if (
+                    project["name"] != name
+                    or project["allowed_services"] != allowed_services
+                    or project["usage_data_sharing"] != usage_data_sharing
+                ):
                     raise RouteError(
                         409,
                         "idempotency key was already used for a different "
@@ -492,7 +559,8 @@ class ProjectLifecycleService:
                     made = self._workspace.create(
                         project["name"],
                         project_id=project_id,
-                        sensitive=project["sensitive"],
+                        allowed_services=project["allowed_services"],
+                        usage_data_sharing=project["usage_data_sharing"],
                     )
                     if made["id"] != project_id:
                         raise RuntimeError(
@@ -535,10 +603,12 @@ class ProjectLifecycleService:
                 "id": project_id,
                 "name": name,
                 "description": "",
-                "sensitive": sensitive,
+                "sensitive": usage_data_sharing == "off",
+                "usage_data_sharing": usage_data_sharing,
+                "allowed_services": allowed_services,
             }
             record = {
-                "schema_version": "frisket.project_creation_operation.v3",
+                "schema_version": PROJECT_CREATION_OPERATION_SCHEMA,
                 "operation_identity_sha256": operation_digest,
                 "state": "pending",
                 "project": project,
@@ -547,7 +617,8 @@ class ProjectLifecycleService:
             made = self._workspace.create(
                 name,
                 project_id=project_id,
-                sensitive=sensitive,
+                allowed_services=allowed_services,
+                usage_data_sharing=usage_data_sharing,
             )
             if made["id"] != project_id:
                 raise RuntimeError("project creation operation changed identity")
@@ -586,11 +657,37 @@ class ProjectLifecycleService:
             archived=archived,
         )
 
-    def update_project_sensitivity(
-        self, project_id: str, *, sensitive: bool
+    def update_usage_data_sharing(
+        self, project_id: str, *, usage_data_sharing: UsageDataSharing
     ) -> dict[str, Any]:
         self._ensure_exists(project_id)
-        return self._workspace.get(project_id).set_project_sensitivity(sensitive)
+        return self._workspace.get(project_id).set_usage_data_sharing(
+            usage_data_sharing
+        )
+
+    def update_allowed_services(
+        self,
+        project_id: str,
+        *,
+        allowed_services: AllowedServices,
+        confirm_allowed_services: AllowedServices | None,
+    ) -> dict[str, Any]:
+        self._ensure_exists(project_id)
+        self._require_offered(allowed_services)
+        try:
+            return self._workspace.get(project_id).set_allowed_services(
+                allowed_services, confirm_allowed_services=confirm_allowed_services
+            )
+        except AllowedServicesConfirmationRequired as exc:
+            raise ProjectSettingsError(str(exc)) from exc
+
+    def _require_offered(self, allowed_services: AllowedServices) -> None:
+        if not allowed_services_offered(self._workspace.edition, allowed_services):
+            raise ProjectSettingsError(
+                "This machine only is not offered on Frisket Cloud: the project "
+                "already lives on Frisket's servers. Choose Approved services or "
+                "All services."
+            )
 
     def retention_policy(self, project_id: str) -> dict[str, Any]:
         self._ensure_exists(project_id)

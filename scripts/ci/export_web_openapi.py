@@ -881,6 +881,9 @@ CANONICAL_OPERATION_IDS: Mapping[RouteIdentity, str] = MappingProxyType(
         ("tenant", "update_project_settings", "PATCH"): (
             "tenant.update_project_settings.patch"
         ),
+        ("tenant", "update_project_allowed_services", "PATCH"): (
+            "tenant.update_project_allowed_services.patch"
+        ),
         ("tenant", "validate_project_provider_key", "POST"): (
             "tenant.validate_project_provider_key.post"
         ),
@@ -1023,6 +1026,12 @@ CANONICAL_OPERATION_IDS: Mapping[RouteIdentity, str] = MappingProxyType(
             "update_runtime_config",
             "PATCH",
         ): "tenant.update_runtime_config.patch",
+        ("tenant", "list_approved_endpoints", "GET"): (
+            "tenant.list_approved_endpoints.get"
+        ),
+        ("tenant", "replace_approved_endpoints", "PUT"): (
+            "tenant.replace_approved_endpoints.put"
+        ),
         ("outer", "instance_info", "GET"): "outer.instance_info.get",
         (
             "outer",
@@ -1072,14 +1081,14 @@ CANONICAL_OPERATION_IDS: Mapping[RouteIdentity, str] = MappingProxyType(
         ("tenant", "get_pdf_page_image", "GET"): "tenant.get_pdf_page_image.get",
         (
             "outer",
-            "update_project_sensitivity",
+            "update_project_usage_data_sharing",
             "PATCH",
-        ): "outer.update_project_sensitivity.patch",
+        ): "outer.update_project_usage_data_sharing.patch",
         (
             "tenant",
-            "update_project_sensitivity",
+            "update_project_usage_data_sharing",
             "PATCH",
-        ): "outer.update_project_sensitivity.patch",
+        ): "outer.update_project_usage_data_sharing.patch",
         ("tenant", "update_project_network", "PATCH"): (
             "outer.update_project_network.patch"
         ),

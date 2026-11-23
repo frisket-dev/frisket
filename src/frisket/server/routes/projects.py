@@ -15,8 +15,9 @@ from frisket.contracts.http.models import (
     Sheet,
     SheetDeleteResponse,
     SheetList,
+    UpdateProjectAllowedServicesRequest,
     UpdateProjectRequest,
-    UpdateProjectSensitivityRequest,
+    UpdateProjectUsageDataSharingRequest,
     UpdateSheetRequest,
 )
 from frisket.contracts.http.organization_providers import OrganizationProviderCatalog
@@ -81,7 +82,7 @@ def register_project_lifecycle_routes(
         "/api/projects",
         response_model=Project,
         response_model_exclude_unset=True,
-        responses=http_error_responses(401, 422, 500),
+        responses=http_error_responses(400, 401, 422, 500),
     )
     def create_project(request: Request, body: CreateProjectRequest) -> Project:
         reject_unknown_query_parameters(request, EmptyQuery)
@@ -90,7 +91,8 @@ def register_project_lifecycle_routes(
         return Project.model_validate(
             service.create_project(
                 body.name,
-                sensitive=body.sensitive,
+                allowed_services=body.allowed_services,
+                usage_data_sharing=body.usage_data_sharing,
                 idempotency_key=request.headers.get("idempotency-key"),
                 idempotency_scope=(
                     f"user:{int(actor_id)}" if actor_id is not None else None
@@ -136,16 +138,37 @@ def register_project_lifecycle_routes(
         )
 
     @app.patch(
-        "/api/projects/{pid}/sensitivity",
+        "/api/projects/{pid}/usage-data-sharing",
         response_model=Project,
         response_model_exclude_unset=True,
-        name="update_project_sensitivity",
+        name="update_project_usage_data_sharing",
+        responses=http_error_responses(401, 403, 404, 422, 500),
     )
-    def update_project_sensitivity(
-        pid: str, body: UpdateProjectSensitivityRequest
+    def update_project_usage_data_sharing(
+        pid: str, body: UpdateProjectUsageDataSharingRequest
     ) -> Project:
         return Project.model_validate(
-            service.update_project_sensitivity(pid, sensitive=body.sensitive)
+            service.update_usage_data_sharing(
+                pid, usage_data_sharing=body.usage_data_sharing
+            )
+        )
+
+    @app.patch(
+        "/api/projects/{pid}/allowed-services",
+        response_model=Project,
+        response_model_exclude_unset=True,
+        name="update_project_allowed_services",
+        responses=http_error_responses(400, 401, 403, 404, 422, 500),
+    )
+    def update_project_allowed_services(
+        pid: str, body: UpdateProjectAllowedServicesRequest
+    ) -> Project:
+        return Project.model_validate(
+            service.update_allowed_services(
+                pid,
+                allowed_services=body.allowed_services,
+                confirm_allowed_services=body.confirm_allowed_services,
+            )
         )
 
     @app.get(

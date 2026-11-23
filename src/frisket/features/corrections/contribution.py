@@ -33,7 +33,7 @@ class CorrectionContributor:
         if not self._enabled:
             return False
         project = self._project_lookup(project_id)
-        if project.project_metadata()["sensitive"]:
+        if not project.shares_usage_data(workspace_shares=self._enabled):
             return False
         self._sender.send({"pairs": pairs_factory()})
         return True

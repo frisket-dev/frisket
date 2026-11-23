@@ -446,6 +446,8 @@ def _case_local_team_surface(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) ->
         "tenant.set_provider_key.put",
         "tenant.uninstall_artifact.post",
         "tenant.update_runtime_config.patch",
+        "tenant.list_approved_endpoints.get",
+        "tenant.replace_approved_endpoints.put",
         "tenant.update_local_endpoint.patch",
         "tenant.validate_provider_key.post",
         *mcp_local_only,
@@ -895,10 +897,10 @@ def _case_canonical_id_integrity(
             "/api/projects/{pid}/blobs/{digest}",
         ),
         (
-            "update_project_sensitivity",
-            "update_project_sensitivity",
+            "update_project_usage_data_sharing",
+            "update_project_usage_data_sharing",
             "PATCH",
-            "/api/projects/{pid}/sensitivity",
+            "/api/projects/{pid}/usage-data-sharing",
         ),
     )
     alias_policies: list[EndpointPolicy] = []
@@ -919,7 +921,7 @@ def _case_canonical_id_integrity(
         policies=tuple(alias_policies),
     )
     assert _operation_ids(aliases) == {
-        "outer.update_project_sensitivity.patch",
+        "outer.update_project_usage_data_sharing.patch",
         "tenant.get_blob.get",
         "tenant.health.get",
         "tenant.runtime_config.get",

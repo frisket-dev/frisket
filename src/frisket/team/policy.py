@@ -141,7 +141,7 @@ def compile_team_policies(
             ("list_projects", "GET"),
             ("delete_project", "DELETE"),
             ("update_project_network", "PATCH"),
-            ("update_project_sensitivity", "PATCH"),
+            ("update_project_usage_data_sharing", "PATCH"),
         }
     )
     registered_by_identity: dict[tuple[str, str, str], tuple[str, str, str]] = {}

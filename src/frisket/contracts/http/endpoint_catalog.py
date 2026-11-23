@@ -269,6 +269,8 @@ _TENANT_LOCAL_PROVIDERS: tuple[RouteSpec, ...] = (
 
 _TENANT_LOCAL_RUNTIME_SETTINGS: tuple[RouteSpec, ...] = (
     ("update_runtime_config", "PATCH"),
+    ("list_approved_endpoints", "GET"),
+    ("replace_approved_endpoints", "PUT"),
 )
 
 _TENANT_LOCAL_CLOUD_CONNECTION: tuple[RouteSpec, ...] = (
@@ -513,12 +515,16 @@ _TENANT_REVIEWER: tuple[RouteSpec, ...] = (
 
 _TENANT_OWNER: tuple[RouteSpec, ...] = (
     (
-        "update_project_sensitivity",
+        "update_project_usage_data_sharing",
         "PATCH",
     ),
-    # The network off-switch is a safety policy, owner-level like sensitivity;
-    # the team app overrides it with a control-plane-syncing twin, same as
-    # sensitivity.
+    (
+        "update_project_allowed_services",
+        "PATCH",
+    ),
+    # The network off-switch is a safety policy, owner-level like usage-data
+    # sharing; the team app overrides it with a control-plane-syncing twin,
+    # same as usage-data sharing.
     (
         "update_project_network",
         "PATCH",
@@ -1084,6 +1090,7 @@ _BROWSER_CLIENT_IDS = (
             # The local policy owns browser membership; projection maps this
             # Team/local twin to outer.update_project_network.patch.
             "tenant.update_project_network.patch",
+            "tenant.update_project_allowed_services.patch",
             "tenant.update_project_retention.patch",
             "tenant.set_project_provider_key.post",
             "tenant.set_project_secret.post",

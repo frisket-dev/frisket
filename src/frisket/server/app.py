@@ -111,6 +111,7 @@ from frisket.server.routes.instance import (
     register_product_telemetry_routes,
 )
 from frisket.server.routes.runtime_config import register_runtime_config_routes
+from frisket.server.routes.approved_endpoints import register_approved_endpoint_routes
 from frisket.server.routes.skills import register_skill_routes
 from frisket.server.routes.notifications import register_notification_routes
 from frisket.server.routes.project_actions import (
@@ -1217,6 +1218,8 @@ def create_app(
         auth_methods=auth_methods,
         product_telemetry_available=app.state.product_telemetry.available,
     )
+    if edition == "solo" and enable_provider_config:
+        register_approved_endpoint_routes(app, workspace=ws)
 
     # Register the attempt receipt last among the API
     # routes: the route-order pins in tests/server/ form one unbroken
