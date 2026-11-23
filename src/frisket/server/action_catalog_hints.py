@@ -11,7 +11,7 @@ from typing import Any
 from frisket.ai.llm.model_catalog import MODEL_ENTRIES
 from frisket.ai.models.metadata import is_remote_provider
 from frisket.ops import ytdlp
-from frisket.service_access import ALLOWED_SERVICES_LABELS
+from frisket.service_access import ALLOWED_SERVICES_LABELS, SERVICE_NOT_ALLOWED
 from frisket.actions.system import root_action_catalog_payload
 from frisket.contracts.actions.schemas._engines import (
     CENSUS_ENGINE_TABLE,
@@ -846,7 +846,13 @@ def _apply_restricted_engine_hints(
     out: list[dict[str, Any]] = []
     for engine in engines:
         if engine.get("tier") == "remote" and engine.get("id") != "llm":
-            engine = {**engine, "available": False, "error": error}
+            # The code lets the web hide the engine rather than disable it.
+            engine = {
+                **engine,
+                "available": False,
+                "error": error,
+                "error_code": SERVICE_NOT_ALLOWED,
+            }
         out.append(engine)
     return out
 

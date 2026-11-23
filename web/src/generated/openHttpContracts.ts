@@ -346,6 +346,15 @@ export const HTTP_CONTRACT_ARTIFACT = {
       }
     },
     {
+      "id": "outer.update_project_usage_data_sharing.patch",
+      "method": "PATCH",
+      "path": "/api/projects/{pid}/usage-data-sharing",
+      "request": {
+        "mediaType": "application/json",
+        "required": true
+      }
+    },
+    {
       "id": "outer.validate_organization_key.post",
       "method": "POST",
       "path": "/api/organization/keys/validate",
@@ -4354,6 +4363,17 @@ export type HttpApiTokenRevokeResponse = ({
   "revoked": (boolean);
 });
 
+type HttpApprovedEndpointList_ApprovedEndpoint = ({
+  "host": (string);
+  "label"?: (string);
+  "port"?: (((number)) | ((null)));
+});
+
+export type HttpApprovedEndpointList = ({
+  "editable": (boolean);
+  "endpoints"?: (Array<(HttpApprovedEndpointList_ApprovedEndpoint)>);
+});
+
 type HttpApprovedEndpoints_ApprovedEndpoint = ({
   "host": (string);
   "label"?: (string);
@@ -6032,6 +6052,7 @@ export type HttpCreateProjectInviteRequest = ({
 
 export type HttpCreateProjectRequest = ({
   "allowed_services"?: ("this_machine_only" | "approved_services" | "all_services") & (string);
+  "cover_seed"?: (((string)) | ((null)));
   "name"?: (string);
   "usage_data_sharing"?: ("inherit" | "on" | "off") & (string);
 });
@@ -12000,6 +12021,7 @@ export type HttpProfilePatchRequest = ({
 export type HttpProject = ({
   "allowed_services": ("this_machine_only" | "approved_services" | "all_services") & (string);
   "archived"?: (boolean);
+  "cover_seed"?: (((string)) | ((null)));
   "description": (string);
   "id": (string);
   "name": (string);
@@ -12387,6 +12409,7 @@ export type HttpProjectLineageResponse = ({
 type HttpProjectList_ProjectListItem = ({
   "allowed_services": ("this_machine_only" | "approved_services" | "all_services") & (string);
   "archived": (boolean);
+  "cover_seed"?: (((string)) | ((null)));
   "description": (string);
   "id": (string);
   "name": (string);
@@ -15296,6 +15319,10 @@ export type HttpUpdateProjectRequest = ({
   "starred"?: (((boolean)) | ((null)));
 });
 
+export type HttpUpdateProjectUsageDataSharingRequest = ({
+  "usage_data_sharing": ("inherit" | "on" | "off") & (string);
+});
+
 export type HttpUpdateSheetRequest = ({
   "title_column_id"?: (((number)) | ((null)));
 });
@@ -16047,7 +16074,7 @@ export type HttpContractOperationMap = {
     readonly query: HttpInline_d746974fa9afd5e9;
     readonly request: undefined;
     readonly responses: {
-      readonly "200": HttpApprovedEndpoints;
+      readonly "200": HttpApprovedEndpointList;
       readonly "401": HttpError;
       readonly "403": HttpError;
       readonly "409": HttpError;
@@ -16323,6 +16350,19 @@ export type HttpContractOperationMap = {
       readonly "422": HttpError;
       readonly "500": HttpError;
       readonly "503": HttpError;
+    };
+  };
+  readonly "outer.update_project_usage_data_sharing.patch": {
+    readonly pathParams: HttpInline_87cacc773db826e7;
+    readonly query: HttpInline_d746974fa9afd5e9;
+    readonly request: HttpUpdateProjectUsageDataSharingRequest;
+    readonly responses: {
+      readonly "200": HttpProject;
+      readonly "401": HttpError;
+      readonly "403": HttpError;
+      readonly "404": HttpError;
+      readonly "422": HttpError;
+      readonly "500": HttpError;
     };
   };
   readonly "outer.validate_organization_key.post": {
@@ -18484,7 +18524,7 @@ export type HttpContractOperationMap = {
     readonly query: HttpInline_d746974fa9afd5e9;
     readonly request: undefined;
     readonly responses: {
-      readonly "200": HttpApprovedEndpoints;
+      readonly "200": HttpApprovedEndpointList;
       readonly "401": HttpError;
       readonly "403": HttpError;
       readonly "409": HttpError;

@@ -20,6 +20,7 @@ def test_project_metadata_settings_patch_updates_manifest(client) -> None:
         "sensitive": False,
         "usage_data_sharing": "inherit",
         "allowed_services": "all_services",
+        "cover_seed": None,
         "starred": False,
         "archived": False,
     }

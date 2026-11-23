@@ -875,9 +875,25 @@ def _selected_cloud_without_target(
     *,
     refusal: Refusal,
     cloud_setup: dict[str, Any] | None,
+    services_refusal: ServicesRefusal | None,
 ) -> _ExecutionPresentation:
-    """Keep an unavailable selected Cloud route from borrowing own-route UI."""
+    """Keep an unavailable selected Cloud route from borrowing own-route UI.
 
+    A Cloud route the project's settings refuse reads as that refusal, not as
+    Cloud setup the project could not use anyway.
+    """
+
+    if services_refusal is not None and services_refusal.forbids(_FRISKET_CLOUD_ROUTE):
+        return replace(
+            presentation,
+            resolved_target=None,
+            processing_destination={"kind": "unknown", "label": "Frisket Cloud"},
+            execution_route=None,
+            status="unavailable",
+            blocker=services_refusal.blocker(),
+            setup=None,
+            active_operation=None,
+        )
     return replace(
         presentation,
         resolved_target=None,

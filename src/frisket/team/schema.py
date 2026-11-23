@@ -277,6 +277,8 @@ project_creation_intents = sa.Table(
     # override derived from ``sensitive``.
     sa.Column("allowed_services", sa.String),
     sa.Column("usage_data_sharing", sa.String),
+    # The card cover's seed; NULL derives the cover from the project id.
+    sa.Column("cover_seed", sa.String),
     sa.Column(
         "created_at", sa.DateTime(timezone=True), default=lambda: datetime.now(UTC)
     ),

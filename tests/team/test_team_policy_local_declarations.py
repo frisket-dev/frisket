@@ -62,7 +62,7 @@ CROSS_OWNER_BASE_POLICY_FACTS = {
         "tenant.update_project_usage_data_sharing.patch",
         "tenant",
         "session_or_pat",
-        False,
+        True,
         False,
         "owner",
         (),

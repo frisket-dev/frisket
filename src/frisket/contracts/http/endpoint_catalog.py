@@ -1080,6 +1080,9 @@ _BROWSER_CLIENT_IDS = (
             "tenant.sheet_graph.get",
             "tenant.delete_sheet.delete",
             "tenant.update_project.patch",
+            # Projected to outer.update_project_usage_data_sharing.patch, the
+            # Team twin's operation.
+            "tenant.update_project_usage_data_sharing.patch",
             "tenant.update_project_allowed_services.patch",
             "tenant.update_project_retention.patch",
             "tenant.set_project_provider_key.post",

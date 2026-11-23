@@ -73,6 +73,7 @@ def test_project_lifecycle_routes_preserve_http_contract(tmp_path) -> None:
         "sensitive": False,
         "usage_data_sharing": "inherit",
         "allowed_services": "all_services",
+        "cover_seed": None,
     }
 
     listed = client.get("/api/projects")

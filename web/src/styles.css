@@ -97,6 +97,10 @@
   --preview-ink: #5b4b9a;
   --preview-muted: #8a7fb8;
   --preview-btn: #6d5bb8;
+  /* A selected choice card's fill: lighter than --accent-bg. */
+  --accent-tint: #f4f3fe;
+  /* The page dimmed behind a modal dialog. */
+  --scrim: rgba(33, 28, 25, 0.38);
 }
 
 :root[data-frisket-theme="dark"] {
@@ -152,6 +156,8 @@
   --preview-ink: #d4c8f6;
   --preview-muted: #a79cc8;
   --preview-btn: #9587d2;
+  --accent-tint: #24253f;
+  --scrim: rgba(0, 0, 0, 0.55);
 }
 
 * { box-sizing: border-box; }

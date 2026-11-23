@@ -4,10 +4,11 @@ import '@testing-library/jest-dom/vitest';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ProjectInfo } from '../../src/api/open';
+import type { CreateProjectInput } from '../../src/api/httpContractRoutes/projects';
 
 const { listProjects, createProject, deleteProject, seedSampleProject } = vi.hoisted(() => ({
   listProjects: vi.fn<() => Promise<ProjectInfo[]>>(),
-  createProject: vi.fn<(name: string) => Promise<ProjectInfo>>(),
+  createProject: vi.fn<(input: CreateProjectInput) => Promise<ProjectInfo>>(),
   deleteProject: vi.fn<() => Promise<void>>(),
   seedSampleProject: vi.fn<(projectId: string) => Promise<void>>(),
 }));

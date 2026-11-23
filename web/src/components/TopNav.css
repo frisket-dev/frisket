@@ -27,6 +27,18 @@
   white-space: nowrap;
 }
 .project-menu .brand-project > svg { flex-shrink: 0; }
+.project-services-state {
+  align-self: center;
+  flex: 0 0 auto;
+  margin-left: var(--space-6);
+  padding: 1px 8px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-999);
+  color: var(--text-mid);
+  font-size: var(--font-size-meta);
+  font-weight: 600;
+  white-space: nowrap;
+}
 
 .form-help { display: inline-flex; margin-top: 10px; font-size: var(--font-size-small); color: var(--accent); }
 

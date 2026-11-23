@@ -918,6 +918,7 @@ class SelectorChoiceService:
                         presentation,
                         refusal=outcome,
                         cloud_setup=cloud_setup,
+                        services_refusal=_services_refusal(project),
                     )
                     facts = []
                 elif selected_route == "cloud" and presentation.target is not None:
@@ -1546,6 +1547,7 @@ class SelectorChoiceService:
                         presentation,
                         refusal=outcome,
                         cloud_setup=cloud_setup,
+                        services_refusal=_services_refusal(project),
                     )
                 target = presentation.target
                 resolved_target = presentation.resolved_target

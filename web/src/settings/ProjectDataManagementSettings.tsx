@@ -13,6 +13,7 @@ import { canOwnProject, canReviewProject } from '../api/projectRole';
 import { PanelSelect, type PanelSelectOption } from '../components/PanelSelect';
 import { ConfirmTypeInput, PanelNotice } from '../components/PanelPrimitives';
 import { ProjectRetrievalSettings } from './ProjectRetrievalSettings';
+import { ProjectServiceSettings } from './ProjectServiceSettings';
 import { sendProductTelemetry } from '../telemetry/productTelemetry';
 import { useLoader } from '../hooks/useLoader';
 import { errorMessage } from '../hooks/errorMessage';
@@ -200,6 +201,7 @@ export function ProjectDataManagementSettings({ project }: { project?: ProjectIn
           </div>
         </section>
       )}
+      <ProjectServiceSettings canMutate={canMutate} />
       {projectSettings?.retrieval && (
         <ProjectRetrievalSettings
           settings={projectSettings.retrieval}

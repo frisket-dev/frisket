@@ -29,6 +29,8 @@ from frisket.service_access import (
     is_looser,
 )
 
+from frisket.project_cover import project_cover_seed
+
 from .change_log import append_change_in_transaction
 from .schema import FORMAT_VERSION
 from .transactions import write_transaction
@@ -205,6 +207,7 @@ def project_metadata(project: Any) -> dict[str, Any]:
         "sensitive": usage_data_sharing(project) == "off",
         "usage_data_sharing": usage_data_sharing(project),
         "allowed_services": allowed_services(project),
+        "cover_seed": project_cover_seed(project),
         # Shell/Home project flags: additive manifest booleans, default
         # False on legacy bundles that never wrote them.
         "starred": bool(manifest.get("starred", False)),

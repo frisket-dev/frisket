@@ -11,10 +11,11 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, HTTPException, Request
 
 from frisket.server.route_errors import http_error_responses, register_typed_error
 from frisket.service_access import (
+    ApprovedEndpointList,
     ApprovedEndpoints,
     InvalidApprovedEndpointsError,
     read_approved_endpoints,
@@ -46,15 +47,28 @@ def register_approved_endpoint_routes(
     require_reader, require_manager = access.require_reader, access.require_manager
     register_typed_error(app, InvalidApprovedEndpointsError, 409)
 
+    def may_manage(request: Request) -> bool:
+        """The rule the PUT enforces, asked rather than enforced."""
+        try:
+            require_manager(request)
+        except HTTPException as exc:
+            if exc.status_code == 403:
+                return False
+            raise
+        return True
+
     @app.get(
         path,
-        response_model=ApprovedEndpoints,
+        response_model=ApprovedEndpointList,
         name=f"list_{name_prefix}approved_endpoints",
         responses=http_error_responses(401, 403, 409, 500),
     )
-    def list_approved_endpoints(request: Request) -> ApprovedEndpoints:
+    def list_approved_endpoints(request: Request) -> ApprovedEndpointList:
         require_reader(request)
-        return ApprovedEndpoints(endpoints=read_approved_endpoints(workspace_root))
+        return ApprovedEndpointList(
+            endpoints=read_approved_endpoints(workspace_root),
+            editable=may_manage(request),
+        )
 
     @app.put(
         path,

@@ -51,7 +51,16 @@ from frisket.contracts.http.project_collaboration import (
     ProjectMemberSet,
     SetProjectMemberRequest,
 )
-from frisket.contracts.http.models import UpdateProjectUsageDataSharingRequest
+from frisket.project_cover import (
+    CoverSeed,
+    project_cover_seed,
+    readable_cover_seed,
+    write_cover_seed,
+)
+from frisket.contracts.http.models import (
+    Project,
+    UpdateProjectUsageDataSharingRequest,
+)
 from frisket.contracts.http.organization_operations import (
     OrganizationMediaProxyStatus,
 )
@@ -228,6 +237,7 @@ class _CreateProjectBody(BaseModel):
     name: str = ""
     allowed_services: AllowedServices | None = None
     usage_data_sharing: UsageDataSharing = DEFAULT_USAGE_DATA_SHARING
+    cover_seed: CoverSeed | None = None
 
 
 class _DeleteBody(BaseModel):
@@ -590,6 +600,7 @@ def _complete_project_intent(
         requested_usage = _intent_usage_data_sharing(intent)
         requested_allowed = _intent_allowed_services(intent)
         requested_sensitive = requested_usage == "off"
+        requested_seed = readable_cover_seed(intent.cover_seed)
         bundle = workspace.root / f"{slug}.frisket"
         if bundle.exists() and not _valid_project_bundle(bundle, slug=slug):
             quarantine = workspace.root / ".quarantine"
@@ -601,6 +612,7 @@ def _complete_project_intent(
                 project_id=slug,
                 allowed_services=requested_allowed,
                 usage_data_sharing=requested_usage,
+                cover_seed=requested_seed,
             )
         else:
             project = workspace.get(slug)
@@ -611,6 +623,10 @@ def _complete_project_intent(
                 project.set_allowed_services(
                     requested_allowed, confirm_allowed_services=requested_allowed
                 )
+            if requested_seed is not None and (
+                project_cover_seed(project) != requested_seed
+            ):
+                write_cover_seed(project, requested_seed)
             made = project.project_metadata()
         exists = cx.execute(
             sa.select(projects.c.id).where(
@@ -1440,6 +1456,7 @@ def create_team_app(
             or organization_allowed_services_default(),
             "usage_data_sharing": body.usage_data_sharing,
             "sensitive": body.usage_data_sharing == "off",
+            "cover_seed": body.cover_seed,
         }
         key = request.headers.get("idempotency-key", "").strip()
         if not key:
@@ -1479,6 +1496,7 @@ def create_team_app(
                         "off" if receipt["sensitive"] else "inherit",
                     ),
                     "sensitive": receipt["sensitive"],
+                    "cover_seed": readable_cover_seed(receipt.get("cover_seed")),
                 }
                 if receipt["name"] != name or recorded != choices:
                     raise HTTPException(
@@ -1522,6 +1540,7 @@ def create_team_app(
                             allowed_services=receipt["allowed_services"],
                             usage_data_sharing=receipt["usage_data_sharing"],
                             sensitive=receipt["sensitive"],
+                            cover_seed=receipt["cover_seed"],
                         )
                     )
             if registered is not None and not access.can_on_project(
@@ -1553,10 +1572,13 @@ def create_team_app(
     @app.patch(
         "/api/projects/{pid}/usage-data-sharing",
         name="update_project_usage_data_sharing",
+        response_model=Project,
+        response_model_exclude_unset=True,
+        responses=http_error_responses(401, 403, 404, 422, 500),
     )
     def update_project_usage_data_sharing(
         pid: str, request: Request, body: UpdateProjectUsageDataSharingRequest
-    ) -> dict[str, Any]:
+    ) -> Project:
         """Team twin of the core /usage-data-sharing route: writes the
         control-plane projects.sensitive ("off" means sensitive) AND the bundle
         in one step. Intent completion
@@ -1586,7 +1608,7 @@ def create_team_app(
                 action="project_sensitivity_updated",
                 detail=f"{pid}:{body.usage_data_sharing}",
             )
-        return updated
+        return Project.model_validate(updated)
 
     @app.delete("/api/projects/{pid}", name="delete_project")
     def delete_project(pid: str, request: Request, body: _DeleteBody) -> dict[str, Any]:

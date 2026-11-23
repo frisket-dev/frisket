@@ -111,7 +111,10 @@ def test_cloud_does_not_offer_this_machine_only(tmp_path) -> None:
 
 def test_approved_endpoints_round_trip_and_start_empty(tmp_path) -> None:
     client = TestClient(create_app(tmp_path / "workspace"))
-    assert client.get("/api/approved-endpoints").json() == {"endpoints": []}
+    assert client.get("/api/approved-endpoints").json() == {
+        "endpoints": [],
+        "editable": True,
+    }
     saved = client.put(
         "/api/approved-endpoints",
         json={
@@ -124,7 +127,8 @@ def test_approved_endpoints_round_trip_and_start_empty(tmp_path) -> None:
     assert client.get("/api/approved-endpoints").json() == {
         "endpoints": [
             {"host": "llm.newsroom.example.test", "port": 443, "label": "Newsroom"}
-        ]
+        ],
+        "editable": True,
     }
     bad = client.put(
         "/api/approved-endpoints",

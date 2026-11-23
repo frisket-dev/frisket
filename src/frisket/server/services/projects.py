@@ -20,6 +20,7 @@ from frisket.ops.egress_policy import (
 from frisket.provider_definitions import KeyScope, provider_definition, providers_for
 from frisket.project_identity import validate_project_slug
 from frisket.engine.store.project_meta import AllowedServicesConfirmationRequired
+from frisket.project_cover import readable_cover_seed
 from frisket.project_settings import (
     USAGE_DATA_SHARING_VALUES,
     UsageDataSharing,
@@ -349,6 +350,7 @@ class ProjectLifecycleService:
         *,
         allowed_services: AllowedServices,
         usage_data_sharing: UsageDataSharing,
+        cover_seed: str | None,
         idempotency_key: str | None = None,
         idempotency_scope: str | None = None,
     ) -> dict[str, Any]:
@@ -362,6 +364,7 @@ class ProjectLifecycleService:
                     name,
                     allowed_services=allowed_services,
                     usage_data_sharing=usage_data_sharing,
+                    cover_seed=cover_seed,
                 )
 
         actor_scope = (idempotency_scope or "").strip()
@@ -447,6 +450,7 @@ class ProjectLifecycleService:
                 current_name != project["name"]
                 or current_allowed != project["allowed_services"]
                 or current_usage != project["usage_data_sharing"]
+                or settings["cover_seed"] != project.get("cover_seed")
             ):
                 raise RouteError(
                     409,
@@ -459,6 +463,7 @@ class ProjectLifecycleService:
                 "sensitive": current_usage == "off",
                 "usage_data_sharing": current_usage,
                 "allowed_services": current_allowed,
+                "cover_seed": settings["cover_seed"],
                 "starred": current_starred,
                 "archived": current_archived,
             }
@@ -487,6 +492,8 @@ class ProjectLifecycleService:
                         not in ALLOWED_SERVICES_VALUES
                         or project.get("usage_data_sharing")
                         not in USAGE_DATA_SHARING_VALUES
+                        or readable_cover_seed(project.get("cover_seed"))
+                        != project.get("cover_seed")
                     ):
                         raise ValueError("project binding is invalid")
                     project_id = validate_project_slug(project["id"])
@@ -507,6 +514,8 @@ class ProjectLifecycleService:
                     project["name"] != name
                     or project["allowed_services"] != allowed_services
                     or project["usage_data_sharing"] != usage_data_sharing
+                    # A record written before seeds existed binds no seed.
+                    or project.get("cover_seed") != cover_seed
                 ):
                     raise RouteError(
                         409,
@@ -542,6 +551,7 @@ class ProjectLifecycleService:
                         project_id=project_id,
                         allowed_services=project["allowed_services"],
                         usage_data_sharing=project["usage_data_sharing"],
+                        cover_seed=project.get("cover_seed"),
                     )
                     if made["id"] != project_id:
                         raise RuntimeError(
@@ -588,6 +598,7 @@ class ProjectLifecycleService:
                 "sensitive": usage_data_sharing == "off",
                 "usage_data_sharing": usage_data_sharing,
                 "allowed_services": allowed_services,
+                "cover_seed": cover_seed,
             }
             record = {
                 "schema_version": PROJECT_CREATION_OPERATION_SCHEMA,
@@ -601,6 +612,7 @@ class ProjectLifecycleService:
                 project_id=project_id,
                 allowed_services=allowed_services,
                 usage_data_sharing=usage_data_sharing,
+                cover_seed=cover_seed,
             )
             if made["id"] != project_id:
                 raise RuntimeError("project creation operation changed identity")
