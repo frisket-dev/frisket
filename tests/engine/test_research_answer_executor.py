@@ -20,7 +20,7 @@ from executor_harness import (
 from frisket.ai.llm import LLMError, LLMRequest, LLMResponse, ModelRouter
 from frisket.ai.llm.adapters import OpenAICompatAdapter
 from frisket.ai.llm.endpoint_config import LocalModelEndpointConfig
-from frisket.ai.llm.pricing import cost_of_with_source
+from frisket.ai.llm.pricing import cost_with_pricing, model_pricing, ModelPricing
 from frisket.ai.research.search import (
     SearchHit,
     SearchProviderError,
@@ -131,13 +131,13 @@ class _PricedResearchAdapter(OpenAICompatAdapter):
         self.requests: list[LLMRequest] = []
 
     async def complete(  # noqa: ANN001
-        self, req: LLMRequest, client, *, cost_model: str | None = None
+        self, req: LLMRequest, client, *, cost_pricing: ModelPricing | None = None
     ) -> LLMResponse:
         del client
         self.requests.append(req)
         call_number = len(self.requests)
-        cost, cost_source = cost_of_with_source(
-            cost_model or req.model,
+        cost, cost_source = cost_with_pricing(
+            cost_pricing or model_pricing(req.model),
             90 + call_number,
             12,
         )

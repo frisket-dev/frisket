@@ -61,6 +61,8 @@ function localEndpoint(overrides: Partial<LocalHttpEndpointEntry> = {}): LocalHt
     provisioning_token_configured: false,
     edge_auth: false,
     pull_enabled: true,
+    local: true,
+    configured_models: [],
     ...overrides,
   };
 }

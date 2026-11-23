@@ -1350,7 +1350,12 @@ def _model_target(provider: Mapping[str, Any]) -> tuple[dict[str, Any], dict[str
     if provider.get("kind") == "local_http":
         return (
             {"target_id": identity, "operator": None, "egress_class": None},
-            {"kind": "unknown", "label": "Configured model server"},
+            {
+                "kind": "unknown",
+                "label": "On this device"
+                if provider.get("local") is True
+                else f"Sends data to {provider.get('label') or identity}",
+            },
         )
     return (
         {

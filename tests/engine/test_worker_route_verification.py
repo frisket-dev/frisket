@@ -1668,7 +1668,9 @@ def test_remote_api_cost_approval_does_not_lock_the_old_rate(
     # Cloud request admission checks the current available balance separately.
     from frisket.ai.llm import pricing
 
-    monkeypatch.setattr(pricing, "audio_price", lambda model: {"per_second": 0.01})
+    monkeypatch.setattr(
+        pricing, "audio_price", lambda model, model_servers=(): {"per_second": 0.01}
+    )
     verify_execution_route(
         project,
         run_id,

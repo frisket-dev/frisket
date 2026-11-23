@@ -130,6 +130,7 @@ async def _transcribe_probe(
         _adapters = {
             "openai": SimpleNamespace(base_url="https://example.test", api_key="secret")
         }
+        local_endpoints = ()
 
         def credential_source_for(self, _provider):
             return "org_byok"

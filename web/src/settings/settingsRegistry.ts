@@ -118,7 +118,7 @@ export const SETTINGS_SECTIONS: readonly OpenSettingsSectionDefinition[] = [
     routePattern: globalRoute('personal', 'ai-providers'),
     title: 'AI Providers',
     navGroup: 'Personal',
-    searchLabels: ['ai providers', 'provider keys', 'models', 'ollama', 'lm studio', 'local server', 'api keys'],
+    searchLabels: ['ai providers', 'provider keys', 'models', 'ollama', 'lm studio', 'model server', 'local server', 'api keys'],
     visibility: 'local-only',
     permission: 'personal',
     component: 'personal.aiProviders',

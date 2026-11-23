@@ -1017,7 +1017,7 @@ def test_remote_engine_routes_qualified_local_model_and_records_local_facts(
             LocalModelEndpointConfig(
                 endpoint_id="studio",
                 display_name="Studio",
-                origin="https://studio.example.test",
+                origin="http://127.0.0.1:8001",
                 source="local_file",
                 inference_token=secret,
             ),
@@ -1056,7 +1056,7 @@ def test_remote_engine_routes_qualified_local_model_and_records_local_facts(
     )
 
     assert seen == {
-        "url": "https://studio.example.test/v1/audio/transcriptions",
+        "url": "http://127.0.0.1:8001/v1/audio/transcriptions",
         "auth": f"Bearer {secret}",
         "bare_model": True,
         "qualified_model": False,
@@ -1084,7 +1084,7 @@ def test_qualified_local_http_failure_still_records_known_zero(tmp_path) -> None
             LocalModelEndpointConfig(
                 endpoint_id="studio",
                 display_name="Studio",
-                origin="https://studio.example.test",
+                origin="http://127.0.0.1:8001",
                 source="local_file",
                 inference_token="local-token",
             ),

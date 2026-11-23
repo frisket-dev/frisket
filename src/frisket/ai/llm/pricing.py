@@ -6,11 +6,13 @@ table and OpenRouter's public model catalog. There is NO fallback price anywhere
 None ("don't know"), estimates surface it as unknown (the cost gate then
 demands explicit confirmation), and actuals never fabricate a number.
 
-Canonical ``ollama/@<endpoint>/<model>`` identities are the deliberate
-exception: Frisket sends no request through its provider credentials, so its
-provider cost is structurally known to be zero. This says nothing about the
-operator's hardware cost; access to operator-owned compute is an authorization
-concern, not a provider-pricing guess.
+Canonical ``ollama/@<endpoint>/<model>`` identities name a model server.
+Its terms come only from ``model_servers``, the configured servers of the
+workspace the call belongs to, passed by the caller. A server whose origin is
+this machine (loopback) is free: no request leaves the machine. Any other
+server may forward to a paid provider, so its models are unknown unless the
+person entered a price for the model; that entered price is the rate. A
+model server absent from ``model_servers`` is unknown, never free.
 """
 
 from __future__ import annotations
@@ -20,12 +22,16 @@ import logging
 import math
 from dataclasses import dataclass
 from pathlib import Path
+from collections.abc import Sequence
 from typing import Any, Literal
 
+from frisket.ai.llm.endpoint_config import LocalModelEndpointConfig
 from frisket.opendocrouter_catalog import parse_catalog, install_catalog
 from frisket.local_model_ids import bare_model_name, parse_local_model_id
 
 logger = logging.getLogger(__name__)
+
+ModelServers = Sequence[LocalModelEndpointConfig]
 
 _data = json.loads((Path(__file__).parent / "pricing_data.json").read_text())
 
@@ -104,18 +110,18 @@ def _pricing_key(model: str, catalog_key: str) -> str:
     return f"{provider}/{catalog_key}.tokens" if separator else f"{catalog_key}.tokens"
 
 
-def model_pricing(model: str) -> ModelPricing:
+def model_pricing(model: str, model_servers: ModelServers = ()) -> ModelPricing:
     """Return text rates and the fact that justifies them.
 
     Keep the discriminator beside the price lookup: downstream accounting must
     carry this value, never reconstruct provenance from a zero dollar amount.
     """
     try:
-        parse_local_model_id(model)
+        endpoint_id, server_model = parse_local_model_id(model)
     except ValueError:
         pass
     else:
-        return ModelPricing((0.0, 0.0), "free_local", None)
+        return _model_server_pricing(model, endpoint_id, server_model, model_servers)
     bare = bare_model_name(model)
     if model.partition("/")[0] == "openrouter":
         # OpenRouter suffixes select distinct variants whose rates can differ.
@@ -132,17 +138,63 @@ def model_pricing(model: str) -> ModelPricing:
     return ModelPricing(None, "unknown", None)
 
 
-def model_price(model: str) -> tuple[float, float] | None:
+def _model_server(
+    endpoint_id: str, model_servers: ModelServers
+) -> LocalModelEndpointConfig | None:
+    return next(
+        (server for server in model_servers if server.endpoint_id == endpoint_id),
+        None,
+    )
+
+
+def _model_server_pricing(
+    model: str, endpoint_id: str, server_model: str, model_servers: ModelServers
+) -> ModelPricing:
+    server = _model_server(endpoint_id, model_servers)
+    if server is None:
+        return ModelPricing(None, "unknown", None)
+    if server.on_this_machine:
+        return ModelPricing((0.0, 0.0), "free_local", None)
+    price = next(
+        (
+            entry.price
+            for entry in server.models
+            if entry.name == server_model and entry.price is not None
+        ),
+        None,
+    )
+    if price is None:
+        return ModelPricing(None, "unknown", None)
+    # An entered rate has no catalog row; its identity is its value, so a
+    # changed price is a different rate and voids consent given to the old one.
+    pin, pout = price
+    return ModelPricing(price, "pricing_data", f"{model}.tokens:{pin!r}/{pout!r}")
+
+
+def model_server_on_this_machine(model: str, model_servers: ModelServers) -> bool:
+    """Whether ``model`` names a model on a configured server at a loopback
+    origin."""
+    try:
+        endpoint_id, _server_model = parse_local_model_id(model)
+    except ValueError:
+        return False
+    server = _model_server(endpoint_id, model_servers)
+    return server is not None and server.on_this_machine
+
+
+def model_price(
+    model: str, model_servers: ModelServers = ()
+) -> tuple[float, float] | None:
     """(input $/M, output $/M) for a text model, or None when unknown."""
-    return model_pricing(model).price
+    return model_pricing(model, model_servers).price
 
 
-def model_cost_source(model: str) -> ModelCostSource:
+def model_cost_source(model: str, model_servers: ModelServers = ()) -> ModelCostSource:
     """Why a text model's provider cost is known, or ``unknown``."""
-    return model_pricing(model).cost_source
+    return model_pricing(model, model_servers).cost_source
 
 
-def audio_price(model: str) -> dict | None:
+def audio_price(model: str, model_servers: ModelServers = ()) -> dict | None:
     """Pricing entry for a speech model, or None when unknown — None means
     "don't know", and callers report exactly that, never a substitute."""
     try:
@@ -150,13 +202,21 @@ def audio_price(model: str) -> dict | None:
     except ValueError:
         pass
     else:
-        return {"per_second": 0.0}
+        return (
+            {"per_second": 0.0}
+            if model_server_on_this_machine(model, model_servers)
+            else None
+        )
     return AUDIO_PRICES.get(bare_model_name(model))
 
 
-def cost_of(model: str, tokens_in: int, tokens_out: int) -> float | None:
+def cost_of(
+    model: str, tokens_in: int, tokens_out: int, model_servers: ModelServers = ()
+) -> float | None:
     """Actual cost of a call, or None when the model is unpriced."""
-    cost, _source = cost_of_with_source(model, tokens_in, tokens_out)
+    cost, _source = cost_with_pricing(
+        model_pricing(model, model_servers), tokens_in, tokens_out
+    )
     return cost
 
 
@@ -164,7 +224,13 @@ def cost_of_with_source(
     model: str, tokens_in: int, tokens_out: int
 ) -> tuple[float | None, ModelCostSource]:
     """Actual text cost paired with its pricing provenance."""
-    pricing = model_pricing(model)
+    return cost_with_pricing(model_pricing(model), tokens_in, tokens_out)
+
+
+def cost_with_pricing(
+    pricing: ModelPricing, tokens_in: int, tokens_out: int
+) -> tuple[float | None, ModelCostSource]:
+    """Actual text cost under one already-resolved pricing."""
     if pricing.price is None:
         return None, pricing.cost_source
     pin, pout = pricing.price

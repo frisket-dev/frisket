@@ -18,6 +18,7 @@ from typing import Any
 import pytest
 
 from executor_harness import run_action_with_confirmation
+from frisket.ai.llm.pricing import ModelPricing
 from frisket.ai.llm import LLMRequest, LLMResponse, ModelRouter
 from frisket.ai.llm.endpoint_config import LocalModelEndpointConfig
 from frisket.ai.llm.adapters import OpenAICompatAdapter
@@ -40,9 +41,9 @@ class _CountingSummaryAdapter(OpenAICompatAdapter):
         self.requests: list[LLMRequest] = []
 
     async def complete(  # noqa: ANN001
-        self, req: LLMRequest, client, *, cost_model: str | None = None
+        self, req: LLMRequest, client, *, cost_pricing: ModelPricing | None = None
     ) -> LLMResponse:
-        del client, cost_model
+        del client, cost_pricing
         self.requests.append(req)
         prompt = str(req.messages[-1]["content"])
         summary = (

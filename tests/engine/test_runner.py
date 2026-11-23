@@ -24,7 +24,7 @@ from frisket.ai.llm import (
     request_key,
 )
 from frisket.ai.llm.endpoint_config import LocalModelEndpointConfig
-from frisket.ai.llm.pricing import cost_of_with_source
+from frisket.ai.llm.pricing import cost_with_pricing, model_pricing
 from frisket.ops.base import ActionContext, ActionProgram, RenderedCall
 from frisket.execution.dispatch_control import STANDALONE
 from frisket.ops.builtin import prompt_hash_of
@@ -1439,17 +1439,18 @@ class _ScriptedRowRepairAdapter:
     def __init__(self, outputs: list[dict]):
         self.outputs = outputs
         self.seen = []
-        self.seen_cost_models = []
+        self.seen_cost_sources = []
 
     async def complete(  # noqa: ANN001
-        self, request, client, *, cost_model=None, **kwargs
+        self, request, client, *, cost_pricing=None, **kwargs
     ):
         self.seen.append(request)
-        self.seen_cost_models.append(cost_model)
+        self.seen_cost_sources.append(
+            None if cost_pricing is None else cost_pricing.cost_source
+        )
         attempt = len(self.seen)
-        rated_model = cost_model or request.model
-        cost, cost_source = cost_of_with_source(
-            rated_model,
+        cost, cost_source = cost_with_pricing(
+            cost_pricing or model_pricing(request.model),
             attempt,
             attempt * 10,
         )
@@ -1511,14 +1512,14 @@ _REPAIR_CASES = [
         "ollama/@test-local/qwen3:0.6b",
         [0.0] * 4,
         "free_local",
-        "ollama/@test-local/qwen3:0.6b",
+        "free_local",
         id="canonical-ollama",
     ),
 ]
 
 
 @pytest.mark.parametrize(
-    ("model", "expected_costs", "expected_source", "expected_cost_model"),
+    ("model", "expected_costs", "expected_source", "expected_router_pricing"),
     _REPAIR_CASES,
 )
 def test_map_row_repairs_three_invalid_outputs_then_persists_fourth_success(
@@ -1526,7 +1527,7 @@ def test_map_row_repairs_three_invalid_outputs_then_persists_fourth_success(
     model,
     expected_costs,
     expected_source,
-    expected_cost_model,
+    expected_router_pricing,
 ):
     sheet, _ = seed_sheet(project, ["Ada Lovelace"])
     spec = classify_spec(sheet)
@@ -1555,7 +1556,7 @@ def test_map_row_repairs_three_invalid_outputs_then_persists_fourth_success(
     assert progress.completed == 1
     assert progress.failed == 0
     assert len(adapter.seen) == 4
-    assert adapter.seen_cost_models == [expected_cost_model] * 4
+    assert adapter.seen_cost_sources == [expected_router_pricing] * 4
 
     calls = [dict(row) for row in RunResultStore(project).model_calls(progress.run_id)]
     assert len(calls) == 4
@@ -1579,7 +1580,7 @@ def test_map_row_repairs_three_invalid_outputs_then_persists_fourth_success(
 
 
 @pytest.mark.parametrize(
-    ("model", "expected_costs", "expected_source", "expected_cost_model"),
+    ("model", "expected_costs", "expected_source", "expected_router_pricing"),
     _REPAIR_CASES,
 )
 def test_map_row_exhausts_after_exactly_three_repairs_and_keeps_accounting(
@@ -1587,7 +1588,7 @@ def test_map_row_exhausts_after_exactly_three_repairs_and_keeps_accounting(
     model,
     expected_costs,
     expected_source,
-    expected_cost_model,
+    expected_router_pricing,
 ):
     sheet, _ = seed_sheet(project, ["Ada Lovelace"])
     spec = classify_spec(sheet)
@@ -1618,7 +1619,7 @@ def test_map_row_exhausts_after_exactly_three_repairs_and_keeps_accounting(
     result = asyncio.run(run_row())
 
     assert len(adapter.seen) == 4
-    assert adapter.seen_cost_models == [expected_cost_model] * 4
+    assert adapter.seen_cost_sources == [expected_router_pricing] * 4
     cell = result["relevance"]
     assert cell["value"] is None
     assert cell["error_code"] == "invalid_output"

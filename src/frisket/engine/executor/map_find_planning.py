@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from frisket.ai.llm import estimate_tokens, model_pricing
+from frisket.ai.llm.pricing import ModelServers
 from frisket.ai.map.find_source import FindWindow, plan_find_windows
 from frisket.ai.vision.region_locator import (
     LocateRegionsRequest,
@@ -182,6 +183,7 @@ def _plan_hash_payload(plans: tuple[FindPlan, ...]) -> list[dict[str, Any]]:
 def estimate_find_scan_cost(
     params: FindOperation,
     plans: tuple[FindPlan, ...],
+    model_servers: ModelServers = (),
 ) -> dict[str, Any]:
     token_counts = [
         estimate_tokens(
@@ -199,7 +201,7 @@ def estimate_find_scan_cost(
         for plan in plans
     }
     estimated_output_tokens = len(source_rows) * _ESTIMATED_OUTPUT_TOKENS_PER_SOURCE_ROW
-    pricing = model_pricing(params.model)
+    pricing = model_pricing(params.model, model_servers)
     details: dict[str, Any] = {
         "rows": len(source_rows),
         "windows": len(plans),
@@ -230,6 +232,7 @@ def estimate_find_scan_cost(
 def _prepare_find_scan(
     project: Any,
     params: FindOperation,
+    model_servers: ModelServers = (),
 ) -> PreparedFindScan | ActionError:
     from frisket.engine.runner.confirmation_context import rate_estimate
     from frisket.execution.pricing_policy import default_pricing_policy
@@ -256,7 +259,8 @@ def _prepare_find_scan(
         return target
     plans = plan_find_scan(params, sources)
     estimate = rate_estimate(
-        estimate_find_scan_cost(params, plans), policy=default_pricing_policy()
+        estimate_find_scan_cost(params, plans, model_servers),
+        policy=default_pricing_policy(),
     )
     return PreparedFindScan(
         sources=sources,

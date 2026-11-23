@@ -645,6 +645,7 @@ class AttemptAuthority:
                     spec,
                     program=program,
                     scope_row_ids=estimated_scope,
+                    model_servers=self.composition.model_servers,
                 )
                 # ONE live recomputation of the neutral facts, then ONE
                 # candidate hash per consent — because the rated half is read
@@ -1233,6 +1234,7 @@ def admit_routed(
         funding=funding_for_cost_posture(route.cost_posture),
         offering=current_offering,
         hardware_class=str(binding.connection.extra.get("gpu") or "") or None,
+        model_servers=composition.model_servers,
     )
     evaluation = evaluate_set(promises, {**observed, "cost": cost_fact})
     consent_refusals: list[str] = []

@@ -11,7 +11,7 @@ from contextvars import ContextVar
 from typing import Any
 from dataclasses import asdict
 
-from frisket.ai.llm.pricing import cost_of, estimate_tokens
+from frisket.ai.llm.pricing import ModelServers, cost_of, estimate_tokens
 from frisket.ai.llm.types import LLMRequest, LLMResponse
 from frisket.ai.research.search import SearchService, SearchResponse
 from frisket.engine.store.project_qa_research import (
@@ -52,7 +52,9 @@ def payload_identity(value: Any) -> str:
     return hashlib.sha256(encoded.encode()).hexdigest()
 
 
-def model_estimate_micros(request: LLMRequest) -> int | None:
+def model_estimate_micros(
+    request: LLMRequest, model_servers: ModelServers
+) -> int | None:
     """Use the existing price catalog, including tool-schema input tokens.
 
     This is an estimate, not a provider-enforced charge ceiling. Settlement
@@ -66,7 +68,9 @@ def model_estimate_micros(request: LLMRequest) -> int | None:
         },
         ensure_ascii=False,
     )
-    price = cost_of(request.model, estimate_tokens(inputs), request.max_tokens)
+    price = cost_of(
+        request.model, estimate_tokens(inputs), request.max_tokens, model_servers
+    )
     return None if price is None else usd_to_micros(price)
 
 
@@ -79,9 +83,11 @@ class ResearchSession:
         research_id: str,
         *,
         authorize: Callable[[], None],
+        model_servers: ModelServers,
         context: Any = None,
     ) -> None:
         self.store = store
+        self.model_servers = model_servers
         self.id = research_id
         self.authorize = authorize
         self.context = context
@@ -307,7 +313,10 @@ class ResearchSession:
         while True:
             try:
                 await self.admit(
-                    operation_id, identity, "model", model_estimate_micros(request)
+                    operation_id,
+                    identity,
+                    "model",
+                    model_estimate_micros(request, self.model_servers),
                 )
                 break
             except ResearchPaused as paused:

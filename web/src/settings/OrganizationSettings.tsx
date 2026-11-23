@@ -273,7 +273,7 @@ function OrganizationModelPullDownload({
       {phase === 'confirm' ? (
         <div className="control-row">
           <p className="local-server-guidance-copy">
-            This may download several GB to the operator&rsquo;s local server.
+            This may download several GB to the operator&rsquo;s model server.
           </p>
           <Button
             type="button"

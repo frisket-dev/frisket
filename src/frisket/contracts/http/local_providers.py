@@ -36,6 +36,20 @@ class LocalEndpointCreateRequest(WireModel):
     pull_enabled: bool = False
 
 
+class ModelServerModelPrice(WireModel):
+    input: Annotated[float, Field(ge=0, allow_inf_nan=False)]
+    output: Annotated[float, Field(ge=0, allow_inf_nan=False)]
+
+
+class ModelServerModelEntry(WireModel):
+    """One model configured on a model server: typed by hand (``entered``) or
+    a listed model carrying a price. ``price`` is USD per million tokens."""
+
+    name: Annotated[str, nonblank("model name cannot be blank")]
+    entered: bool
+    price: ModelServerModelPrice | None
+
+
 class LocalEndpointPatchRequest(WireModel):
     model_config = ConfigDict(json_schema_extra={"minProperties": 1})
 
@@ -50,6 +64,7 @@ class LocalEndpointPatchRequest(WireModel):
     ] = None
     edge_auth: bool = False
     pull_enabled: bool = False
+    models: list[ModelServerModelEntry] = Field(default_factory=list)
 
     @model_validator(mode="after")
     def at_least_one_change(self) -> LocalEndpointPatchRequest:
@@ -95,6 +110,8 @@ class LocalProviderModel(WireModel):
     label: str
     price: LocalProviderPrice | None
     local: bool
+    # A model id typed by hand for a model server, not listed by it.
+    entered: bool = False
 
 
 class PlatformProvider(WireModel):
@@ -118,6 +135,8 @@ class LocalHttpEndpointProvider(WireModel):
     authority: Literal["instance", "organization"]
     source: Literal["stored", "environment"]
     detail: str | None
+    local: bool
+    configured_models: list[ModelServerModelEntry]
     installed_models: list[str] = Field(default_factory=list)
     protocol: Literal["ollama_native", "openai_compatible", "unknown"]
     auth_status: Literal["ok", "unauthorized", "unenforced", "unknown"]

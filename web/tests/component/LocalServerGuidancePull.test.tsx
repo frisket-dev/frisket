@@ -60,6 +60,8 @@ function entry(overrides: Partial<LocalHttpEndpointEntry>): LocalHttpEndpointEnt
     provisioning_token_configured: false,
     edge_auth: false,
     pull_enabled: false,
+    local: true,
+    configured_models: [],
     ...overrides,
   };
 }
