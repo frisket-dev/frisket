@@ -116,7 +116,6 @@ export function ProjectGeneralSettings({ project }: { project?: ProjectInfo | nu
         <div className="settings-meta-list">
           <div><dt>Project</dt><dd>{current?.name ?? '-'}</dd></div>
           <div><dt>Project ID</dt><dd>{current?.id ?? '-'}</dd></div>
-          <div><dt>Sensitive</dt><dd>{current?.sensitive ? 'Yes' : 'No'}</dd></div>
         </div>
         <div className="control-row">
           <Button className="btn-primary" type="submit" disabled={!canEdit || busy}>

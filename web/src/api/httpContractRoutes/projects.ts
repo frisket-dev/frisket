@@ -135,6 +135,33 @@ export function updateProject(
   }, mapProject);
 }
 
+/** A looser value takes effect only with `confirm` naming it again; a
+ *  stricter one needs no confirmation. */
+export function updateProjectAllowedServices(
+  projectId: string,
+  allowedServices: AllowedServices,
+  confirm: AllowedServices | null,
+  options: RequestOptions = {},
+): Promise<ProjectInfo> {
+  return httpContract('tenant.update_project_allowed_services.patch', {
+    pathParams: { pid: projectId },
+    body: { allowed_services: allowedServices, confirm_allowed_services: confirm },
+    signal: options.signal,
+  }, mapProject);
+}
+
+export function updateProjectUsageDataSharing(
+  projectId: string,
+  usageDataSharing: UsageDataSharing,
+  options: RequestOptions = {},
+): Promise<ProjectInfo> {
+  return httpContract('outer.update_project_usage_data_sharing.patch', {
+    pathParams: { pid: projectId },
+    body: { usage_data_sharing: usageDataSharing },
+    signal: options.signal,
+  }, mapProject);
+}
+
 export function deleteProject(
   projectId: string,
   confirmName: string,

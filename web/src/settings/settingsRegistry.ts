@@ -246,6 +246,8 @@ export const SETTINGS_SECTIONS: readonly OpenSettingsSectionDefinition[] = [
       'delete',
       'media downloads',
       'private hosts',
+      'allowed services',
+      'usage data',
       'network',
       'egress',
       'external services',
@@ -253,7 +255,7 @@ export const SETTINGS_SECTIONS: readonly OpenSettingsSectionDefinition[] = [
     visibility: 'project',
     permission: 'owner',
     component: 'project.dataManagement',
-    summary: 'Retention, search preparation, export, network, and media download policy.',
+    summary: 'Retention, search preparation, export, allowed services, network, usage data, and media download policy.',
   },
   {
     id: 'organization.ai-providers',
