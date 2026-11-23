@@ -1,3 +1,5 @@
+import type { ViewSelection } from '../api/types';
+
 /** Optional initial settings when the OCR form opens the upload comparison.
  * Scratch comparison opens empty unless launched from a sheet-backed OCR form. */
 export interface OcrCompareTarget {
@@ -8,6 +10,8 @@ export interface OcrCompareTarget {
   sheetId?: string;
   sourceColumn?: string;
   selectedRowIds?: string[];
+  viewId?: number;
+  selection?: ViewSelection;
   maxItems?: number;
   launchId?: number;
 }

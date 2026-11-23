@@ -650,7 +650,7 @@ def _gateway_inputs(
 
 # Triggers that run a refresh unattended (no human at the keyboard). Remote
 # egress on these needs a second opt-in beyond allow_remote, plus an allowance.
-AUTOMATIC_REFRESH_TRIGGER_KINDS = frozenset({"schedule", "source_run_completed"})
+AUTOMATIC_REFRESH_TRIGGER_KINDS = frozenset({"schedule", "feed_check_completed"})
 
 
 def _is_automatic_refresh(params: IndexRefreshParams) -> bool:

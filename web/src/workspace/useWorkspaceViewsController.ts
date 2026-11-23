@@ -329,10 +329,12 @@ export function useWorkspaceViewsController({
     if (sheet) clearViewSelectionTransition({ gridView, detail, selection }, sheet.id);
   }, [gridView, detail, selection, sheet]);
 
+  const selectionSheetId = sheet?.id ?? null;
   const updateViewSelection = useCallback((next: import('../api/types').ViewSelection) => {
+    if (route.store.get().sheetId !== selectionSheetId) return;
     if (next.order.every((item) => 'score' in item)) gridView.clearSort();
     gridView.setSelection(next);
-  }, [gridView]);
+  }, [gridView, route, selectionSheetId]);
 
   return useMemo(() => ({
     views, viewName, viewModified, currentDefinition,

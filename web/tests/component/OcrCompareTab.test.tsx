@@ -152,6 +152,19 @@ describe('OcrCompareTab upload comparison', () => {
     expect(fetchSpy).not.toHaveBeenCalled();
   });
 
+  it.each([
+    { viewId: 19 },
+    { selection: { scope: { kind: 'sheet' as const, sheet_id: 7 }, filters: [], order: [], limit: 3 } },
+  ])('keeps the active view scope when seeding sheet media: %j', async (scope) => {
+    const getSheetData = vi.spyOn(api, 'getSheetData').mockResolvedValue({
+      rows: [], total: 0, columns: [],
+    });
+    const fetchSpy = vi.spyOn(globalThis, 'fetch');
+    render(<OcrCompareTab target={{ sheetId: '7', ...scope }} onSessionChange={() => undefined} />);
+    await waitFor(() => expect(getSheetData).toHaveBeenCalledWith('7', 0, 50, scope));
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
   it('seeds up to 10 sheet files without re-ingesting on re-render', async () => {
     const scanCol: ColumnDef = columnDef({ id: '1', name: 'scan', type: 'file' });
     const rows: Row[] = Array.from({ length: 12 }, (_, index) => ({
