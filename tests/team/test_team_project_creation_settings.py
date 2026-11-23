@@ -6,8 +6,11 @@ import json
 from pathlib import Path
 from typing import Any
 
+import pytest
 import sqlalchemy as sa
 from fastapi.testclient import TestClient
+
+import frisket.team.app as team_app
 
 from frisket.team.bootstrap import init_identity_schema
 from frisket.team.schema import metadata, project_creation_intents, projects
@@ -154,3 +157,39 @@ def test_organization_owner_manages_approved_endpoints_members_read(
     assert listed.status_code == 200, listed.text
     assert listed.json()["endpoints"][0]["host"] == "llm.newsroom.example.test"
     assert (tmp_path / "data" / ".frisket" / "approved_endpoints.json").exists()
+
+
+def test_retry_after_registration_returns_the_bundle_settings(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The first attempt registers the project, then fails before its
+    receipt records the bundle; the retry must report what the bundle holds,
+    which ``projects.sensitive`` alone cannot (on and inherit both read
+    not sensitive)."""
+    app = _team_app(tmp_path)
+    client = TestClient(app, raise_server_exceptions=False)
+    claim_server(app, client=client)
+    sign_in_with_magic_link(app, client, "owner@example.com")
+    original_complete = team_app._complete_project_intent
+
+    def complete_then_crash(*args: Any, **kwargs: Any) -> dict[str, Any]:
+        original_complete(*args, **kwargs)
+        raise RuntimeError("simulated crash before the receipt is published")
+
+    request = {
+        "name": "Notes",
+        "allowed_services": "approved_services",
+        "usage_data_sharing": "on",
+    }
+    headers = {"Idempotency-Key": "crash-after-registration"}
+    monkeypatch.setattr(team_app, "_complete_project_intent", complete_then_crash)
+    crashed = client.post("/api/projects", json=request, headers=headers)
+    assert crashed.status_code == 500
+    monkeypatch.setattr(team_app, "_complete_project_intent", original_complete)
+
+    retried = client.post("/api/projects", json=request, headers=headers)
+
+    assert retried.status_code == 200, retried.text
+    assert retried.json()["allowed_services"] == "approved_services"
+    assert retried.json()["usage_data_sharing"] == "on"
+    assert retried.json()["sensitive"] is False
