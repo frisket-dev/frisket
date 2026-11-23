@@ -1179,6 +1179,9 @@ export interface EngineOption {
   billable?: boolean;
   available?: boolean;
   error?: string | null;
+  /** `service_not_allowed` when the project's Allowed services refuses the
+   *  engine; such engines are dropped from the catalog before any picker. */
+  error_code?: string;
   models?: string[];
   pricing?: ExternalPricingEntry;
   /** Exact preferred target when a project composition supplies the option. */

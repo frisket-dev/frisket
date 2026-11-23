@@ -7,7 +7,8 @@ import { AllowedServicesChoice } from './AllowedServicesChoice';
 import { Button } from './Button';
 import { TextInput } from './FormControls';
 import { Modal } from './Modal';
-import { ProjectCardFace, projectCover } from './ProjectCard';
+import { ProjectCardFace } from './ProjectCard';
+import { projectCover } from './projectCover';
 import { WindowCloseButton } from './WindowCloseButton';
 
 const UNTITLED_PROJECT_NAME = 'Untitled project';
