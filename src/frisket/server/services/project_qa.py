@@ -615,7 +615,7 @@ class ProjectQAService:
                             project=project,
                         )
                     )
-                    network_off = project.effective_network_policy() == "off"
+                    network_off = project.remote_services_refused()
                     default_model = default_project_ask_model(
                         router,
                         composition,

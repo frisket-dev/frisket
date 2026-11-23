@@ -87,7 +87,7 @@ def register_provider_config_routes(app: FastAPI, *, workspace: Workspace) -> No
         if project_id:
             # Workspace.get raises its own 404 for unknown/malformed ids.
             project = workspace.get(project_id)
-            network_off = project.effective_network_policy() == "off"
+            network_off = project.remote_services_refused()
         return LocalProviderCatalog.model_validate(
             provider_config.build_provider_catalog(
                 root, dict(os.environ), network_off=network_off

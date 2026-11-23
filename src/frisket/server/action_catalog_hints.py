@@ -826,7 +826,7 @@ def _project_network_off(project: Project | None) -> bool:
     if project is None:
         return False
     try:
-        return project.effective_network_policy() == "off"
+        return project.remote_services_refused()
     except Exception:
         return False
 

@@ -31,7 +31,7 @@ _GROUP_STATUS_ORDER = {"ready": 0, "working": 1, "needs_setup": 2, "unavailable"
 
 
 def _network_off(project: Any) -> bool:
-    return project.effective_network_policy() == "off"
+    return project.remote_services_refused()
 
 
 def _network_policy_forbids_target(
