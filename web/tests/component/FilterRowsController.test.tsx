@@ -44,7 +44,7 @@ function Probe() {
     selection = currentSelection;
     showRows = setRows;
     showSheet = setSheet;
-  });
+  }, [currentGrid, currentSelection]);
   return rows ? (
     <FilterRowsBinding
       sheet={sheet}
