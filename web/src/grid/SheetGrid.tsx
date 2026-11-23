@@ -477,6 +477,8 @@ interface ColumnModel {
 // band offsets its affordances past it so they align with the canvas columns.
 const ROW_MARKER_WIDTH = 40;
 const LIMIT_NOTE_HEIGHT = 36;
+// Scroll room past the last column so its resize edge clears the scrollbar.
+const LAST_COLUMN_GUTTER = 32;
 // Horizontal gap that pushes the header "+" add-column button clear of the
 // last column's right edge, which the button is centred on.
 
@@ -2636,6 +2638,7 @@ function SheetGridSurface({ controller }: { controller: SheetGridController }) {
         rowSelectionMode="multi"
         rowHeight={rowHeight}
         drawCell={drawCell}
+        overscrollX={LAST_COLUMN_GUTTER}
         overscrollY={limitNote ? LIMIT_NOTE_HEIGHT : undefined}
         freezeColumns={Math.max(0, Math.min(frozenColumnCount, columns.length))}
         getCellsForSelection
