@@ -36,6 +36,7 @@ class ColumnValuesPreviewRequest(_CompatibleRequest):
     search: Any = None
     limit: Any = None
     offset: Any = None
+    selection: Any = None
 
 
 class ReplaceRulesPreviewRequest(_CompatibleRequest):
@@ -165,6 +166,14 @@ class DateColumnDistribution(_OpenPreviewResponse):
     bins: list[DateColumnDistributionBin]
 
 
+class ColumnValuesScope(_OpenPreviewResponse):
+    """Counts within the rows a request's selection keeps."""
+
+    total_rows: int
+    values: list[ColumnValueCount]
+    distribution_counts: list[int] | None
+
+
 class ColumnValuesPreviewResponse(_OpenPreviewResponse):
     """Required distinct-values preview core with additive producer metadata."""
 
@@ -190,6 +199,7 @@ class ColumnValuesPreviewResponse(_OpenPreviewResponse):
     list_facet: ListFacetPreview | None = None
     inventory_complete: bool = True
     omitted_rows: int = 0
+    scope: ColumnValuesScope | None = None
 
 
 class ReplaceRuleMatchCount(_OpenPreviewResponse):

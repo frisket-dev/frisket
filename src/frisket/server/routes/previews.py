@@ -384,6 +384,7 @@ def register_preview_routes(
             limit=body.limit,
             offset=body.offset,
             value_mode=body.value_mode,
+            selection=body.selection,
         )
 
     @app.post(

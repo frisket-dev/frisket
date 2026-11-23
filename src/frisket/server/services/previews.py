@@ -76,6 +76,23 @@ class PreviewService:
     def __init__(self, workspace: Workspace):
         self._workspace = workspace
 
+    @staticmethod
+    def _selection_row_ids(
+        project: Any, sheet_id: Any, selection: Any
+    ) -> frozenset[int] | None:
+        """Every row the selection keeps; the preview itself rejects a bad sheet_id."""
+        if not isinstance(sheet_id, int) or isinstance(sheet_id, bool):
+            return None
+        from frisket.server.services.view_selection import open_sheet_selection
+
+        try:
+            with open_sheet_selection(project, sheet_id, selection, None) as selected:
+                return frozenset(int(hit["row_id"]) for hit in selected.hits())
+        except ValueError as exc:
+            raise PreviewRequestError(
+                code="invalid_params", message=str(exc), field="selection"
+            ) from exc
+
     def query_preview(
         self,
         project_id: str,
@@ -148,12 +165,20 @@ class PreviewService:
         limit: Any,
         offset: Any,
         value_mode: Any = "exact",
+        selection: Any = None,
     ) -> dict[str, Any]:
         """Synchronous, receipt-free distinct-values preview for one column.
 
-        Feeds the resolve.substitute / resolve.combine authoring surfaces:
-        frequency-sorted ``{value, count}`` rows (searchable and paged)."""
+        Feeds the resolve.substitute / resolve.combine authoring surfaces and
+        the sheet's facets: frequency-sorted ``{value, count}`` rows
+        (searchable and paged). A ``selection`` adds counts within the rows it
+        keeps, so a facet can count under every other active filter."""
         project = self._workspace.get(project_id)
+        scope_row_ids = (
+            None
+            if selection is None
+            else self._selection_row_ids(project, sheet_id, selection)
+        )
         try:
             return resolve_column_values_preview(
                 project,
@@ -163,6 +188,7 @@ class PreviewService:
                 limit=limit,
                 offset=offset,
                 value_mode=value_mode,
+                scope_row_ids=scope_row_ids,
             )
         except ColumnValuesPreviewError as exc:
             raise PreviewRequestError.from_domain(exc) from exc
