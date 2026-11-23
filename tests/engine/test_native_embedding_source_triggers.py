@@ -130,7 +130,7 @@ def _all_rows(env):
     return list(env.project.visible_row_ids(env.sheet))
 
 
-def _trigger(env, row_ids, *, source_run_id=7):
+def _trigger(env, row_ids, *, feed_check_id=7):
     return enqueue_source_append_refreshes(
         env.queue,
         project=env.project,
@@ -139,8 +139,8 @@ def _trigger(env, row_ids, *, source_run_id=7):
         sheet_id=env.sheet,
         row_ids=row_ids,
         trigger_ref={
-            "trigger_kind": "source_run_completed",
-            "source_run_id": source_run_id,
+            "trigger_kind": "feed_check_completed",
+            "feed_check_id": feed_check_id,
         },
     )
 
@@ -173,8 +173,8 @@ def test_manual_index_is_not_triggered(env):
 
 def test_duplicate_trigger_does_not_duplicate_pending(env):
     _create_index(env)
-    first = _trigger(env, _all_rows(env), source_run_id=42)
-    second = _trigger(env, _all_rows(env), source_run_id=42)
+    first = _trigger(env, _all_rows(env), feed_check_id=42)
+    second = _trigger(env, _all_rows(env), feed_check_id=42)
     assert len(first) == 1
     assert second == []  # same (index, source run) → no duplicate pending job
     assert env.queue.counts()["queued"] == 1
@@ -228,8 +228,27 @@ def test_remote_index_automatic_without_auto_flag_blocks(env):
     assert job.result["error_code"] == "embedding_remote_confirmation_required"
 
 
+def test_feed_trigger_over_automatic_allowance_never_calls_gateway(env):
+    _create_index(
+        env,
+        provider="openai",
+        policy={
+            "allow_remote": True,
+            "allow_remote_automatic_refresh": True,
+            "max_cost_usd_per_refresh": 1e-12,
+        },
+    )
+    _trigger(env, _all_rows(env))
+    gateway = FakeGateway(dim=1536)
+    assert Worker(env.queue, _registry(env, gateway)).run_once() is True
+    assert gateway.calls == []
+    [job] = env.queue.list_project_jobs(env.project_id, kind=EMBEDDING_REFRESH_KIND)
+    assert job.result["blocked"] is True
+    assert job.result["error_code"] == "embedding_cost_requires_confirmation"
+
+
 def test_remote_index_with_policy_runs_in_worker(env):
-    # source_run_completed is an AUTOMATIC trigger, so a remote index needs the
+    # feed_check_completed is an AUTOMATIC trigger, so a remote index needs the
     # stricter unattended policy (allow_remote_automatic_refresh + a cost ceiling),
     # not allow_remote alone (see native-embedding-scheduled-refresh).
     index_id = _create_index(
@@ -338,7 +357,7 @@ def test_server_workspace_registry_drains_embedding_refresh(tmp_path):
             workspace_root=ws.root,
             sheet_id=sheet,
             row_ids=project.visible_row_ids(sheet),
-            trigger_ref={"trigger_kind": "source_run_completed", "source_run_id": 1},
+            trigger_ref={"trigger_kind": "feed_check_completed", "feed_check_id": 1},
         )
         # Drain through Worker(ws.queue, ws.registry) end to end.
         worker = Worker(ws.queue, ws.registry)
@@ -365,7 +384,7 @@ def test_server_workspace_registry_drains_embedding_refresh(tmp_path):
 def test_dedupe_finds_oldest_job_beyond_500(env):
     index_id = _create_index(env)
     # the OLDEST embedding-refresh job — the one we will later duplicate
-    first = _trigger(env, _all_rows(env), source_run_id=1)
+    first = _trigger(env, _all_rows(env), feed_check_id=1)
     assert len(first) == 1
     # pile up 600 newer embedding-refresh jobs (distinct dedupe keys) so the
     # oldest is far outside any bounded most-recent window
@@ -377,14 +396,14 @@ def test_dedupe_finds_oldest_job_beyond_500(env):
                 "index_id": index_id,
                 "dedupe_key": refresh_dedupe_key(
                     index_id,
-                    {"trigger_kind": "source_run_completed", "source_run_id": run},
+                    {"trigger_kind": "feed_check_completed", "feed_check_id": run},
                     [],
                 ),
             },
         )
     # the duplicate of the OLDEST trigger must still be found (indexed lookup),
     # not re-enqueued despite 600 newer same-kind jobs.
-    dup = _trigger(env, _all_rows(env), source_run_id=1)
+    dup = _trigger(env, _all_rows(env), feed_check_id=1)
     assert dup == []
     matching = [
         j
@@ -399,7 +418,7 @@ def test_dedupe_finds_oldest_job_beyond_500(env):
 def first_key(env, index_id):
     return refresh_dedupe_key(
         index_id,
-        {"trigger_kind": "source_run_completed", "source_run_id": 1},
+        {"trigger_kind": "feed_check_completed", "feed_check_id": 1},
         sorted(_all_rows(env)),
     )
 
@@ -600,7 +619,7 @@ def test_queued_automatic_alert_rechecks_pause_but_manual_evaluation_remains_ava
     _full_refresh(env, index_id)
     alert_id = _embedding_alert(env, index_id, _row_id(env, "story 0"))
     env.project.add_rows(env.sheet, [{"headline": "story queued"}], env.cols)
-    _trigger(env, [_row_id(env, "story queued")], source_run_id=99)
+    _trigger(env, [_row_id(env, "story queued")], feed_check_id=99)
 
     worker = Worker(env.queue, _registry_with_alerts(env, FakeGateway()))
     assert worker.run_once() is True  # refresh enqueues watch.evaluate

@@ -320,11 +320,13 @@ export function OcrCompareTab({ target = null, active = true, onSessionChange }:
   const targetSourceColumn = target?.sourceColumn;
   const targetMaxItems = Math.max(1, target?.maxItems ?? DEFAULT_SEED_MAX_ITEMS);
   const targetLaunchId = target?.launchId;
+  const targetViewId = target?.viewId;
+  const targetSelection = target?.selection;
   const selectedRowIdsKey = target?.selectedRowIds?.join(',') ?? '';
   const seedLaunchKey = targetSheetId
     ? targetLaunchId != null
       ? `launch:${targetLaunchId}`
-      : JSON.stringify([targetSheetId, targetSourceColumn ?? null, selectedRowIdsKey, targetMaxItems])
+      : JSON.stringify([targetSheetId, targetSourceColumn ?? null, selectedRowIdsKey, targetViewId ?? null, targetSelection ?? null, targetMaxItems])
     : null;
 
   const seedLoader = useLoader(
@@ -363,7 +365,10 @@ export function OcrCompareTab({ target = null, active = true, onSessionChange }:
           }
         }
       } else {
-        const page = await projectApi.getSheetData(targetSheetId, 0, fallbackLimit);
+        const page = await projectApi.getSheetData(targetSheetId, 0, fallbackLimit, {
+          ...(targetViewId != null ? { viewId: targetViewId } : {}),
+          ...(targetSelection ? { selection: targetSelection } : {}),
+        });
         if (signal.aborted) return { launchKey: seedLaunchKey, files: [] as File[] };
         const targetColumn = findOcrSeedColumn(page.columns, targetSourceColumn);
         if (targetColumn) {

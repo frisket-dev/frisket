@@ -3,6 +3,7 @@
 import '@testing-library/jest-dom/vitest';
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { useState } from 'react';
 
 vi.mock('../../src/media/pdfjsSetup', () => ({
   pdfjsLib: { getDocument: () => {}, TextLayer: class {} },
@@ -17,7 +18,12 @@ import { DocumentView } from '../../src/workbench/DocumentView';
 
 vi.mock('../../src/workspace/useWorkspaceChromeState', async (importOriginal) => ({
   ...await importOriginal<typeof import('../../src/workspace/useWorkspaceChromeState')>(),
-  useDocumentAlongsidePreference: () => ({ preference: { open: true, columnId: 'file' }, setPreference: vi.fn() }),
+  useDocumentAlongsidePreference: () => {
+    const [preference, setPreference] = useState<{ open: boolean; columnId: string | null }>({
+      open: true, columnId: 'file',
+    });
+    return { preference, setPreference };
+  },
 }));
 
 afterEach(cleanup);
@@ -47,6 +53,30 @@ const state: DocumentViewState = {
 };
 
 describe('DocumentView loading state', () => {
+  it('returns focus after closing alongside while the document reader is still hydrating', async () => {
+    let resolveHydration!: (row: Row | null) => void;
+    const hydration = new Promise<Row | null>((resolve) => { resolveHydration = resolve; });
+    render(
+      <DocumentView
+        projectId="project-1" sheet={sheet} state={state}
+        onChangeState={() => undefined} onDocumentFocus={() => undefined} onOpenDetail={() => undefined}
+        queryDocuments={async () => ({ items: [{ rowId: '4', ordinal: 4, title: 'Loading media',
+          titleTruncated: false, sourceKind: 'audio', sourcePresent: true, sourceLabel: 'clip.mp3',
+          sourceLabelTruncated: false, characterCount: null }], nextCursor: null, previousCursor: null })}
+        hydrateRow={() => hydration} onListSort={() => undefined} orderKey="none" listSortDir={null}
+        annotatedTextColumnIds={[]} disabledToggleKeys={[]} onSetDisabledToggleKeys={() => undefined}
+      />,
+    );
+
+    await screen.findByText('Loading document…');
+    fireEvent.click(screen.getByRole('button', { name: 'Close alongside panel' }));
+    expect(screen.queryByTestId('document-show-alongside')).toBeNull();
+    expect(screen.queryByTestId('document-alongside-pane')).toBeNull();
+
+    await act(async () => { resolveHydration(null); });
+    await waitFor(() => expect(screen.getByTestId('document-show-alongside')).toHaveFocus());
+  });
+
   it('does not render an empty reader while the initial row page is pending', async () => {
     let resolveRows!: (page: { items: []; nextCursor: null; previousCursor: null }) => void;
     const queryDocuments = () => new Promise<{ items: []; nextCursor: null; previousCursor: null }>((resolve) => {

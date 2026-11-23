@@ -265,6 +265,44 @@ describe('SheetFilterBar above-grid active chips', () => {
 });
 
 describe('FriendlyFiltersPanel query controls in Filter sidebar', () => {
+  it('flushes the pending query when programmatic navigation unmounts the panel', () => {
+    vi.useFakeTimers();
+    const onSelectionChange = vi.fn();
+    const view = renderInWorkspace(
+      <FriendlyFiltersPanel sheets={[SHEET]} activeSheetId="1"
+        currentSelection={baseSelection()} onSelectionChange={onSelectionChange} />,
+    );
+    fireEvent.change(screen.getByTestId('sheet-filter-search'), { target: { value: 'albany' } });
+    vi.advanceTimersByTime(100);
+    view.unmount();
+    vi.advanceTimersByTime(500);
+    expect(onSelectionChange).toHaveBeenCalledExactlyOnceWith(
+      expect.objectContaining({ search: { text: 'albany' } }),
+    );
+  });
+
+  it('commits the final search on blur before navigation unmounts the panel', () => {
+    vi.useFakeTimers();
+    const onSelectionChange = vi.fn();
+    const view = renderInWorkspace(
+      <FriendlyFiltersPanel
+        sheets={[SHEET]}
+        activeSheetId="1"
+        currentSelection={baseSelection()}
+        onSelectionChange={onSelectionChange}
+      />,
+    );
+    const input = screen.getByTestId('sheet-filter-search');
+    fireEvent.change(input, { target: { value: 'albany' } });
+    vi.advanceTimersByTime(100);
+    fireEvent.blur(input);
+    view.unmount();
+    vi.advanceTimersByTime(500);
+    expect(onSelectionChange).toHaveBeenCalledExactlyOnceWith(
+      expect.objectContaining({ search: { text: 'albany' } }),
+    );
+  });
+
   it('hides Sort results and Show all rows until active, then wires debounced search, sort, limit, and reset', () => {
     vi.useFakeTimers();
     const onSelectionChange = vi.fn();
@@ -326,6 +364,23 @@ describe('FriendlyFiltersPanel query controls in Filter sidebar', () => {
     fireEvent.click(resetButton);
     expect(onClearSelection).toHaveBeenCalledTimes(1);
     expect(searchInput).toHaveValue('');
+  });
+
+  it('clears a draft after blur without retaining or replaying the committed search', () => {
+    vi.useFakeTimers();
+    const onSelectionChange = vi.fn();
+    renderInWorkspace(
+      <FriendlyFiltersPanel sheets={[SHEET]} activeSheetId="1"
+        currentSelection={baseSelection()} onSelectionChange={onSelectionChange} />,
+    );
+    const input = screen.getByTestId('sheet-filter-search');
+    fireEvent.change(input, { target: { value: 'albany' } });
+    fireEvent.blur(input);
+    fireEvent.click(screen.getByTestId('sheet-filter-search-clear'));
+    vi.advanceTimersByTime(500);
+    expect(onSelectionChange).toHaveBeenCalledTimes(2);
+    expect(onSelectionChange).toHaveBeenLastCalledWith(expect.objectContaining({ search: undefined }));
+    expect(input).toHaveValue('');
   });
 
   it('commits immediately on Enter and clears via Escape or the inline clear button without losing focus', () => {

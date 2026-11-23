@@ -6,6 +6,7 @@ import hashlib
 import json
 import re
 import sqlite3
+from collections.abc import Callable
 from typing import Any
 
 from frisket.engine.store.consumed_sources import capture_fingerprint
@@ -109,32 +110,105 @@ def _canonical_json(value: Any) -> str:
     return json.dumps(value, sort_keys=True, separators=(",", ":"), allow_nan=False)
 
 
-def _rewrite_keys_recursive(value: Any, key_map: dict[str, str]) -> tuple[Any, bool]:
-    if isinstance(value, list):
-        changed = False
-        items = []
-        for item in value:
-            rewritten, item_changed = _rewrite_keys_recursive(item, key_map)
-            items.append(rewritten)
-            changed = changed or item_changed
-        return items, changed
+def _rewrite_keys(value: Any, key_map: dict[str, str]) -> tuple[Any, bool]:
+    """Rename fields on one owned object, leaving its opaque values intact."""
     if not isinstance(value, dict):
         return value, False
+    return (
+        {key_map.get(key, key): item for key, item in value.items()},
+        any(key in value for key in key_map),
+    )
+
+
+def _rewrite_action_params(params: Any, action_id: Any) -> tuple[Any, bool]:
+    if action_id in ("operation.undo", "operation.redo", "change.undo", "change.redo"):
+        return _rewrite_keys(params, {"expected_op_id": "expected_change_id"})
+    if action_id in (
+        "operation.revert",
+        "operation.restore",
+        "change.revert",
+        "change.restore",
+    ):
+        return _rewrite_keys(params, {"op_id": "change_id"})
+    if action_id in ("review.decision", "review.note"):
+        return _rewrite_keys(params, {"copied_op_id": "copied_change_id"})
+    return params, False
+
+
+def _rewrite_request(value: Any) -> tuple[Any, bool]:
+    if not isinstance(value, dict):
+        return value, False
+    rewritten = dict(value)
+    action_id = rewritten.get("action_id")
+    changed = isinstance(action_id, str) and action_id in _ACTION_KIND_MAP
+    if changed:
+        rewritten["action_id"] = _ACTION_KIND_MAP[action_id]
+    params, params_changed = _rewrite_action_params(value.get("params"), action_id)
+    if params_changed:
+        rewritten["params"] = params
+    return rewritten, changed or params_changed
+
+
+def _rewrite_spec(value: Any, key_map: dict[str, str]) -> tuple[Any, bool]:
+    rewritten, changed = _rewrite_keys(value, key_map)
+    if not isinstance(rewritten, dict):
+        return rewritten, changed
+    params, params_changed = _rewrite_action_params(
+        rewritten.get("params"),
+        rewritten.get("action_kind", rewritten.get("action_id")),
+    )
+    if params_changed:
+        rewritten["params"] = params
+    return rewritten, changed or params_changed
+
+
+def _rewrite_locator(value: Any, key_map: dict[str, str]) -> tuple[Any, bool]:
+    rewritten, changed = _rewrite_keys(value, key_map)
+    if isinstance(rewritten, dict):
+        for field in ("value_ref", "prepared_value_ref", "source_version"):
+            if isinstance(rewritten.get(field), dict):
+                rewritten[field], ref_changed = _rewrite_keys(rewritten[field], key_map)
+                changed = ref_changed or changed
+    return rewritten, changed
+
+
+def _rewrite_capture(value: Any) -> tuple[Any, bool]:
+    if not isinstance(value, dict) or value.get("kind") != "row":
+        return value, False
+    rewritten = dict(value)
+    inputs = value.get("inputs")
+    if not isinstance(inputs, list):
+        return value, False
     changed = False
-    out: dict[str, Any] = {}
-    for key, item in value.items():
-        key_str = str(key)
-        new_key = key_map.get(key_str, key_str)
-        if new_key != key_str:
-            changed = True
-        rewritten, item_changed = _rewrite_keys_recursive(item, key_map)
-        changed = changed or item_changed
-        out[new_key] = rewritten
-    return out, changed
+    rewritten["inputs"] = []
+    for item in inputs:
+        if isinstance(item, dict):
+            item = dict(item)
+            if isinstance(item.get("ref"), dict):
+                item["ref"], ref_changed = _rewrite_keys(
+                    item["ref"], {"op_id": "change_id"}
+                )
+                changed = ref_changed or changed
+        rewritten["inputs"].append(item)
+    return rewritten, changed
 
 
 def _rewrite_receipt_ref(ref: dict[str, Any]) -> tuple[dict[str, Any], bool]:
-    rewritten, changed = _rewrite_keys_recursive(ref, _CHANGE_KEY_MAP)
+    rewritten, changed = _rewrite_keys(ref, _CHANGE_KEY_MAP)
+    if rewritten.get("kind") == "typed_action_request":
+        rewritten, request_changed = _rewrite_request(rewritten)
+        changed = request_changed or changed
+        request = rewritten.get("request")
+        if isinstance(request, dict):
+            rewritten["request"], request_changed = _rewrite_request(request)
+            changed = request_changed or changed
+    affected_refs = rewritten.get("affected_refs")
+    if isinstance(affected_refs, list):
+        rewritten["affected_refs"] = []
+        for affected in affected_refs:
+            updated, affected_changed = _rewrite_keys(affected, _CHANGE_KEY_MAP)
+            rewritten["affected_refs"].append(updated)
+            changed = affected_changed or changed
     kind = rewritten.get("kind")
     if isinstance(kind, str) and kind in _RECEIPT_REF_KIND_MAP:
         rewritten["kind"] = _RECEIPT_REF_KIND_MAP[kind]
@@ -190,7 +264,7 @@ def _rewrite_receipt_errors(errors: Any) -> bool:
             changed = True
         details = err.get("details")
         if isinstance(details, dict):
-            new_details, det_changed = _rewrite_keys_recursive(details, _CHANGE_KEY_MAP)
+            new_details, det_changed = _rewrite_keys(details, _CHANGE_KEY_MAP)
             if "operation_kind" in new_details and (
                 err.get("code") == "irreversible_barrier"
             ):
@@ -200,17 +274,6 @@ def _rewrite_receipt_errors(errors: Any) -> bool:
                 err["details"] = new_details
                 changed = True
     return changed
-
-
-def _rewrite_receipt_value(parsed: dict[str, Any]) -> bool:
-    value = parsed.get("value")
-    if not isinstance(value, dict):
-        return False
-    new_value, val_changed = _rewrite_keys_recursive(value, _CHANGE_KEY_MAP)
-    if not val_changed:
-        return False
-    parsed["value"] = new_value
-    return True
 
 
 def _rewrite_receipt_body(raw_body: str) -> tuple[str, bool]:
@@ -228,15 +291,9 @@ def _rewrite_receipt_body(raw_body: str) -> tuple[str, bool]:
     if isinstance(action_kind, str) and action_kind in _ACTION_KIND_MAP:
         parsed["action_kind"] = _ACTION_KIND_MAP[action_kind]
         changed = True
-    changed = (
-        any(
-            _rewrite_receipt_io_list(parsed.get(s))
-            for s in ("inputs", "outputs", "records")
-        )
-        or changed
-    )
+    for section in ("inputs", "outputs", "records"):
+        changed = _rewrite_receipt_io_list(parsed.get(section)) or changed
     changed = _rewrite_receipt_errors(parsed.get("errors")) or changed
-    changed = _rewrite_receipt_value(parsed) or changed
     if not changed:
         return raw_body, False
     return json.dumps(parsed), True
@@ -319,6 +376,7 @@ def _migrate_json_column(
     key_map: dict[str, str],
     *,
     encoding: str = "default",
+    rewrite: Callable[[Any, dict[str, str]], tuple[Any, bool]] = _rewrite_keys,
 ) -> None:
     table, pk_cols, json_col = target
     pk_select = ", ".join(pk_cols)
@@ -339,7 +397,7 @@ def _migrate_json_column(
             parsed = json.loads(raw)
         except (TypeError, ValueError):
             continue
-        rewritten, changed = _rewrite_keys_recursive(parsed, key_map)
+        rewritten, changed = rewrite(parsed, key_map)
         if not changed:
             continue
         encoded = _encode_json(rewritten, encoding)
@@ -349,71 +407,21 @@ def _migrate_json_column(
         )
 
 
-def _remap_shared_inputs_list(
-    capture: dict[str, Any], shared_fp_map: dict[str, str]
-) -> bool:
-    if not shared_fp_map:
-        return False
-    shared_inputs = capture.get("shared_inputs")
-    if not isinstance(shared_inputs, list):
-        return False
-    remapped = [
-        shared_fp_map.get(fp, fp) if isinstance(fp, str) else fp for fp in shared_inputs
-    ]
-    if remapped == shared_inputs:
-        return False
-    capture["shared_inputs"] = remapped
-    return True
-
-
-def _migrate_aggregate_consumed_sources(db: sqlite3.Connection) -> dict[str, str]:
-    shared_fp_map: dict[str, str] = {}
+def _migrate_consumed_sources(db: sqlite3.Connection) -> None:
+    # Aggregate captures retain partition hashes, not cell identity objects.
+    # Their fingerprints and the row captures' shared_inputs remain unchanged.
     rows = db.execute(
-        "SELECT id, capture_key, input_fingerprint, capture_json "
-        "FROM consumed_source_bundles "
-        "WHERE kind='aggregate' AND capture_json LIKE '%\"op_id\"%'"
-    ).fetchall()
-    for bundle_id, capture_key, old_fp, raw in rows:
-        try:
-            parsed = json.loads(raw)
-        except (TypeError, ValueError):
-            continue
-        rewritten, changed = _rewrite_keys_recursive(parsed, {"op_id": "change_id"})
-        if not changed or not isinstance(rewritten, dict):
-            continue
-        new_fp = capture_fingerprint(rewritten)
-        if isinstance(old_fp, str) and new_fp != old_fp:
-            shared_fp_map[old_fp] = new_fp
-        new_key = capture_key
-        if isinstance(capture_key, str) and ":shared:" in capture_key:
-            prefix = capture_key.split(":shared:", 1)[0]
-            new_key = f"{prefix}:shared:{new_fp}"
-        db.execute(
-            "UPDATE consumed_source_bundles "
-            "SET capture_key=?, input_fingerprint=?, capture_json=? WHERE id=?",
-            (new_key, new_fp, _canonical_json(rewritten), bundle_id),
-        )
-    return shared_fp_map
-
-
-def _migrate_consumed_sources(db: sqlite3.Connection) -> dict[str, str]:
-    shared_fp_map = _migrate_aggregate_consumed_sources(db)
-    where_clause = "kind='row' AND (capture_json LIKE '%\"op_id\"%'"
-    if shared_fp_map:
-        where_clause += " OR capture_json LIKE '%\"shared_inputs\"%'"
-    where_clause += ")"
-    rows = db.execute(
-        f"SELECT id, capture_json FROM consumed_source_bundles WHERE {where_clause}"
+        "SELECT id, capture_json FROM consumed_source_bundles "
+        "WHERE kind='row' AND capture_json LIKE '%\"op_id\"%'"
     ).fetchall()
     for bundle_id, raw in rows:
         try:
             parsed = json.loads(raw)
         except (TypeError, ValueError):
             continue
-        rewritten, changed = _rewrite_keys_recursive(parsed, {"op_id": "change_id"})
+        rewritten, changed = _rewrite_capture(parsed)
         if not isinstance(rewritten, dict):
             continue
-        changed = _remap_shared_inputs_list(rewritten, shared_fp_map) or changed
         if not changed:
             continue
         new_fp = capture_fingerprint(rewritten)
@@ -422,62 +430,55 @@ def _migrate_consumed_sources(db: sqlite3.Connection) -> dict[str, str]:
             "SET input_fingerprint=?, capture_json=? WHERE id=?",
             (new_fp, _canonical_json(rewritten), bundle_id),
         )
-    return shared_fp_map
 
 
-def _migrate_effect_checkpoints(
-    db: sqlite3.Connection, shared_fp_map: dict[str, str]
-) -> None:
-    where_clause = "payload IS NOT NULL AND (payload LIKE '%\"op_id\"%'"
-    if shared_fp_map:
-        where_clause += " OR payload LIKE '%\"shared_inputs\"%'"
-    where_clause += ")"
+def _migrate_effect_checkpoints(db: sqlite3.Connection) -> None:
     rows = db.execute(
-        f"SELECT id, payload FROM effect_checkpoints WHERE {where_clause}"
+        "SELECT id, state, payload FROM effect_checkpoints "
+        "WHERE family='row_effect' AND payload LIKE '%\"op_id\"%'"
     ).fetchall()
-    for checkpoint_id, raw in rows:
+    for checkpoint_id, state, raw in rows:
         if not isinstance(raw, str):
             continue
         try:
             parsed = json.loads(raw)
         except (TypeError, ValueError):
             continue
-        rewritten, changed = _rewrite_keys_recursive(parsed, {"op_id": "change_id"})
-        if isinstance(rewritten, dict) and isinstance(
-            rewritten.get("__consumed_sources"), dict
-        ):
-            changed = (
-                _remap_shared_inputs_list(
-                    rewritten["__consumed_sources"], shared_fp_map
+        if not isinstance(parsed, dict):
+            continue
+        # Returned payload keys are authored output names; each cell's value
+        # and model/provider payloads are opaque. Reserved payloads hold only
+        # the source capture envelope.
+        cells = [parsed] if state == "reserved" else list(parsed.values())
+        changed = False
+        for cell in cells:
+            if not isinstance(cell, dict):
+                continue
+            if isinstance(cell.get("__consumed_sources"), dict):
+                cell["__consumed_sources"], capture_changed = _rewrite_capture(
+                    cell["__consumed_sources"]
                 )
-                or changed
-            )
+                changed = capture_changed or changed
+            reads = cell.get("row_file_calls")
+            if isinstance(reads, list):
+                for read in reads:
+                    if isinstance(read, dict) and isinstance(read.get("source"), dict):
+                        read["source"], source_changed = _rewrite_locator(
+                            read["source"], {"op_id": "change_id"}
+                        )
+                        changed = source_changed or changed
         if not changed:
             continue
         db.execute(
             "UPDATE effect_checkpoints SET payload=? WHERE id=?",
-            (json.dumps(rewritten), checkpoint_id),
+            (json.dumps(parsed), checkpoint_id),
         )
 
 
 def _rewrite_submission_draft(parsed: dict[str, Any]) -> bool:
-    changed = False
-    if parsed.get("action_id") in _ACTION_KIND_MAP:
-        parsed["action_id"] = _ACTION_KIND_MAP[parsed["action_id"]]
-        changed = True
-    params = parsed.get("params")
-    if isinstance(params, dict):
-        new_params, params_changed = _rewrite_keys_recursive(
-            params,
-            {
-                "copied_op_id": "copied_change_id",
-                "expected_op_id": "expected_change_id",
-                "op_id": "change_id",
-            },
-        )
-        if params_changed:
-            parsed["params"] = new_params
-            changed = True
+    rewritten, changed = _rewrite_request(parsed)
+    if changed:
+        parsed.update(rewritten)
     return changed
 
 
@@ -524,9 +525,7 @@ def _migrate_action_submissions(db: sqlite3.Connection) -> None:
             )
 
 
-def _migrate_params_and_specs(
-    db: sqlite3.Connection, shared_fp_map: dict[str, str]
-) -> None:
+def _migrate_params_and_specs(db: sqlite3.Connection) -> None:
     key_map = {
         "copied_op_id": "copied_change_id",
         "expected_op_id": "expected_change_id",
@@ -537,8 +536,12 @@ def _migrate_params_and_specs(
         "source_op_id": "source_change_id",
         "source_op_ids": "source_change_ids",
     }
-    _migrate_json_column(db, ("changes", ("id",), "spec"), key_map)
-    _migrate_json_column(db, ("runs", ("id",), "params"), key_map)
+    _migrate_json_column(
+        db, ("changes", ("id",), "spec"), key_map, rewrite=_rewrite_spec
+    )
+    _migrate_json_column(
+        db, ("runs", ("id",), "params"), key_map, rewrite=_rewrite_spec
+    )
     _migrate_json_column(
         db,
         ("citations", ("id",), "subject_ref_json"),
@@ -555,7 +558,7 @@ def _migrate_params_and_specs(
         )
     finally:
         db.execute(TARGET_TRIGGER_DDLS["trg_text_surfaces_no_update"])
-    _migrate_effect_checkpoints(db, shared_fp_map)
+    _migrate_effect_checkpoints(db)
     _migrate_json_column(
         db, ("feed_checks", ("id",), "summary_json"), {"op_id": "change_id"}
     )
@@ -569,6 +572,7 @@ def _migrate_params_and_specs(
         ("project_qa_citations", ("id",), "locator_json"),
         qa_key_map,
         encoding="canonical_utf8",
+        rewrite=_rewrite_locator,
     )
     _migrate_json_column(
         db,
@@ -629,9 +633,9 @@ def migrate_changes(db: sqlite3.Connection) -> None:
 
     _migrate_cursor_meta(db)
     _migrate_receipts(db)
-    shared_fp_map = _migrate_consumed_sources(db)
+    _migrate_consumed_sources(db)
     _migrate_action_submissions(db)
-    _migrate_params_and_specs(db, shared_fp_map)
+    _migrate_params_and_specs(db)
 
     violation = db.execute("PRAGMA foreign_key_check").fetchone()
     if violation is not None:

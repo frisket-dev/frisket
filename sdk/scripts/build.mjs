@@ -21,8 +21,8 @@ await build({
 });
 
 execFileSync(
-  resolve(sdkRoot, 'node_modules/.bin/tsc'),
-  ['--project', resolve(sdkRoot, 'tsconfig.json')],
+  process.execPath,
+  [resolve(sdkRoot, 'node_modules/typescript/bin/tsc'), '--project', resolve(sdkRoot, 'tsconfig.json')],
   { stdio: 'inherit' },
 );
 
