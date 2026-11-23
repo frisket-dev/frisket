@@ -545,6 +545,132 @@ def test_search_recovers_index_work_without_a_queued_job(
     )
 
 
+def _available_embedding_runtime():
+    from frisket.ai.embeddings.runtime import EmbeddingRuntime
+
+    def never_started(*, cancelled=None):
+        raise AssertionError("indexing status must not start the encoder")
+
+    return EmbeddingRuntime(never_started)
+
+
+def _semantic_preparation_left_pending(client) -> str:
+    from frisket.retrieval.preparation import preparation_work_marker
+    from frisket.search import drain_index
+
+    workspace = client.app.state.workspace
+    project_id = client.post("/api/projects", json={"name": "Atlas"}).json()["id"]
+    project = workspace.get(project_id)
+    sheet_id = project.add_sheet("capitals")
+    column_id = project.add_column(sheet_id, "City", type="text")
+    project.add_rows(sheet_id, [{"City": "Lisbon"}], {"City": column_id})
+    project._frisket_schedule_search_index()
+    drain_index(project)
+    while job := workspace.queue.find_job_by_refs(
+        "search.index", statuses=("queued",), project_id=project_id
+    ):
+        assert workspace.queue.cancel(job.id)
+    assert preparation_work_marker(project.path) is not None
+    return project_id
+
+
+_IDLE_INDEXING = {
+    "status": "idle",
+    "job_id": None,
+    "error": None,
+    "pdf_files": [],
+    "pdf_files_truncated": False,
+    "sheet_names": [],
+}
+
+
+def test_semantic_preparation_no_encoder_can_run_is_not_reported_as_indexing(
+    tmp_path, client, monkeypatch
+):
+    monkeypatch.setenv("FRISKET_MODEL_RUNTIME_DIR", str(tmp_path / "model-runtime"))
+    monkeypatch.setenv("HF_HUB_CACHE", str(tmp_path / "model-cache"))
+    monkeypatch.setattr(preparation_module, "_requirements", lambda: ())
+    workspace = client.app.state.workspace
+    assert not workspace.embedding_runtime.available()
+    project_id = _semantic_preparation_left_pending(client)
+    status_url = f"/api/projects/{project_id}/search-preparation"
+
+    assert client.get(status_url).json()["indexing"] == _IDLE_INDEXING
+
+
+def test_worker_composed_without_an_encoder_leaves_no_perpetual_indexing(
+    tmp_path, client, monkeypatch
+):
+    from frisket.engine.jobs import HandlerRegistry, Worker
+    from frisket.engine.jobs.search_index import register_search_index_handler
+    from frisket.retrieval.preparation import preparation_work_marker
+
+    monkeypatch.setenv("FRISKET_MODEL_RUNTIME_DIR", str(tmp_path / "model-runtime"))
+    monkeypatch.setenv("HF_HUB_CACHE", str(tmp_path / "model-cache"))
+    monkeypatch.setattr(preparation_module, "_requirements", lambda: ())
+    workspace = client.app.state.workspace
+    project_id = _semantic_preparation_left_pending(client)
+    project = workspace.get(project_id)
+    assert project._frisket_schedule_search_index() is not None
+    registry = HandlerRegistry()
+    register_search_index_handler(
+        registry, workspace_root=workspace.root, queue=workspace.queue
+    )
+    worker = Worker(workspace.queue, registry)
+    while worker.run_once():
+        pass
+    assert preparation_work_marker(project.path) is not None
+    assert (
+        workspace.queue.find_job_by_refs(
+            "search.index", statuses=("queued", "running"), project_id=project_id
+        )
+        is None
+    )
+
+    status_url = f"/api/projects/{project_id}/search-preparation"
+    assert client.get(status_url).json()["indexing"] == _IDLE_INDEXING
+
+
+def test_lost_semantic_preparation_enqueue_is_recovered_by_the_next_search(
+    tmp_path, monkeypatch
+):
+    from tests.helpers import make_client
+
+    monkeypatch.setattr(preparation_module, "_requirements", lambda: ())
+    client = make_client(tmp_path, embedding_runtime=_available_embedding_runtime())
+    workspace = client.app.state.workspace
+    project_id = _semantic_preparation_left_pending(client)
+    status_url = f"/api/projects/{project_id}/search-preparation"
+
+    assert client.get(status_url).json()["indexing"] == {
+        **_IDLE_INDEXING,
+        "status": "pending",
+        "sheet_names": ["capitals"],
+    }
+    response = client.post(
+        f"/api/projects/{project_id}/search",
+        json={
+            "scope": {"kind": "project"},
+            "query": {"kind": "text", "text": "Lisbon", "lexical_syntax": "plain"},
+            "mode": "lexical",
+            "group_by": "source",
+            "limit": 10,
+            "ranking": {"rerank": "off"},
+        },
+    )
+    assert response.status_code == 200, response.text
+    recovered = workspace.queue.find_job_by_refs(
+        "search.index", statuses=("queued",), project_id=project_id
+    )
+    assert recovered is not None
+    assert client.get(status_url).json()["indexing"] == {
+        **_IDLE_INDEXING,
+        "status": "queued",
+        "job_id": recovered.id,
+        "sheet_names": ["capitals"],
+    }
+
+
 def test_explicit_preparation_rejects_rows_outside_visible_scope(
     client, monkeypatch
 ) -> None:
