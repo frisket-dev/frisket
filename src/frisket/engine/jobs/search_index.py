@@ -44,6 +44,11 @@ INDEX_BATCH_MAX_BYTES = 4 * 1024 * 1024
 INDEX_BYTES_PER_CLAIM = INDEX_BATCH_MAX_BYTES * BATCHES_PER_CLAIM
 
 
+def prepares_semantic_work(embedding_encoder: PreparationEncoder | None) -> bool:
+    """Whether a search-index claim composed with this encoder prepares semantic work."""
+    return embedding_encoder is not None and embedding_encoder.available()
+
+
 def _defer_unavailable_encoder_work(project: Project) -> bool:
     with RetrievalStore(project).open() as store:
         store.mark_pending_encoder_unavailable(
@@ -253,10 +258,7 @@ def register_search_index_handler(
                         # A composed runtime exists before its local model is
                         # installed. Setup completion requeues unavailable work
                         # and enqueues a fresh claim; do not hot-loop meanwhile.
-                        include_preparation=(
-                            embedding_encoder is not None
-                            and embedding_encoder.available()
-                        ),
+                        include_preparation=prepares_semantic_work(embedding_encoder),
                     )
                     is not None
                 ):

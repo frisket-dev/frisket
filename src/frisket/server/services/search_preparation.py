@@ -25,7 +25,7 @@ from frisket.contracts.http.search_preparation import (
     SearchPreparationTextSample,
     SearchPreparationTextSamples,
 )
-from frisket.engine.jobs.search_index import index_work_marker
+from frisket.engine.jobs.search_index import index_work_marker, prepares_semantic_work
 from frisket.engine.store.search_index_work import read_dirty_scopes
 from frisket.engine.jobs.search_preparation_store import (
     PlannedSearchPreparationBatchRow,
@@ -887,7 +887,14 @@ class SearchPreparationService:
         retry_encoder = getattr(project, "_frisket_retry_retrieval_encoder", None)
         if callable(retry_encoder):
             retry_encoder()
-        marker = index_work_marker(project)
+        # Semantic preparation that no encoder here can run is not indexing;
+        # search coverage reports semantic search as unavailable instead.
+        marker = index_work_marker(
+            project,
+            include_preparation=prepares_semantic_work(
+                self.workspace.embedding_runtime
+            ),
+        )
         index_job = self.workspace.queue.find_job_by_refs(
             SEARCH_INDEX_KIND,
             statuses=("running",),
