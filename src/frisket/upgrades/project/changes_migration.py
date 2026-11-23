@@ -193,15 +193,36 @@ def _rewrite_capture(value: Any) -> tuple[Any, bool]:
     return rewritten, changed
 
 
+def _rewrite_typed_request_ref(ref: dict[str, Any]) -> tuple[dict[str, Any], bool]:
+    rewritten, changed = _rewrite_request(ref)
+    request = rewritten.get("request")
+    if isinstance(request, dict):
+        rewritten["request"], request_changed = _rewrite_request(request)
+        changed = request_changed or changed
+    return rewritten, changed
+
+
+def _rewrite_exported_receipts(receipts: Any) -> bool:
+    if not isinstance(receipts, list):
+        return False
+    changed = False
+    for receipt in receipts:
+        if not isinstance(receipt, dict):
+            continue
+        action_kind = receipt.get("action_kind")
+        if isinstance(action_kind, str) and action_kind in _ACTION_KIND_MAP:
+            receipt["action_kind"] = _ACTION_KIND_MAP[action_kind]
+            changed = True
+        for section in ("outputs", "records"):
+            changed = _rewrite_receipt_io_list(receipt.get(section)) or changed
+    return changed
+
+
 def _rewrite_receipt_ref(ref: dict[str, Any]) -> tuple[dict[str, Any], bool]:
     rewritten, changed = _rewrite_keys(ref, _CHANGE_KEY_MAP)
     if rewritten.get("kind") == "typed_action_request":
-        rewritten, request_changed = _rewrite_request(rewritten)
+        rewritten, request_changed = _rewrite_typed_request_ref(rewritten)
         changed = request_changed or changed
-        request = rewritten.get("request")
-        if isinstance(request, dict):
-            rewritten["request"], request_changed = _rewrite_request(request)
-            changed = request_changed or changed
     if rewritten.get("kind") == "exported_operations":
         operations = rewritten.get("operations")
         if isinstance(operations, list):
@@ -213,17 +234,7 @@ def _rewrite_receipt_ref(ref: dict[str, Any]) -> tuple[dict[str, Any], bool]:
                 rewritten["operations"].append(updated)
                 changed = operation_changed or changed
     if rewritten.get("kind") == "exported_receipts":
-        receipts = rewritten.get("receipts")
-        if isinstance(receipts, list):
-            for receipt in receipts:
-                if not isinstance(receipt, dict):
-                    continue
-                action_kind = receipt.get("action_kind")
-                if isinstance(action_kind, str) and action_kind in _ACTION_KIND_MAP:
-                    receipt["action_kind"] = _ACTION_KIND_MAP[action_kind]
-                    changed = True
-                for section in ("outputs", "records"):
-                    changed = _rewrite_receipt_io_list(receipt.get(section)) or changed
+        changed = _rewrite_exported_receipts(rewritten.get("receipts")) or changed
     affected_refs = rewritten.get("affected_refs")
     if isinstance(affected_refs, list):
         rewritten["affected_refs"] = []
