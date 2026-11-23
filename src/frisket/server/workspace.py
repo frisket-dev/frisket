@@ -13,7 +13,7 @@ from contextlib import AbstractContextManager
 from dataclasses import replace
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
+from typing import TYPE_CHECKING, Any, Literal, Protocol, runtime_checkable
 
 from fastapi import HTTPException, Request
 from filelock import FileLock
@@ -153,6 +153,13 @@ def ensure_writable_data_root(root: Path) -> None:
             pass
 
 
+# Whether the workers claiming this Workspace's search-index jobs can prepare
+# semantic work: "embedding_runtime" when they run with this process's model
+# environment, "never" when they compose no encoder, "unknown" for an
+# external worker whose model environment this process cannot observe.
+SearchIndexSemanticPreparation = Literal["embedding_runtime", "unknown", "never"]
+
+
 class Workspace:
     """Holds open projects + per-project runner state."""
 
@@ -193,6 +200,7 @@ class Workspace:
         cloud_connection_client: Any | None = None,
         cloud_execution_transport: Any | None = None,
         embedding_runtime: EmbeddingRuntime | None = None,
+        search_index_semantic_preparation: SearchIndexSemanticPreparation = "unknown",
     ):
         if project_qa_runtime_port is not None and not isinstance(
             project_qa_runtime_port, ProjectQARuntimePort
@@ -203,6 +211,7 @@ class Workspace:
 
         self.embedding_runtime = embedding_runtime or EmbeddingRuntime()
         self._owns_embedding_runtime = embedding_runtime is None
+        self.search_index_semantic_preparation = search_index_semantic_preparation
         self.root = root
         self.edition = str(edition).strip().lower()
         self.root.mkdir(parents=True, exist_ok=True)

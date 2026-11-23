@@ -1145,7 +1145,11 @@ def main() -> None:
     try:
         with StandaloneLifetimeLock(workspace):
             try:
-                app = create_app(workspace)
+                # The worker is a child process of this host sharing its
+                # model environment.
+                app = create_app(
+                    workspace, search_index_semantic_preparation="embedding_runtime"
+                )
                 worker_proc = _spawn_worker(workspace)
                 model_server.start()
                 url = f"http://localhost:{port}"

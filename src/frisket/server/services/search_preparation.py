@@ -887,12 +887,16 @@ class SearchPreparationService:
         retry_encoder = getattr(project, "_frisket_retry_retrieval_encoder", None)
         if callable(retry_encoder):
             retry_encoder()
-        # Semantic preparation that no encoder here can run is not indexing;
-        # search coverage reports semantic search as unavailable instead.
+        # Semantic preparation no worker can run is not indexing; search
+        # coverage reports semantic search as unavailable instead. An external
+        # worker's encoder is not observable here, so its work stays visible.
+        semantic_preparation = self.workspace.search_index_semantic_preparation
         marker = index_work_marker(
             project,
-            include_preparation=prepares_semantic_work(
-                self.workspace.embedding_runtime
+            include_preparation=(
+                prepares_semantic_work(self.workspace.embedding_runtime)
+                if semantic_preparation == "embedding_runtime"
+                else semantic_preparation == "unknown"
             ),
         )
         index_job = self.workspace.queue.find_job_by_refs(
