@@ -10,7 +10,10 @@ import functools
 import subprocess
 import threading
 
+from pathlib import Path
 import pytest
+
+from frisket import cli as frisket_cli
 
 import frisket.engine.jobs.runs as run_jobs
 from frisket.execution.purchases import PurchaseAdmission
@@ -1108,3 +1111,11 @@ class TestCli:
         )
         assert out.returncode == 0
         assert "--drain" in out.stdout
+
+
+def test_cli_does_not_infer_a_separate_workers_semantic_readiness(monkeypatch):
+    monkeypatch.delenv("FRISKET_NO_WORKER", raising=False)
+    assert frisket_cli._search_index_semantic_preparation() == "embedding_runtime"
+    monkeypatch.setenv("FRISKET_NO_WORKER", "1")
+    assert frisket_cli._search_index_semantic_preparation() == "unknown"
+    assert frisket_cli._spawn_worker(Path("unused")) is None

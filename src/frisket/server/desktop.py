@@ -209,7 +209,11 @@ def _serve(config: DesktopLaunchConfig, *, ready_stdout: TextIO) -> int:
             "frisket-startup: Opening workspace databases…", file=sys.stderr, flush=True
         )
         app = create_app(
-            workspace, static_dir=static_dir, cloud_profile_dir=profile_dir
+            workspace,
+            static_dir=static_dir,
+            cloud_profile_dir=profile_dir,
+            # The worker spawned below shares this process's model environment.
+            search_index_semantic_preparation="embedding_runtime",
         )
         app.state.standalone_runtime = state
         gated_app = DesktopTokenGate(app, config.token)
