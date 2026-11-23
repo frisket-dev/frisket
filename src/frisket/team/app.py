@@ -51,7 +51,10 @@ from frisket.contracts.http.project_collaboration import (
     ProjectMemberSet,
     SetProjectMemberRequest,
 )
-from frisket.contracts.http.models import UpdateProjectUsageDataSharingRequest
+from frisket.contracts.http.models import (
+    Project,
+    UpdateProjectUsageDataSharingRequest,
+)
 from frisket.contracts.http.project_config import (
     ProjectNetworkRequest,
     ProjectNetworkResponse,
@@ -1581,10 +1584,13 @@ def create_team_app(
     @app.patch(
         "/api/projects/{pid}/usage-data-sharing",
         name="update_project_usage_data_sharing",
+        response_model=Project,
+        response_model_exclude_unset=True,
+        responses=http_error_responses(401, 403, 404, 422, 500),
     )
     def update_project_usage_data_sharing(
         pid: str, request: Request, body: UpdateProjectUsageDataSharingRequest
-    ) -> dict[str, Any]:
+    ) -> Project:
         """Team twin of the core /usage-data-sharing route: writes the
         control-plane projects.sensitive ("off" means sensitive) AND the bundle
         in one step, exactly like the /network twin below. Intent completion
@@ -1614,7 +1620,7 @@ def create_team_app(
                 action="project_sensitivity_updated",
                 detail=f"{pid}:{body.usage_data_sharing}",
             )
-        return updated
+        return Project.model_validate(updated)
 
     @app.patch(
         "/api/projects/{pid}/network",

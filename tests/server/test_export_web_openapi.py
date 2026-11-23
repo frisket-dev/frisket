@@ -1219,6 +1219,7 @@ def _case_project_config_identity_and_parity(
     operation_ids = _operation_ids(document)
     expected = {
         "outer.update_project_network.patch",
+        "outer.update_project_usage_data_sharing.patch",
         "tenant.compact_project.post",
         "tenant.delete_project_provider_key.delete",
         "tenant.delete_project_secret.delete",
@@ -1235,6 +1236,9 @@ def _case_project_config_identity_and_parity(
     }
     assert expected <= operation_ids
     assert "tenant.update_project_network.patch" not in operation_ids
+    assert "tenant.update_project_usage_data_sharing.patch" not in operation_ids
+    usage = _operation(document, "outer.update_project_usage_data_sharing.patch")
+    assert usage["x-frisket-editions"] == ["local", "team"]
     network = _operation(document, "outer.update_project_network.patch")
     assert network["x-frisket-editions"] == ["local", "team"]
     assert {row["owner"] for row in network["x-frisket-effective-identities"]} == {

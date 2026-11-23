@@ -1092,6 +1092,9 @@ _BROWSER_CLIENT_IDS = (
             # The local policy owns browser membership; projection maps this
             # Team/local twin to outer.update_project_network.patch.
             "tenant.update_project_network.patch",
+            # Projected to outer.update_project_usage_data_sharing.patch, like
+            # the network setting's twin.
+            "tenant.update_project_usage_data_sharing.patch",
             "tenant.update_project_allowed_services.patch",
             "tenant.update_project_retention.patch",
             "tenant.set_project_provider_key.post",

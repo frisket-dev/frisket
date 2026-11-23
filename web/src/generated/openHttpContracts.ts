@@ -355,6 +355,15 @@ export const HTTP_CONTRACT_ARTIFACT = {
       }
     },
     {
+      "id": "outer.update_project_usage_data_sharing.patch",
+      "method": "PATCH",
+      "path": "/api/projects/{pid}/usage-data-sharing",
+      "request": {
+        "mediaType": "application/json",
+        "required": true
+      }
+    },
+    {
       "id": "outer.validate_organization_key.post",
       "method": "POST",
       "path": "/api/organization/keys/validate",
@@ -15268,6 +15277,10 @@ export type HttpUpdateProjectRequest = ({
   "starred"?: (((boolean)) | ((null)));
 });
 
+export type HttpUpdateProjectUsageDataSharingRequest = ({
+  "usage_data_sharing": ("inherit" | "on" | "off") & (string);
+});
+
 export type HttpUpdateSheetRequest = ({
   "title_column_id"?: (((number)) | ((null)));
 });
@@ -16304,6 +16317,19 @@ export type HttpContractOperationMap = {
     readonly responses: {
       readonly "200": HttpProjectNetworkResponse;
       readonly "400": HttpError;
+      readonly "401": HttpError;
+      readonly "403": HttpError;
+      readonly "404": HttpError;
+      readonly "422": HttpError;
+      readonly "500": HttpError;
+    };
+  };
+  readonly "outer.update_project_usage_data_sharing.patch": {
+    readonly pathParams: HttpInline_87cacc773db826e7;
+    readonly query: HttpInline_d746974fa9afd5e9;
+    readonly request: HttpUpdateProjectUsageDataSharingRequest;
+    readonly responses: {
+      readonly "200": HttpProject;
       readonly "401": HttpError;
       readonly "403": HttpError;
       readonly "404": HttpError;
