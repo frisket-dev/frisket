@@ -313,7 +313,7 @@ def test_queued_find_rerates_a_model_server_model_before_dispatch(
 
     adapter = Adapter()
     execution_router = router(price_at_execution)
-    execution_router._adapters["ollama"]._adapters["lan"] = adapter  # noqa: SLF001
+    execution_router._adapters["ollama"]._adapters["lan"] = adapter
     bindings = action_job_bindings(
         executor_deps_factory=lambda _project_id, _run_id: ExecutorDeps(
             router=execution_router
