@@ -8,8 +8,10 @@ from pathlib import Path
 
 import pytest
 import sqlalchemy as sa
+from fastapi.testclient import TestClient
 
 from frisket.engine.store import Project
+from frisket.server.app import create_app
 from frisket.project_service_access import (
     SelectedRoute,
     check_route,
@@ -177,10 +179,6 @@ def test_cloud_network_off_project_stores_this_machine_only(
 
 
 def test_cloud_still_refuses_choosing_this_machine_only(tmp_path: Path) -> None:
-    from fastapi.testclient import TestClient
-
-    from frisket.server.app import create_app
-
     client = TestClient(create_app(tmp_path / "cloud", edition="cloud"))
     pid = client.post("/api/projects", json={"name": "Cloud"}).json()["id"]
     refused = client.patch(

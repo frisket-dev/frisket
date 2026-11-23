@@ -7,8 +7,9 @@ services. The network key is removed in the same transaction, and the
 manifest is rewritten from the Allowed services value actually stored.
 
 On Frisket Cloud, Approved services allows Frisket's own processing, which
-network off refused, so a network-off Cloud project is not converted: the
-step refuses until that mapping is decided, and the project keeps its data.
+network off refused, so a network-off Cloud project stores This machine only
+even though Cloud does not offer it for selection: nothing loosens, and its
+owner chooses an offered option, with the usual confirmation, to go further.
 """
 
 from __future__ import annotations
@@ -27,10 +28,6 @@ from frisket.service_access import workspace_edition
 NETWORK_POLICY_META_KEY = "network_policy"
 ALLOWED_SERVICES_META_KEY = "allowed_services"
 LEGACY_MANIFEST_NETWORK_KEY = "network"
-
-
-class NetworkFoldDecisionPending(RuntimeError):
-    """A network-off project on Frisket Cloud has no decided Allowed services."""
 
 
 def _network_was_off(raw: str | None) -> bool:
@@ -63,15 +60,15 @@ def upgrade_network_policy(project: Any) -> None:
             None,
             "all_services",
         ):
-            if workspace_edition(project.path.parent) == "cloud":
-                raise NetworkFoldDecisionPending(
-                    "This Frisket Cloud project's network setting is off; its "
-                    "Allowed services value is not decided yet."
-                )
+            folded = (
+                "this_machine_only"
+                if workspace_edition(project.path.parent) == "cloud"
+                else "approved_services"
+            )
             project.db.execute(
                 "INSERT INTO meta (key, value) VALUES (?, ?) "
                 "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
-                (ALLOWED_SERVICES_META_KEY, "approved_services"),
+                (ALLOWED_SERVICES_META_KEY, folded),
             )
         project.db.execute("DELETE FROM meta WHERE key=?", (NETWORK_POLICY_META_KEY,))
         stored = project.db.execute(

@@ -66,7 +66,10 @@ def project_service_access(project: Project) -> ServiceAccess:
     return ServiceAccess(
         setting,
         read_approved_endpoints(root) + configured_model_server_endpoints(root),
-        frisket_processing_allowed=workspace_edition(root) == "cloud",
+        # This machine only refuses Frisket's own processing even on Cloud,
+        # where a project can hold it only from a folded network-off setting.
+        frisket_processing_allowed=workspace_edition(root) == "cloud"
+        and setting != "this_machine_only",
     )
 
 
