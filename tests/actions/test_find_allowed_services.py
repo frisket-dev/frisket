@@ -91,21 +91,6 @@ def test_find_scan_model_is_decided_before_any_request(
         "ACTION_REGISTRY",
         ActionRegistry([ActionNamespace("custom", actions=[bound.action.definition])]),
     )
-    envelope = reserve_typed_find_action_job(
-        project, "test", bound, consent_coverage=coverage
-    )
-    if not isinstance(envelope, ActionJobEnvelope):
-        bound = type(bound).bind(
-            bound.action,
-            bound.request.model_copy(
-                update={"confirmation": envelope.errors[0].details["promise_set_hash"]}
-            ),
-        )
-        envelope = reserve_typed_find_action_job(
-            project, "test", bound, consent_coverage=coverage
-        )
-    assert isinstance(envelope, ActionJobEnvelope), envelope
-    adapter = _Adapter("unused", matches=[])
     router = ModelRouter(
         model_call_policy=LOCAL_PURCHASE_POLICY,
         use_env_keys=False,
@@ -113,6 +98,20 @@ def test_find_scan_model_is_decided_before_any_request(
         cache_mode="off",
         local_endpoints=ENDPOINTS,
     )
+    # The request's router prices the model-server scan; the same deps carry
+    # the consent coverage the worker re-rates against before dispatch.
+    deps = ExecutorDeps(router=router, consent_coverage=coverage)
+    envelope = reserve_typed_find_action_job(project, "test", bound, deps=deps)
+    if not isinstance(envelope, ActionJobEnvelope):
+        bound = type(bound).bind(
+            bound.action,
+            bound.request.model_copy(
+                update={"confirmation": envelope.errors[0].details["promise_set_hash"]}
+            ),
+        )
+        envelope = reserve_typed_find_action_job(project, "test", bound, deps=deps)
+    assert isinstance(envelope, ActionJobEnvelope), envelope
+    adapter = _Adapter("unused", matches=[])
     for endpoint in ENDPOINTS:
         monkeypatch.setattr(
             router._adapters["ollama"].adapter_for_endpoint(endpoint.endpoint_id),
@@ -122,7 +121,7 @@ def test_find_scan_model_is_decided_before_any_request(
 
     def execute(project, envelope, *, execution):
         return run_typed_find_action_job(
-            project, envelope, execution=execution, deps=ExecutorDeps(router=router)
+            project, envelope, execution=execution, deps=deps
         )
 
     result = run_action_run_job(

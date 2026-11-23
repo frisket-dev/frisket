@@ -219,6 +219,9 @@ def test_llm_catalog_entry_reflects_all_effective_provider_keys(monkeypatch, tmp
     assert llm_entry["error"]
 
     class _ProjectWithProviderKey:
+        def remote_services_refused(self):
+            return False
+
         path = tmp_path / "catalog.frisket"
 
         def provider_model_keys(self):
