@@ -100,10 +100,10 @@ workspace = Path(sys.argv[2])
 
 from PIL import Image
 from pypdf import PdfWriter
+from pypdf.generic import DecodedStreamObject, DictionaryObject, NameObject
 from frisket.ops.ocr_engines_local import ocr_rapidocr, rapidocr_execution_scope
 from frisket.engine.pdf_render import render_pdf_pages
 from frisket.retrieval.native import load_vec1, pack_vector
-from frisket.sample_content.lawsuits import SAMPLE_LAWSUITS, lawsuit_pdf_bytes
 
 with sqlite3.connect(":memory:") as retrieval:
     version = load_vec1(retrieval)
@@ -122,8 +122,27 @@ writer.add_blank_page(width=144, height=144)
 with pdf.open("wb") as target:
     writer.write(target)
 
-complaint = workspace / SAMPLE_LAWSUITS[0].filename
-complaint.write_bytes(lawsuit_pdf_bytes(SAMPLE_LAWSUITS[0]))
+ocr_pdf = workspace / "native-ocr-check.pdf"
+ocr_writer = PdfWriter()
+ocr_page = ocr_writer.add_blank_page(width=612, height=792)
+ocr_page[NameObject("/Resources")] = DictionaryObject({
+    NameObject("/Font"): DictionaryObject({
+        NameObject("/F1"): DictionaryObject({
+            NameObject("/Type"): NameObject("/Font"),
+            NameObject("/Subtype"): NameObject("/Type1"),
+            NameObject("/BaseFont"): NameObject("/Helvetica"),
+        }),
+    }),
+})
+# Keep the spacing probe independent of sample-project content and layout.
+ocr_content = DecodedStreamObject()
+ocr_content.set_data(
+    b"BT /F1 18 Tf 72 700 Td (THE QUICK BROWN FOX) Tj "
+    b"0 -36 Td (JUMPS OVER THE LAZY DOG) Tj ET"
+)
+ocr_page[NameObject("/Contents")] = ocr_writer._add_object(ocr_content)
+with ocr_pdf.open("wb") as target:
+    ocr_writer.write(target)
 
 async def main():
     render_dir = workspace / "rendered"
@@ -134,15 +153,15 @@ async def main():
     with Image.open(rendered.pages[0][1]) as page_image:
         if page_image.size != (288, 288):
             raise RuntimeError("PDFium rendered an unexpected page size")
-    complaint_dir = workspace / "complaint-rendered"
-    complaint_dir.mkdir()
-    complaint_pages = await render_pdf_pages(complaint, complaint_dir, dpi=200)
+    ocr_dir = workspace / "ocr-rendered"
+    ocr_dir.mkdir()
+    ocr_pages = await render_pdf_pages(ocr_pdf, ocr_dir, dpi=200)
     async with rapidocr_execution_scope(expected_rows=1, language=None) as pool:
-        pages = await ocr_rapidocr(pool, [complaint_pages.pages[0][1]], workspace)
+        pages = await ocr_rapidocr(pool, [ocr_pages.pages[0][1]], workspace)
     text = " ".join(str(page.get("text", "")) for page in pages)
-    for expected in ("COMPLAINT AND DEMAND FOR JURY TRIAL", "Case No. RV-CV-2026-00418."):
+    for expected in ("THE QUICK BROWN FOX", "JUMPS OVER THE LAZY DOG"):
         if expected not in text:
-            raise RuntimeError("RapidOCR did not preserve the complaint's word spacing")
+            raise RuntimeError(f"RapidOCR did not preserve word spacing: missing {expected!r}; got {text!r}")
     print(json.dumps({"pages": len(pages), "text": text[:120]}))
 
 asyncio.run(main())

@@ -286,7 +286,7 @@ async def test_cloud_pdf_companion_http_poll_and_recovery_keep_one_purchase(tmp_
 
     async def handler(request):
         assert request.headers.get("X-Frisket-OCR-Contract") == "pdf-v1"
-        assert request.headers.get("X-Frisket-Cloud-Protocol") == "1"
+        assert request.headers.get("X-Frisket-Cloud-Protocol") == "2"
         assert request.headers["Idempotency-Key"] == "one-pdf-purchase"
         requests.append(request.method)
         if request.method == "POST":
@@ -392,6 +392,7 @@ async def test_http_transport_echoes_only_an_exact_authorized_estimate(tmp_path)
     seen: list[tuple[str | None, str, str]] = []
 
     async def handler(request: httpx.Request) -> httpx.Response:
+        assert request.headers["X-Frisket-Cloud-Protocol"] == "2"
         seen.append(
             (
                 request.headers.get("X-Frisket-Confirmation"),
@@ -400,7 +401,23 @@ async def test_http_transport_echoes_only_an_exact_authorized_estimate(tmp_path)
             )
         )
         if len(seen) == 1:
-            return httpx.Response(409, json=_estimate().model_dump(mode="json"))
+            return httpx.Response(
+                409,
+                json={
+                    "error": "needs_confirmation",
+                    "confirmation": "quote-confirmation",
+                    "estimate": {
+                        "account_id": 41,
+                        "route_revision": "route-1",
+                        "lane": "frisket_credits",
+                        "provider": "anthropic",
+                        "engine": "anthropic/claude-haiku-4-5",
+                        "estimated_charge_micro": 25_000,
+                        "provider_cost_micro": None,
+                        "expires_at": "2099-01-01T00:00:00Z",
+                    },
+                },
+            )
         return httpx.Response(200, json=_llm_response().model_dump(mode="json"))
 
     transport = HttpCloudExecutionTransport(
@@ -1622,7 +1639,7 @@ async def test_update_required_keeps_instruction_and_never_retries_cloud_purchas
     assert str(caught.value) == message
     assert caught.value.retryable is False
     assert len(seen) == 1
-    assert seen[0].headers["X-Frisket-Cloud-Protocol"] == "1"
+    assert seen[0].headers["X-Frisket-Cloud-Protocol"] == "2"
 
 
 @pytest.mark.asyncio

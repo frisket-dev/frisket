@@ -1360,7 +1360,9 @@ function GeneratedActionFormContents({
     searchable_pdf: typeof draft.searchable_pdf === 'boolean' ? draft.searchable_pdf : undefined,
     sheetId: sheet?.id,
     sourceColumn: ocrSourceColumn,
-    selectedRowIds: scopeSelectedRowIds.length > 0 ? [...scopeSelectedRowIds] : undefined,
+    selectedRowIds: requestScope.kind === 'sheet_rows' ? requestScope.row_ids?.map(String) : undefined,
+    viewId: requestScope.kind === 'sheet_rows' ? requestScope.view_id : undefined,
+    selection: requestScope.kind === 'sheet_rows' ? requestScope.selection : undefined,
     maxItems: 10,
   };
 

@@ -36,9 +36,10 @@ test('the real Guide survives account-settings navigation and reload recovery', 
 
   await page.getByTestId('chrome-walkthrough').click();
   await page.getByTestId('walkthrough-choice-local-model-lab').click();
-  for (let step = 0; step < 5; step += 1) {
-    await page.getByRole('button', { name: 'Next' }).click();
-  }
+  await expect(page.getByRole('heading', { name: 'Open Small model lab' })).toBeVisible();
+  await page.getByRole('button', { name: 'Next', exact: true }).click();
+  await expect(page.getByRole('heading', { name: 'Start with the easy notices' })).toBeVisible();
+  await page.getByRole('button', { name: 'Next', exact: true }).click();
   await expect(page.getByRole('heading', { name: 'Open the account menu' })).toBeVisible();
   await page.getByTestId('chrome-account').click();
   await expect(page.getByRole('heading', { name: 'Open account settings' })).toBeVisible();
