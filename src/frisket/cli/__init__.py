@@ -20,7 +20,7 @@ import webbrowser
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 from frisket.project_opener import ProjectOpener
 from frisket.runtime.launch import worker_argv
@@ -660,9 +660,19 @@ def _spawn_worker(workspace: Path) -> "subprocess.Popen | None":
     work (e.g. transcription) stops blocking the web event loop while the
     local tier stays one command. FRISKET_NO_WORKER=1 opts out (tests,
     running a separate worker yourself)."""
-    if os.environ.get("FRISKET_NO_WORKER"):
+    if _runs_separate_worker():
         return None
     return spawn_service(_worker_argv(workspace))
+
+
+def _runs_separate_worker() -> bool:
+    return bool(os.environ.get("FRISKET_NO_WORKER"))
+
+
+def _search_index_semantic_preparation() -> Literal["unknown", "embedding_runtime"]:
+    """A child worker shares this host's model environment; a separately
+    launched one may not, so its encoder is not observable from here."""
+    return "unknown" if _runs_separate_worker() else "embedding_runtime"
 
 
 def _stop_worker(proc: "subprocess.Popen | None") -> None:
@@ -1145,10 +1155,11 @@ def main() -> None:
     try:
         with StandaloneLifetimeLock(workspace):
             try:
-                # The worker is a child process of this host sharing its
-                # model environment.
                 app = create_app(
-                    workspace, search_index_semantic_preparation="embedding_runtime"
+                    workspace,
+                    search_index_semantic_preparation=(
+                        _search_index_semantic_preparation()
+                    ),
                 )
                 worker_proc = _spawn_worker(workspace)
                 model_server.start()
