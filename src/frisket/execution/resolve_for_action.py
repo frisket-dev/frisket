@@ -468,6 +468,7 @@ def _ocr_cost_basis_for_scope(
         offering=offering,
         pages=pages,
         row_pages=row_pages,
+        model_servers=composition.model_servers,
     )
     return basis, pages
 
@@ -537,6 +538,7 @@ def _transcribe_cost_basis_for_scope(
         audio_seconds=seconds,
         hardware_class=resolution.estimate_basis.hardware_class,
         row_audio_seconds=row_seconds,
+        model_servers=composition.model_servers,
     )
     return basis, seconds
 
@@ -1293,6 +1295,7 @@ def resolve_for_action(
                 audio_seconds=float(quantity),
                 hardware_class=outcome.estimate_basis.hardware_class,
                 row_audio_seconds=row_audio_seconds,
+                model_servers=composition.model_servers,
             )
         elif capability == CAPABILITY_OCR:
             if offering is not None and offering.estimate.quantity_unit == "usd":
@@ -1319,6 +1322,7 @@ def resolve_for_action(
                     offering=offering,
                     pages=int(quantity),
                     row_pages=row_pages,
+                    model_servers=composition.model_servers,
                 )
         else:
             raise ValueError(

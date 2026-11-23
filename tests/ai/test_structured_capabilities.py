@@ -7,6 +7,7 @@ from typing import Any
 import httpx
 import pytest
 
+from frisket.ai.llm.pricing import ModelPricing, model_pricing
 from frisket.ai.llm import DEFAULT_MAX_OUTPUT_TOKENS
 from frisket.ai.llm import structured_capabilities as capabilities
 from frisket.ai.llm.adapters import AnthropicAdapter, OpenAICompatAdapter, _strictify
@@ -151,7 +152,7 @@ def _run_capturing_request(
     req: LLMRequest,
     wire: dict,
     *,
-    cost_model: str | None = None,
+    cost_pricing: ModelPricing | None = None,
 ) -> dict:
     """Runs adapter.complete() against a MockTransport that returns `wire`,
     and returns the JSON body the adapter actually POSTed."""
@@ -163,8 +164,8 @@ def _run_capturing_request(
 
     async def _go():
         async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
-            if cost_model is not None:
-                return await adapter.complete(req, client, cost_model=cost_model)
+            if cost_pricing is not None:
+                return await adapter.complete(req, client, cost_pricing=cost_pricing)
             return await adapter.complete(req, client)
 
     resp = asyncio.run(_go())
@@ -297,7 +298,7 @@ def test_ollama_wire_body_is_json_loose():
         adapter,
         req,
         _openai_ok_wire({"name": "Ada"}),
-        cost_model="ollama/@test-local/llama3",
+        cost_pricing=model_pricing("ollama/@test-local/llama3"),
     )
     assert body["response_format"] == {"type": "json_object"}
 

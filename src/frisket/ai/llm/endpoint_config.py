@@ -20,7 +20,6 @@ import os
 import hashlib
 from dataclasses import dataclass, field
 from collections.abc import Mapping
-from types import MappingProxyType
 from typing import Literal
 from urllib.parse import urlparse
 
@@ -56,25 +55,6 @@ class ModelServerModel:
 
 
 @dataclass(frozen=True)
-class ModelServerTerms:
-    """What pricing needs to know about one configured model server."""
-
-    on_this_machine: bool
-    prices: Mapping[str, tuple[float, float]]
-
-
-# Pricing reads model-server facts by the endpoint id inside a model id, and
-# model ids reach pricing without their endpoint. Every endpoint config
-# records its terms here on construction, so any process that can dispatch to
-# a server can also price it; an id with no recorded terms has no known price.
-_MODEL_SERVER_TERMS: dict[str, ModelServerTerms] = {}
-
-
-def model_server_terms(endpoint_id: str) -> ModelServerTerms | None:
-    return _MODEL_SERVER_TERMS.get(endpoint_id)
-
-
-@dataclass(frozen=True)
 class LocalModelEndpointConfig:
     """One atomic bundle describing an OpenAI-compatible local model server.
 
@@ -94,21 +74,6 @@ class LocalModelEndpointConfig:
     edge_auth: bool = False
     pull_enabled: bool = False
     models: tuple[ModelServerModel, ...] = field(default=())
-
-    def __post_init__(self) -> None:
-        on_this_machine = self.on_this_machine
-        _MODEL_SERVER_TERMS[self.endpoint_id] = ModelServerTerms(
-            on_this_machine=on_this_machine,
-            prices=MappingProxyType(
-                {}
-                if on_this_machine
-                else {
-                    model.name: model.price
-                    for model in self.models
-                    if model.price is not None
-                }
-            ),
-        )
 
     @property
     def on_this_machine(self) -> bool:

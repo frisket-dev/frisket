@@ -189,6 +189,7 @@ async def test_direct_transcription_admits_before_http_and_preserves_usage_befor
             )
         },
         credential_source_for=lambda provider: "org_byok",
+        local_endpoints=(),
         model_call_policy=policy,
     )
     calls = []

@@ -8,13 +8,16 @@ consent binds it by value, and the model call's cost uses it.
 
 from __future__ import annotations
 
+import json
 from typing import Any
 
 import httpx
 import pytest
 
+from frisket import local_provider_config
 from frisket.ai.llm import adapters as llm_adapters
 from frisket.ai.llm.endpoint_config import LocalModelEndpointConfig, ModelServerModel
+from frisket.ai.llm.pricing import model_pricing
 from frisket.ai.llm.router import ModelRouter
 from frisket.ai.llm.types import LLMRequest
 from frisket.execution.dispatch_control import STANDALONE
@@ -272,3 +275,165 @@ async def test_model_call_cost_follows_the_server_origin_and_entered_price(
 
     assert response.cost == cost
     assert response.cost_source == cost_source
+
+
+SHARED_ID = "local-shared000001"
+
+
+def _store_server(root, origin: str, price: dict[str, float] | None) -> None:
+    path = local_provider_config.local_secrets_path(root)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    row = {
+        "id": SHARED_ID,
+        "name": "Main",
+        "url": origin,
+        "inference_token": None,
+        "provisioning_token": None,
+        "edge_auth": False,
+        "pull_enabled": False,
+        "models": []
+        if price is None
+        else [{"name": "listed-model", "entered": False, "price": price}],
+    }
+    path.write_text(
+        json.dumps({local_provider_config.LOCAL_MODEL_ENDPOINTS_KEY: json.dumps([row])})
+    )
+
+
+def _estimate(client, project_id: str, sheet: int) -> dict[str, Any]:
+    response = client.post(
+        f"/api/projects/{project_id}/actions/v1/estimate",
+        json={
+            "action": _classify_action(
+                sheet, f"ollama/@{SHARED_ID}/listed-model", "shared"
+            )
+        },
+    )
+    assert response.status_code == 200, response.text
+    return response.json()["estimate"]
+
+
+def _router(client, project_id: str) -> ModelRouter:
+    workspace = client.app.state.workspace
+    return workspace.router_for(workspace.get(project_id))
+
+
+async def _receipt_cost(router: ModelRouter) -> tuple[float | None, str]:
+    def handle(_request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json={
+                "id": "completion-1",
+                "choices": [{"message": {"content": "ok"}, "finish_reason": "stop"}],
+                "usage": {"prompt_tokens": 1_000_000, "completion_tokens": 1_000_000},
+            },
+        )
+
+    router._client = httpx.AsyncClient(transport=httpx.MockTransport(handle))
+    try:
+        response = await router.for_execution(STANDALONE).complete(
+            LLMRequest(
+                model=f"ollama/@{SHARED_ID}/listed-model",
+                messages=[{"role": "user", "content": "hi"}],
+            )
+        )
+    finally:
+        await router._client.aclose()
+    return response.cost, response.cost_source
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("remote_price", "remote_cost", "remote_source"),
+    [
+        ({"input": 2.5, "output": 10.0}, 12.5, "pricing_data"),
+        (None, None, "unknown"),
+    ],
+)
+async def test_two_workspaces_sharing_a_server_id_price_by_their_own_configuration(
+    tmp_path,
+    monkeypatch,
+    remote_price: dict[str, float] | None,
+    remote_cost: float | None,
+    remote_source: str,
+) -> None:
+    monkeypatch.setenv("FRISKET_COST_CONSENT_USD", "0")
+    _store_server(tmp_path / "a" / "ws", REMOTE_ORIGIN, remote_price)
+    _store_server(tmp_path / "b" / "ws", LOOPBACK_ORIGIN, None)
+    remote_client = make_client(tmp_path / "a")
+    loopback_client = make_client(tmp_path / "b")
+    remote_project, remote_sheet = _project_with_rows(remote_client)
+    loopback_project, loopback_sheet = _project_with_rows(loopback_client)
+
+    # Interleaved: each workspace loads its servers after the other has.
+    for _round in range(2):
+        remote = _estimate(remote_client, remote_project, remote_sheet)
+        local = _estimate(loopback_client, loopback_project, loopback_sheet)
+        assert remote["cost_source"] == remote_source
+        assert (remote["cost"] is None) is (remote_price is None)
+        assert local["cost"] == 0.0
+        assert local["cost_source"] == "free_local"
+
+    # Both routers exist before either prices: neither workspace's servers
+    # may change what the other's model call costs.
+    remote_router = _router(remote_client, remote_project)
+    loopback_router = _router(loopback_client, loopback_project)
+    assert await _receipt_cost(remote_router) == (remote_cost, remote_source)
+    assert await _receipt_cost(loopback_router) == (0.0, "free_local")
+    assert await _receipt_cost(remote_router) == (remote_cost, remote_source)
+
+
+def test_a_changed_price_or_deleted_server_takes_effect_on_the_next_estimate(
+    client, monkeypatch
+) -> None:
+    monkeypatch.setenv("FRISKET_COST_CONSENT_USD", "0")
+    remote = _add_server(client, "LAN vLLM", REMOTE_ORIGIN)
+    endpoint_id = remote["endpoint_id"]
+    project_id, sheet = _project_with_rows(client)
+    model = f"ollama/@{endpoint_id}/listed-model"
+
+    def estimate() -> dict[str, Any]:
+        response = client.post(
+            f"/api/projects/{project_id}/actions/v1/estimate",
+            json={"action": _classify_action(sheet, model, "changes")},
+        )
+        assert response.status_code == 200, response.text
+        return response.json()["estimate"]
+
+    def price(rate: float) -> None:
+        patched = client.patch(
+            f"/api/providers/local-endpoints/{endpoint_id}",
+            json={
+                "models": [
+                    {
+                        "name": "listed-model",
+                        "entered": False,
+                        "price": {"input": rate, "output": rate},
+                    }
+                ]
+            },
+        )
+        assert patched.status_code == 200, patched.text
+
+    price(1.0)
+    assert estimate()["pricing_key"] == f"{model}.tokens:1.0/1.0"
+    price(3.0)
+    assert estimate()["pricing_key"] == f"{model}.tokens:3.0/3.0"
+    deleted = client.delete(f"/api/providers/local-endpoints/{endpoint_id}")
+    assert deleted.status_code == 200, deleted.text
+    gone = estimate()
+    assert gone["cost"] is None
+    assert gone["cost_source"] == "unknown"
+
+
+def test_pricing_without_the_workspace_servers_is_unknown_never_free() -> None:
+    # Constructing a loopback config elsewhere in the process does not make
+    # a caller that holds no servers price it as free.
+    LocalModelEndpointConfig(
+        endpoint_id=SHARED_ID,
+        display_name="Main",
+        origin=LOOPBACK_ORIGIN,
+        source="local_file",
+    )
+    pricing = model_pricing(f"ollama/@{SHARED_ID}/listed-model")
+    assert (pricing.price, pricing.cost_source) == (None, "unknown")

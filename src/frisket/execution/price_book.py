@@ -23,7 +23,7 @@ from frisket.ai.external_pricing import (
     GOOGLE_TRANSLATE_CHAR,
     external_unit_price_string,
 )
-from frisket.ai.llm.pricing import model_price
+from frisket.ai.llm.pricing import ModelServers, model_price
 from frisket.execution.commercial import CommercialOffering
 from frisket.execution.promise_compiler import (
     CostBasis,
@@ -147,13 +147,13 @@ def byok_remote_ocr_sku(engine_id: str) -> str:
     return f"{engine_id}.ocr_page"
 
 
-def _vlm_ocr_page_estimate(engine: str) -> Decimal | None:
+def _vlm_ocr_page_estimate(engine: str, model_servers: ModelServers) -> Decimal | None:
     """Rough allowance: 4,096 image/prompt and 4,096 output tokens per page.
 
     This is neither a token limit nor a per-page tariff. Dense pages and
     repair calls can cost more; settlement uses recorded provider costs.
     """
-    rates = model_price(engine)
+    rates = model_price(engine, model_servers)
     if rates is None:
         return None
     input_rate, output_rate = rates
@@ -263,12 +263,14 @@ class AudioSecondRate:
     pricing_key: str | None
 
 
-def byok_audio_second_rate(engine_id: str) -> AudioSecondRate:
+def byok_audio_second_rate(
+    engine_id: str, model_servers: ModelServers = ()
+) -> AudioSecondRate:
     """A per-second rate and its provenance from the same lookup."""
     from frisket.ai.llm.pricing import audio_price, model_server_on_this_machine
 
-    per_second = (audio_price(engine_id) or {}).get("per_second")
-    if model_server_on_this_machine(engine_id):
+    per_second = (audio_price(engine_id, model_servers) or {}).get("per_second")
+    if model_server_on_this_machine(engine_id, model_servers):
         pricing_key = None
         cost_source: Literal["free_local", "pricing_data", "unknown"] = "free_local"
     else:
@@ -516,6 +518,7 @@ def estimate_transcription(
     audio_seconds: float | None,
     hardware_class: str | None,
     row_audio_seconds: Mapping[int, float] | None = None,
+    model_servers: ModelServers = (),
 ) -> CostBasis:
     """THE cost-basis mint for a transcription invocation.
 
@@ -547,7 +550,7 @@ def estimate_transcription(
     if audio_seconds is None:
         return UnpriceableCost()
 
-    estimated_rate = byok_audio_second_rate(engine)
+    estimated_rate = byok_audio_second_rate(engine, model_servers)
     if estimated_rate.rate is None:
         return UnpriceableCost()
     try:
@@ -583,6 +586,7 @@ def estimate_ocr(
     offering: CommercialOffering | None,
     pages: int | None,
     row_pages: Mapping[int, int] | None = None,
+    model_servers: ModelServers = (),
 ) -> CostBasis:
     """The cost-basis mint for an OCR invocation — the per-page sibling
     of :func:`estimate_transcription`.
@@ -630,7 +634,7 @@ def estimate_ocr(
     if sku == SKU_DATALAB_OCR_PAGE:
         rate = datalab_ocr_page_rate()
     else:
-        rate = _vlm_ocr_page_estimate(engine)
+        rate = _vlm_ocr_page_estimate(engine, model_servers)
         terms["charge_authority"] = "provider_usage"
     if rate is None:
         return UnpriceableCost()
@@ -851,6 +855,7 @@ def live_cost_fact(
     funding: Funding,
     offering: CommercialOffering | None,
     hardware_class: str | None,
+    model_servers: ModelServers = (),
 ) -> dict[str, Any]:
     """What the venue prices at RIGHT NOW, for the run-start fence to score
     the consented ``cost`` promise against.
@@ -904,11 +909,11 @@ def live_cost_fact(
         return fact
     if capability == CAPABILITY_OCR:
         fact["charge_authority"] = "provider_usage"
-        rate = _vlm_ocr_page_estimate(engine)
+        rate = _vlm_ocr_page_estimate(engine, model_servers)
         if rate is not None:
             fact["unit_rate"] = decimal_str(rate)
         return fact
-    rate = byok_audio_second_rate(engine).rate
+    rate = byok_audio_second_rate(engine, model_servers).rate
     if rate is not None:
         fact["unit_rate"] = decimal_str(rate)
     return fact

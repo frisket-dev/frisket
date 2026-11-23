@@ -11,7 +11,7 @@ from typing import Any
 
 import httpx
 
-from frisket.ai.llm.pricing import audio_price
+from frisket.ai.llm.pricing import ModelServers, audio_price
 from frisket.ai.llm.types import LLMError
 from frisket.ai.models.metadata import ModelCallMeta, PROVIDER_KIND
 from frisket.contracts.action import (
@@ -127,10 +127,10 @@ def _safe_remote_exception(prefix: str, error: BaseException, key: str) -> str:
 
 
 def _estimate_transcription_cost(
-    model_id: str, duration_seconds: float | None
+    model_id: str, duration_seconds: float | None, model_servers: ModelServers
 ) -> float | None:
     """Rough purchase headroom; the response's measured usage owns settlement."""
-    price = audio_price(model_id)
+    price = audio_price(model_id, model_servers)
     if price is None or duration_seconds is None:
         return None
     if "per_second" in price:
@@ -157,8 +157,9 @@ def _remote_response_accounting(
     warning: str,
     known_usage: dict[str, Any] | None = None,
     known_cost: float | None = None,
+    model_servers: ModelServers,
 ) -> dict[str, Any]:
-    price = audio_price(model_id)
+    price = audio_price(model_id, model_servers)
     known_zero = price is not None and all(
         isinstance(rate, (int, float)) and not isinstance(rate, bool) and rate == 0
         for rate in price.values()
@@ -250,6 +251,7 @@ class OpenAITranscriptionAdapter:
         if ctx.http is None:
             raise RuntimeError("no http client available for remote transcription")
         selected_source = router.credential_source_for(provider)
+        model_servers: ModelServers = tuple(router.local_endpoints)
         routed = routed_admission_in_scope(ctx.extras)
         if routed is not None:
             _halt_unless_consented_credential(
@@ -302,7 +304,9 @@ class OpenAITranscriptionAdapter:
                 "audio_seconds": duration,
             },
             credential_source=selected_source,
-            estimated_cost_usd=_estimate_transcription_cost(model_id, duration),
+            estimated_cost_usd=_estimate_transcription_cost(
+                model_id, duration, model_servers
+            ),
             context=ctx,
         )
 
@@ -350,6 +354,7 @@ class OpenAITranscriptionAdapter:
                         ctx=ctx,
                         response=response,
                         warning=f"{provider} returned HTTP {response.status_code}; request cost is unknown",
+                        model_servers=model_servers,
                     ),
                     status_code=response.status_code,
                 )
@@ -385,7 +390,7 @@ class OpenAITranscriptionAdapter:
                 observed_usage = dict(usage)
                 if seconds is not None:
                     observed_usage["audio_seconds"] = seconds
-                price = audio_price(model_id)
+                price = audio_price(model_id, model_servers)
                 if price and "per_second" in price:
                     if price["per_second"] == 0:
                         cost = 0.0
@@ -462,6 +467,7 @@ class OpenAITranscriptionAdapter:
                     warning=f"{provider} returned an unusable transcription response; request cost is unknown",
                     known_usage=observed_usage,
                     known_cost=cost,
+                    model_servers=model_servers,
                 ),
             ) from None
         return {

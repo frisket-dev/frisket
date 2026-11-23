@@ -33,7 +33,7 @@ from .chaos import ChaosConfig, ChaosMiddleware
 from frisket.local_model_ids import parse_local_model_id
 
 from .endpoint_config import LocalModelEndpointConfig
-from .pricing import model_cost_source, model_server_on_this_machine
+from .pricing import model_cost_source, model_pricing, model_server_on_this_machine
 from .types import (
     LLMError,
     LLMRequest,
@@ -211,9 +211,11 @@ class LocalEndpointAdapter:
         return adapter
 
     async def complete(self, req: LLMRequest, client: httpx.AsyncClient) -> LLMResponse:
-        _endpoint, adapter, model = self.resolve(req.model)
+        endpoint, adapter, model = self.resolve(req.model)
         delegated = replace(req, model=f"ollama/{model}")
-        response = await adapter.complete(delegated, client, cost_model=req.model)
+        response = await adapter.complete(
+            delegated, client, cost_pricing=model_pricing(req.model, (endpoint,))
+        )
         response.model = req.model
         return response
 
@@ -641,7 +643,9 @@ class ModelRouter:
                 hit.credential_source = "cache"
                 hit.provider = provider
                 hit.cost_source = (
-                    model_cost_source(req.model) if hit.cost is not None else "unknown"
+                    model_cost_source(req.model, self.local_endpoints)
+                    if hit.cost is not None
+                    else "unknown"
                 )
                 # A replay made no wire call, so it has no runtime. Clear it
                 # for the same reason credential_source is restamped: never
@@ -660,7 +664,9 @@ class ModelRouter:
                 hit.credential_source = "cache"
                 hit.provider = provider
                 hit.cost_source = (
-                    model_cost_source(req.model) if hit.cost is not None else "unknown"
+                    model_cost_source(req.model, self.local_endpoints)
+                    if hit.cost is not None
+                    else "unknown"
                 )
                 # A replay made no wire call, so it has no runtime. Clear it
                 # for the same reason credential_source is restamped: never
@@ -695,7 +701,9 @@ class ModelRouter:
             # the local adapter receives its stripped wire model. Stamp the fact for
             # custom adapters too; accounting never re-parses the model later.
             resp.cost_source = (
-                model_cost_source(req.model) if resp.cost is not None else "unknown"
+                model_cost_source(req.model, self.local_endpoints)
+                if resp.cost is not None
+                else "unknown"
             )
 
     async def _call_with_retry(
@@ -784,7 +792,9 @@ class ModelRouter:
                                 return await adapter.complete(
                                     wire_req,
                                     self.client,
-                                    cost_model=req.model,
+                                    cost_pricing=model_pricing(
+                                        req.model, self.local_endpoints
+                                    ),
                                 )
                             return await adapter.complete(wire_req, self.client)
                         except LLMError as error:
@@ -1046,7 +1056,7 @@ class ModelRouter:
             observe=observe,
             observe_error=observe_error,
         )
-        on_this_machine = model_server_on_this_machine(model)
+        on_this_machine = model_server_on_this_machine(model, self.local_endpoints)
         provider_cost_usd = 0.0 if on_this_machine else provider_cost
         cost_source = (
             "free_local"

@@ -20,7 +20,7 @@ import pytest
 from frisket.ai.llm import LLMError, LLMResponse, ModelRouter
 from frisket.ai.llm.endpoint_config import LocalModelEndpointConfig
 from frisket.ai.llm.adapters import OpenAICompatAdapter
-from frisket.ai.llm.pricing import cost_of
+from frisket.ai.llm.pricing import cost_with_pricing, model_pricing
 from frisket.engine.runner import CostGate, MapRunner
 from frisket.engine.runner.validation import (
     ProviderSpendCapExceeded,
@@ -879,7 +879,7 @@ def test_free_local_llm_row_checkpoint_is_consumed(make_project) -> None:
             self.calls = 0
 
         async def complete(  # noqa: ANN001
-            self, request, _client, *, cost_model=None
+            self, request, _client, *, cost_pricing=None
         ):
             self.calls += 1
             return LLMResponse(
@@ -887,7 +887,9 @@ def test_free_local_llm_row_checkpoint_is_consumed(make_project) -> None:
                 data={"relevance": 3},
                 tokens_in=10,
                 tokens_out=5,
-                cost=cost_of(cost_model or request.model, 10, 5),
+                cost=cost_with_pricing(
+                    cost_pricing or model_pricing(request.model), 10, 5
+                )[0],
                 model=request.model,
             )
 

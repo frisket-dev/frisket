@@ -18,7 +18,12 @@ import httpx
 from frisket.redaction import canonical_error_code, redact_text
 
 from . import structured_capabilities as capabilities
-from .pricing import cost_of_with_source
+from .pricing import (
+    ModelPricing,
+    cost_of_with_source,
+    cost_with_pricing,
+    model_pricing,
+)
 from .structured import _extract_prose_json
 from .structured_capabilities import NATIVE_STRICT, NATIVE_TOOL, PROSE_JSON
 from .types import (
@@ -509,7 +514,7 @@ class OpenAICompatAdapter:
         req: LLMRequest,
         client: httpx.AsyncClient,
         *,
-        cost_model: str | None = None,
+        cost_pricing: ModelPricing | None = None,
     ) -> LLMResponse:
         _validate_document_request(req)
         if (
@@ -522,7 +527,9 @@ class OpenAICompatAdapter:
                 )
             )
         ):
-            return await self._complete_responses(req, client, cost_model=cost_model)
+            return await self._complete_responses(
+                req, client, cost_pricing=cost_pricing
+            )
         model = req.model.split("/", 1)[-1]
         messages = self._messages(req.messages)
         body: dict[str, Any] = {
@@ -609,8 +616,10 @@ class OpenAICompatAdapter:
         usage = _object_or_empty(out.get("usage"), "completion usage", self.api_key)
         tokens_in = _usage_count(usage, "prompt_tokens", self.api_key)
         tokens_out = _usage_count(usage, "completion_tokens", self.api_key)
-        cost, cost_source = cost_of_with_source(
-            cost_model or req.model, tokens_in, tokens_out
+        cost, cost_source = cost_with_pricing(
+            cost_pricing if cost_pricing is not None else model_pricing(req.model),
+            tokens_in,
+            tokens_out,
         )
         response = LLMResponse(
             content=None,
@@ -660,7 +669,11 @@ class OpenAICompatAdapter:
             return _parse_response(response, req.schema, mechanism)
 
     async def _complete_responses(
-        self, req: LLMRequest, client: httpx.AsyncClient, *, cost_model: str | None
+        self,
+        req: LLMRequest,
+        client: httpx.AsyncClient,
+        *,
+        cost_pricing: ModelPricing | None,
     ) -> LLMResponse:
         """Use stateless Responses for direct OpenAI function calls and continuations."""
         inputs: list[dict[str, Any]] = []
@@ -770,8 +783,10 @@ class OpenAICompatAdapter:
         tokens_in = _usage_count(usage, "input_tokens", self.api_key)
         tokens_out = _usage_count(usage, "output_tokens", self.api_key)
 
-        cost, cost_source = cost_of_with_source(
-            cost_model or req.model, tokens_in, tokens_out
+        cost, cost_source = cost_with_pricing(
+            cost_pricing if cost_pricing is not None else model_pricing(req.model),
+            tokens_in,
+            tokens_out,
         )
         response = LLMResponse(
             content=None,

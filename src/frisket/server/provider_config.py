@@ -675,8 +675,10 @@ def provider_key_status(
 # ---------------------------------------------------------------------------
 
 
-def _price_for(model_id: str) -> dict[str, float] | None:
-    price = pricing.model_price(model_id)
+def _price_for(
+    model_id: str, model_servers: Sequence[LocalModelEndpointConfig] = ()
+) -> dict[str, float] | None:
+    price = pricing.model_price(model_id, model_servers)
     if price is None:
         return None
     return {"input": price[0], "output": price[1]}
@@ -1000,7 +1002,7 @@ def _model_server_model(
     return {
         "id": model_id,
         "label": name,
-        "price": _price_for(model_id),
+        "price": _price_for(model_id, (endpoint,)),
         "local": endpoint.on_this_machine,
         "entered": entered,
     }

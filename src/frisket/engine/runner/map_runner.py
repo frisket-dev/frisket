@@ -493,14 +493,16 @@ class MapRunner:
     def estimate(self, spec: dict, *, program: ActionProgram | None = None) -> dict:
         """Pre-run estimate for the cost gate. Facade over validation.estimate_run
         (public — server/services/action_previews.py and workbench call this)."""
+        composition = _require_execution_composition(self.execution_composition)
         return validation.estimate_run(
             self.project,
             spec,
             program=program,
-            composition=_require_execution_composition(self.execution_composition),
+            composition=composition,
             pricing_policy=self.pricing_policy,
             consent_coverage=self.consent_coverage,
             cache_mode=getattr(self.router, "cache_mode", "replay"),
+            model_servers=composition.model_servers,
         )
 
     def exact_replay_available(

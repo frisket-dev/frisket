@@ -184,8 +184,8 @@ def test_queued_find_network_off_allows_only_configured_local_model(
             _FindAdapter.__init__(self, "unused", matches=[])
             OpenAICompatAdapter.__init__(self, "test", "http://127.0.0.1:11434/v1")
 
-        async def complete(self, req, client, *, cost_model=None):
-            del cost_model
+        async def complete(self, req, client, *, cost_pricing=None):
+            del cost_pricing
             return await super().complete(req, client)
 
     adapter = Adapter()

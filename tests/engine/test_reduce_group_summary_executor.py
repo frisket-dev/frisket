@@ -11,7 +11,7 @@ from executor_harness import CatalogEntry, ExecutorCase, Gate, case_env
 from frisket.ai.llm import LLMRequest, LLMResponse, ModelRouter
 from frisket.ai.llm.adapters import OpenAICompatAdapter
 from frisket.ai.llm.endpoint_config import LocalModelEndpointConfig
-from frisket.ai.llm.pricing import cost_of_with_source
+from frisket.ai.llm.pricing import cost_with_pricing, model_pricing, ModelPricing
 from frisket.authoring.actions import run_trace, run_trace_row
 from frisket.engine.store import Project
 from frisket.engine.store.runs import RunResultStore
@@ -70,7 +70,7 @@ class _PricedSummaryAdapter(OpenAICompatAdapter):
         self.requests: list[LLMRequest] = []
 
     async def complete(  # noqa: ANN001
-        self, req: LLMRequest, client, *, cost_model: str | None = None
+        self, req: LLMRequest, client, *, cost_pricing: ModelPricing | None = None
     ) -> LLMResponse:
         del client
         self.requests.append(req)
@@ -80,8 +80,8 @@ class _PricedSummaryAdapter(OpenAICompatAdapter):
             if "accountability" in prompt
             else "Infrastructure stories share service disruption risk."
         )
-        cost, cost_source = cost_of_with_source(
-            cost_model or req.model,
+        cost, cost_source = cost_with_pricing(
+            cost_pricing or model_pricing(req.model),
             83,
             17,
         )
@@ -591,7 +591,9 @@ def test_model_cost_gate_binds_full_estimate_and_scope_to_confirmation(
 @pytest.mark.parametrize(
     ("model", "has_cost", "source", "key"),
     [
-        ("ollama/@desk/unlisted", True, "free_local", None),
+        # The grouped-summary quote holds no workspace model servers, so a
+        # model-server model is unknown there, never free.
+        ("ollama/@desk/unlisted", False, "unknown", None),
         (
             "anthropic/claude-haiku-4-5",
             True,
