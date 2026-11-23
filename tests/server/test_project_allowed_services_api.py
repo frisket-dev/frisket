@@ -200,3 +200,33 @@ def test_retry_of_a_creation_recorded_by_the_previous_release(
     assert body["id"] == project_id
     assert body["allowed_services"] == "all_services"
     assert body["usage_data_sharing"] == ("off" if sensitive else "inherit")
+
+
+def test_retry_rejects_a_replacement_bundle_without_touching_it(tmp_path) -> None:
+    """The completed record names bundle A; the slug now holds a legacy
+    bundle B. The retry refuses before opening B, so B is not upgraded."""
+    root = tmp_path / "workspace"
+    root.mkdir()
+    project_id = _legacy_creation(
+        root, state="complete", key="replaced", sensitive=False
+    )
+    (record_path,) = (root / ".project-creation-operations").glob("*.json")
+    record = json.loads(record_path.read_text())
+    record["storage_id"] = "frisket.bundle.v1:bundle-a-that-was-retired"
+    record_path.write_text(json.dumps(record))
+    bundle = root / f"{project_id}.frisket"
+    manifest_before = (bundle / "manifest.json").read_bytes()
+
+    client = TestClient(create_app(root))
+    retried = client.post(
+        "/api/projects",
+        json={"name": "Legacy"},
+        headers={"Idempotency-Key": "replaced"},
+    )
+
+    assert retried.status_code == 409, retried.text
+    assert (bundle / "manifest.json").read_bytes() == manifest_before
+    with sqlite3.connect(bundle / "project.db") as db:
+        keys = {row[0] for row in db.execute("SELECT key FROM meta")}
+    assert "usage_data_sharing" not in keys
+    assert "sensitive" in keys
