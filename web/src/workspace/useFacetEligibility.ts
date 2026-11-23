@@ -58,7 +58,8 @@ export function useFacetEligibility(sheet: SheetMeta | null | undefined, dataVer
       })
       .catch(() => new Map(candidates.map((column) => [column.name, false])))
       .then((searchOnly) => {
-        if (alive.current) setDecided({ key, searchOnly });
+        // Only the latest request decides; an older one finishing last is stale.
+        if (alive.current && requested.current === key) setDecided({ key, searchOnly });
       });
   }, [candidates, key, projectApi, sheetId]);
 

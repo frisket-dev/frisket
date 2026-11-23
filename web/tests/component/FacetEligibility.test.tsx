@@ -44,3 +44,28 @@ it('costs nothing until asked, then counts every column in one server request', 
   expect(preview).not.toHaveBeenCalled();
   expect([...result.current.searchOnly].sort()).toEqual(['body', 'ocr']);
 });
+
+it('keeps the current counts when older counts finish last', async () => {
+  type Counts = Awaited<ReturnType<typeof api.columnValueCounts>>;
+  let oldDone!: (value: Counts) => void;
+  let newDone!: (value: Counts) => void;
+  vi.spyOn(api, 'columnValueCounts')
+    .mockImplementationOnce(() => new Promise((resolve) => { oldDone = resolve; }))
+    .mockImplementationOnce(() => new Promise((resolve) => { newDone = resolve; }));
+  const { result, rerender } = renderHook(({ version }) => useFacetEligibility(sheet, version), {
+    wrapper, initialProps: { version: 0 },
+  });
+  act(() => result.current.ensure());
+  rerender({ version: 1 });
+  act(() => result.current.ensure());
+  const counts: Counts = {
+    columns: ['kind', 'body', 'ocr'].map((inputColumn) => ({
+      inputColumn, distinct: 3, omittedRows: 0, listDistinct: null,
+    })),
+  };
+  await act(async () => { newDone(counts); });
+  expect(result.current.pending.size).toBe(0);
+  await act(async () => { oldDone(counts); });
+  act(() => result.current.ensure());
+  expect(result.current.pending.size).toBe(0);
+});
