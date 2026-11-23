@@ -14,11 +14,7 @@ from urllib.parse import urlparse
 
 from frisket.ai.llm.types import provider_from_model_id
 from frisket.ai.models.metadata import is_remote_provider
-from frisket.execution.definitions import MODELS_GATEWAY_TARGET_ID
-from frisket.local_provider_config import (
-    resolve_local_endpoints,
-    resolve_models_gateway,
-)
+from frisket.local_provider_config import resolve_local_endpoints
 from frisket.service_access import (
     DEFAULT_PORTS,
     ApprovedEndpoint,
@@ -78,22 +74,16 @@ FRISKET_ROUTE_EGRESS_CLASSES = frozenset({"frisket_shared", "frisket_dedicated_o
 
 @dataclass(frozen=True)
 class SelectedRoute:
-    """The execution target a run was resolved to."""
+    """The execution target a run was resolved to.
+
+    ``destination`` is the origin the composition resolved for that target
+    (the connection's base URL), carried by value from the resolution or the
+    dispatch binding, so the check judges the server the work is sent to.
+    """
 
     target_id: str
     egress_class: str
-
-
-def selected_target_destination(project: Project, target_id: str) -> str | None:
-    """The origin a target on the operator's own network sends to, if known.
-
-    The models gateway's origin is the one the operator configured, from the
-    environment or the workspace settings.
-    """
-    if target_id != MODELS_GATEWAY_TARGET_ID:
-        return None
-    gateway = resolve_models_gateway(project.path.parent)
-    return None if gateway is None else gateway.origin
+    destination: str | None = None
 
 
 def check_route(
@@ -108,8 +98,8 @@ def check_route(
     The one decision execution and the selectors share. Frisket Cloud routes
     count as Frisket's own processing only on Frisket Cloud. Otherwise a model
     call is judged by the URL the router sends it to, a target on the
-    operator's own network by its configured origin, and anything else needs
-    All services.
+    operator's own network by the origin its connection resolved to, and
+    anything else needs All services.
     """
     if access.allows_all_services:
         return
@@ -123,11 +113,9 @@ def check_route(
         return
     if route is None or egress_class == "none":
         return
-    if egress_class == "operator_lan":
-        destination = selected_target_destination(project, route.target_id)
-        if destination is not None:
-            access.check_url(destination)
-            return
+    if egress_class == "operator_lan" and route.destination is not None:
+        access.check_url(route.destination)
+        return
     access.check_remote_service(route.target_id)
 
 

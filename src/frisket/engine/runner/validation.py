@@ -1438,6 +1438,7 @@ def validate_spec(
                 SelectedRoute(
                     resolved_execution.resolution.facts.target_id,
                     resolved_execution.resolution.facts.egress_class,
+                    resolved_execution.resolution.connection.base_url,
                 )
                 if resolved_execution is not None
                 else None

@@ -1006,7 +1006,9 @@ class SelectorChoiceService:
             refusal = None
             target = outcome.target
         services_refusal = _services_refusal(project)
-        policy_forbidden = _network_policy_forbids_target(services_refusal, target)
+        policy_forbidden = _network_policy_forbids_target(
+            services_refusal, composition, target
+        )
         ready = refusal is None and not policy_forbidden
         destination = _engine_destination(engine, target)
         return _choice(

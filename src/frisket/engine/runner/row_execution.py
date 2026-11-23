@@ -552,6 +552,7 @@ async def _execute_row(
             SelectedRoute(
                 str(admission.route.target_snapshot["target_id"]),
                 admission.route.egress_class,
+                admission.binding.connection.base_url,
             )
             if admission is not None
             else None

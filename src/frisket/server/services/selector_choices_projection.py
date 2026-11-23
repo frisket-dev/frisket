@@ -102,8 +102,21 @@ def _services_refusal(project: Any) -> ServicesRefusal | None:
     return None
 
 
-def _target_route(target: ExecutionTarget | None) -> SelectedRoute | None:
-    return None if target is None else SelectedRoute(target.id, target.egress_class)
+def _target_route(
+    composition: ExecutionComposition, target: ExecutionTarget | None
+) -> SelectedRoute | None:
+    """The route a selector entry would dispatch to, with the origin the same
+    composition resolves for a target on the operator's own network."""
+    if target is None:
+        return None
+    if target.egress_class != "operator_lan":
+        return SelectedRoute(target.id, target.egress_class)
+    connection = composition.provider.connection(target.id)
+    return SelectedRoute(
+        target.id,
+        target.egress_class,
+        None if connection is None else connection.base_url,
+    )
 
 
 # A Frisket Cloud route option whose exact target is not known yet.
@@ -112,14 +125,13 @@ _FRISKET_CLOUD_ROUTE = SelectedRoute("frisket-cloud", "frisket_shared")
 
 def _network_policy_forbids_target(
     services_refusal: ServicesRefusal | None,
+    composition: ExecutionComposition,
     target: ExecutionTarget | None,
-    *,
-    model_destination: str | None = None,
 ) -> bool:
     """Apply the project's service settings to the exact selected venue."""
 
     return services_refusal is not None and services_refusal.forbids(
-        _target_route(target), model_destination=model_destination
+        _target_route(composition, target)
     )
 
 
@@ -547,9 +559,9 @@ def _route_option(
     )
     label = "Frisket Cloud" if route == "cloud" else _own_route_label(target)
     if services_refusal is not None and services_refusal.forbids(
-        (_target_route(target) or _FRISKET_CLOUD_ROUTE)
+        (_target_route(composition, target) or _FRISKET_CLOUD_ROUTE)
         if route == "cloud"
-        else _target_route(target),
+        else _target_route(composition, target),
         model_destination=None if route == "cloud" else model_destination,
     ):
         return {
@@ -963,7 +975,7 @@ def _execution_presentation(
         )
 
     if services_refusal is not None and services_refusal.forbids(
-        _target_route(target), model_destination=model_destination
+        _target_route(composition, target), model_destination=model_destination
     ):
         return _ExecutionPresentation(
             target,
