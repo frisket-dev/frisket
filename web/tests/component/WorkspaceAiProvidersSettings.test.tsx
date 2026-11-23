@@ -47,7 +47,7 @@ vi.mock('../../src/api/open', async (importOriginal) => {
   };
 });
 
-import { createLocalEndpoint, deleteProviderKey, discoverLocalEndpoints, listProviders, providerStatus, setProviderKey, validateProviderKey } from '../../src/api/open';
+import { createLocalEndpoint, deleteProviderKey, discoverLocalEndpoints, listProviders, providerStatus, setProviderKey, updateLocalEndpoint, validateProviderKey } from '../../src/api/open';
 
 
 
@@ -57,7 +57,7 @@ afterEach(() => {
 });
 
 function model(id: string, label: string): LocalProviderModel {
-  return { id, label, price: null, local: true };
+  return { id, label, price: null, local: true, entered: false };
 }
 
 function providerEntry(overrides: Partial<PlatformLocalProviderEntry> & Pick<PlatformLocalProviderEntry, 'id' | 'label' | 'kind' | 'models'>): PlatformLocalProviderEntry {
@@ -83,6 +83,8 @@ function localEndpoint(overrides: Partial<LocalHttpEndpointEntry> = {}): LocalHt
     provisioning_token_configured: false,
     edge_auth: false,
     pull_enabled: false,
+    local: true,
+    configured_models: [],
     ...overrides,
   };
 }
@@ -144,7 +146,7 @@ describe('WorkspaceAiProvidersSettings', () => {
     });
 
     render(<WorkspaceAiProvidersSettings />);
-    await userEvent.click(await screen.findByRole('button', { name: 'Find local servers' }));
+    await userEvent.click(await screen.findByRole('button', { name: 'Find servers on this machine' }));
 
     await waitFor(() => expect(discoverLocalEndpoints).toHaveBeenCalledTimes(1));
     const summary = await screen.findByTestId('local-endpoint-discovery-summary');
@@ -158,7 +160,7 @@ describe('WorkspaceAiProvidersSettings', () => {
     (discoverLocalEndpoints as unknown as Mock).mockRejectedValue(new Error('Discovery failed'));
 
     render(<WorkspaceAiProvidersSettings />);
-    await userEvent.click(await screen.findByRole('button', { name: 'Find local servers' }));
+    await userEvent.click(await screen.findByRole('button', { name: 'Find servers on this machine' }));
 
     expect(await screen.findByText('Discovery failed')).toBeInTheDocument();
     expect(discoverLocalEndpoints).toHaveBeenCalledTimes(1);
@@ -175,14 +177,14 @@ describe('WorkspaceAiProvidersSettings', () => {
     await waitFor(() => expect(listProviders).toHaveBeenCalledTimes(1));
 
     expect(screen.queryByTestId('local-endpoints')).not.toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: 'Find local servers' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Find servers on this machine' })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Add Ollama' })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Add LM Studio' })).not.toBeInTheDocument();
     expect(discoverLocalEndpoints).not.toHaveBeenCalled();
     expect(createLocalEndpoint).not.toHaveBeenCalled();
   });
 
-  it('adds and attributes a second local model server', async () => {
+  it('adds and attributes a second model server', async () => {
     const firstEndpoint = localEndpoint({
       endpoint_id: 'local-111111111111',
       label: 'Local server',
@@ -201,9 +203,9 @@ describe('WorkspaceAiProvidersSettings', () => {
     (createLocalEndpoint as unknown as Mock).mockResolvedValue(catalog([firstEndpoint, extra]));
 
     render(<WorkspaceAiProvidersSettings />);
-    await userEvent.click(await screen.findByRole('button', { name: 'Add local server' }));
-    await userEvent.type(screen.getByLabelText('Local server name'), 'LM Studio — gaming PC');
-    await userEvent.type(screen.getByLabelText('Local server URL'), 'http://localhost:1234');
+    await userEvent.click(await screen.findByRole('button', { name: 'Add model server' }));
+    await userEvent.type(screen.getByLabelText('Model server name'), 'LM Studio — gaming PC');
+    await userEvent.type(screen.getByLabelText('Model server URL'), 'http://localhost:1234');
     await userEvent.click(screen.getByRole('button', { name: 'Add server' }));
 
     await waitFor(() => expect(createLocalEndpoint).toHaveBeenCalledWith(
@@ -514,5 +516,97 @@ describe('WorkspaceAiProvidersSettings', () => {
 
     await userEvent.click(screen.getByTestId('provider-key-delete-openai'));
     await waitFor(() => expect(deleteProviderKey).toHaveBeenCalledWith('openai'));
+  });
+
+  it('titles the section Model servers and says which servers are on this machine', async () => {
+    vi.mocked(listProviders).mockResolvedValue(catalog([
+      localEndpoint({ endpoint_id: 'local-desk11111111', label: 'Desk', origin: 'http://127.0.0.1:11434', local: true }),
+      localEndpoint({ endpoint_id: 'local-lan111111111', label: 'LAN vLLM', origin: 'http://192.168.1.20:8000', local: false }),
+    ]));
+
+    render(<WorkspaceAiProvidersSettings />);
+
+    expect(await screen.findByText('Model servers')).toBeInTheDocument();
+    expect(screen.queryByText(/Local model servers/)).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Add model server' })).toBeInTheDocument();
+    expect(screen.getByTestId('local-endpoint-location-local-desk11111111')).toHaveTextContent('on this machine');
+    expect(screen.getByTestId('local-endpoint-location-local-lan111111111')).toHaveTextContent('not on this machine');
+  });
+
+  it('enters a model id for a server that lists none and shows it as entered', async () => {
+    const proxy = localEndpoint({
+      endpoint_id: 'local-proxy1111111',
+      label: 'Thin proxy',
+      origin: 'http://proxy.example.test:4000',
+      local: false,
+      protocol: 'unknown',
+      models: [],
+    });
+    const withModel = localEndpoint({
+      ...proxy,
+      models: [{ id: 'ollama/@local-proxy1111111/gpt-4o-mini', label: 'gpt-4o-mini', price: null, local: false, entered: true }],
+      configured_models: [{ name: 'gpt-4o-mini', entered: true, price: null }],
+    });
+    vi.mocked(listProviders)
+      .mockResolvedValueOnce(catalog([proxy]))
+      .mockResolvedValue(catalog([withModel]));
+    vi.mocked(updateLocalEndpoint).mockResolvedValue(catalog([withModel]));
+
+    render(<WorkspaceAiProvidersSettings />);
+    expect(await screen.findByTestId('model-server-models-empty-local-proxy1111111')).toBeInTheDocument();
+    await userEvent.type(screen.getByLabelText('Model id for Thin proxy'), 'gpt-4o-mini');
+    await userEvent.click(screen.getByRole('button', { name: 'Add model' }));
+
+    await waitFor(() => expect(updateLocalEndpoint).toHaveBeenCalledWith('local-proxy1111111', {
+      models: [{ name: 'gpt-4o-mini', entered: true, price: null }],
+    }));
+    const entered = await screen.findByTestId('model-server-model-ollama/@local-proxy1111111/gpt-4o-mini');
+    expect(within(entered).getByText('entered')).toBeInTheDocument();
+    expect(within(entered).getByText(/Price unknown/)).toBeInTheDocument();
+  });
+
+  it('stores an entered price with the model, keeping the other configured models', async () => {
+    const lan = localEndpoint({
+      endpoint_id: 'local-lan111111111',
+      label: 'LAN vLLM',
+      origin: 'http://192.168.1.20:8000',
+      local: false,
+      models: [
+        { id: 'ollama/@local-lan111111111/listed', label: 'listed', price: null, local: false, entered: false },
+        { id: 'ollama/@local-lan111111111/typed', label: 'typed', price: null, local: false, entered: true },
+      ],
+      configured_models: [{ name: 'typed', entered: true, price: null }],
+    });
+    vi.mocked(listProviders).mockResolvedValue(catalog([lan]));
+    vi.mocked(updateLocalEndpoint).mockResolvedValue(catalog([lan]));
+
+    render(<WorkspaceAiProvidersSettings />);
+    await userEvent.type(await screen.findByLabelText('Input price for listed'), '2.5');
+    await userEvent.type(screen.getByLabelText('Output price for listed'), '10');
+    const listed = screen.getByTestId('model-server-model-ollama/@local-lan111111111/listed');
+    await userEvent.click(within(listed).getByRole('button', { name: 'Save price' }));
+
+    await waitFor(() => expect(updateLocalEndpoint).toHaveBeenCalledWith('local-lan111111111', {
+      models: [
+        { name: 'typed', entered: true, price: null },
+        { name: 'listed', entered: false, price: { input: 2.5, output: 10 } },
+      ],
+    }));
+  });
+
+  it('offers no price inputs on a server on this machine', async () => {
+    vi.mocked(listProviders).mockResolvedValue(catalog([
+      localEndpoint({
+        endpoint_id: 'local-desk11111111',
+        label: 'Desk',
+        local: true,
+        models: [model('ollama/@local-desk11111111/qwen', 'qwen')],
+      }),
+    ]));
+
+    render(<WorkspaceAiProvidersSettings />);
+    const row = await screen.findByTestId('model-server-model-ollama/@local-desk11111111/qwen');
+    expect(within(row).getByText(/Free/)).toBeInTheDocument();
+    expect(within(row).queryByLabelText('Input price for qwen')).not.toBeInTheDocument();
   });
 });

@@ -255,6 +255,7 @@ def test_providers_catalog_groups_by_provider_with_models(client, monkeypatch) -
                     else None
                 ),
                 "local": False,
+                "entered": False,
             }
         )
     assert openrouter["models"] == expected_openrouter

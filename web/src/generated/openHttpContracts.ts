@@ -9103,12 +9103,14 @@ export type HttpInline_a95e0d1832ce1bc0 = ({
 type HttpInline_aa89741f8bc33a39_LocalHttpEndpointProvider = ({
   "auth_status": ("ok" | "unauthorized" | "unenforced" | "unknown") & (string);
   "authority": ("instance" | "organization") & (string);
+  "configured_models": (Array<(HttpInline_aa89741f8bc33a39_ModelServerModelEntry)>);
   "detail": (((string)) | ((null)));
   "edge_auth": (boolean);
   "endpoint_id": (string);
   "installed_models"?: (Array<(string)>);
   "kind": ("local_http") & (string);
   "label": (string);
+  "local": (boolean);
   "models": (Array<(HttpInline_aa89741f8bc33a39_LocalProviderModel)>);
   "origin": (string);
   "protocol": ("ollama_native" | "openai_compatible" | "unknown") & (string);
@@ -9121,6 +9123,7 @@ type HttpInline_aa89741f8bc33a39_LocalHttpEndpointProvider = ({
 });
 
 type HttpInline_aa89741f8bc33a39_LocalProviderModel = ({
+  "entered"?: (boolean);
   "id": (string);
   "label": (string);
   "local": (boolean);
@@ -9128,6 +9131,17 @@ type HttpInline_aa89741f8bc33a39_LocalProviderModel = ({
 });
 
 type HttpInline_aa89741f8bc33a39_LocalProviderPrice = ({
+  "input": (number);
+  "output": (number);
+});
+
+type HttpInline_aa89741f8bc33a39_ModelServerModelEntry = ({
+  "entered": (boolean);
+  "name": (string);
+  "price": (((HttpInline_aa89741f8bc33a39_ModelServerModelPrice)) | ((null)));
+});
+
+type HttpInline_aa89741f8bc33a39_ModelServerModelPrice = ({
   "input": (number);
   "output": (number);
 });
@@ -9570,12 +9584,14 @@ export type HttpInstructionSkillList = ({
 type HttpLocalEndpointCatalog_LocalHttpEndpointProvider = ({
   "auth_status": ("ok" | "unauthorized" | "unenforced" | "unknown") & (string);
   "authority": ("instance" | "organization") & (string);
+  "configured_models": (Array<(HttpLocalEndpointCatalog_ModelServerModelEntry)>);
   "detail": (((string)) | ((null)));
   "edge_auth": (boolean);
   "endpoint_id": (string);
   "installed_models"?: (Array<(string)>);
   "kind": ("local_http") & (string);
   "label": (string);
+  "local": (boolean);
   "models": (Array<(HttpLocalEndpointCatalog_LocalProviderModel)>);
   "origin": (string);
   "protocol": ("ollama_native" | "openai_compatible" | "unknown") & (string);
@@ -9588,6 +9604,7 @@ type HttpLocalEndpointCatalog_LocalHttpEndpointProvider = ({
 });
 
 type HttpLocalEndpointCatalog_LocalProviderModel = ({
+  "entered"?: (boolean);
   "id": (string);
   "label": (string);
   "local": (boolean);
@@ -9595,6 +9612,17 @@ type HttpLocalEndpointCatalog_LocalProviderModel = ({
 });
 
 type HttpLocalEndpointCatalog_LocalProviderPrice = ({
+  "input": (number);
+  "output": (number);
+});
+
+type HttpLocalEndpointCatalog_ModelServerModelEntry = ({
+  "entered": (boolean);
+  "name": (string);
+  "price": (((HttpLocalEndpointCatalog_ModelServerModelPrice)) | ((null)));
+});
+
+type HttpLocalEndpointCatalog_ModelServerModelPrice = ({
   "input": (number);
   "output": (number);
 });
@@ -9623,10 +9651,22 @@ export type HttpLocalEndpointDiscoveryResponse = ({
   "candidates": (Array<(HttpLocalEndpointDiscoveryResponse_LocalEndpointDiscoveryCandidate)>);
 });
 
+type HttpLocalEndpointPatchRequest_ModelServerModelEntry = ({
+  "entered": (boolean);
+  "name": (string);
+  "price": (((HttpLocalEndpointPatchRequest_ModelServerModelPrice)) | ((null)));
+});
+
+type HttpLocalEndpointPatchRequest_ModelServerModelPrice = ({
+  "input": (number);
+  "output": (number);
+});
+
 export type HttpLocalEndpointPatchRequest = ({
   "display_name"?: (string);
   "edge_auth"?: (boolean);
   "inference_token"?: (((string)) | ((null)));
+  "models"?: (Array<(HttpLocalEndpointPatchRequest_ModelServerModelEntry)>);
   "provisioning_token"?: (((string)) | ((null)));
   "pull_enabled"?: (boolean);
 });
@@ -9634,12 +9674,14 @@ export type HttpLocalEndpointPatchRequest = ({
 type HttpLocalProviderCatalog_LocalHttpEndpointProvider = ({
   "auth_status": ("ok" | "unauthorized" | "unenforced" | "unknown") & (string);
   "authority": ("instance" | "organization") & (string);
+  "configured_models": (Array<(HttpLocalProviderCatalog_ModelServerModelEntry)>);
   "detail": (((string)) | ((null)));
   "edge_auth": (boolean);
   "endpoint_id": (string);
   "installed_models"?: (Array<(string)>);
   "kind": ("local_http") & (string);
   "label": (string);
+  "local": (boolean);
   "models": (Array<(HttpLocalProviderCatalog_LocalProviderModel)>);
   "origin": (string);
   "protocol": ("ollama_native" | "openai_compatible" | "unknown") & (string);
@@ -9652,6 +9694,7 @@ type HttpLocalProviderCatalog_LocalHttpEndpointProvider = ({
 });
 
 type HttpLocalProviderCatalog_LocalProviderModel = ({
+  "entered"?: (boolean);
   "id": (string);
   "label": (string);
   "local": (boolean);
@@ -9659,6 +9702,17 @@ type HttpLocalProviderCatalog_LocalProviderModel = ({
 });
 
 type HttpLocalProviderCatalog_LocalProviderPrice = ({
+  "input": (number);
+  "output": (number);
+});
+
+type HttpLocalProviderCatalog_ModelServerModelEntry = ({
+  "entered": (boolean);
+  "name": (string);
+  "price": (((HttpLocalProviderCatalog_ModelServerModelPrice)) | ((null)));
+});
+
+type HttpLocalProviderCatalog_ModelServerModelPrice = ({
   "input": (number);
   "output": (number);
 });

@@ -42,6 +42,8 @@ function entry(overrides: Partial<LocalHttpEndpointEntry>): LocalHttpEndpointEnt
     provisioning_token_configured: false,
     edge_auth: false,
     pull_enabled: false,
+    local: true,
+    configured_models: [],
     ...overrides,
   };
 }
@@ -83,7 +85,7 @@ describe('localServerGuidanceState', () => {
           reachable: true,
           protocol: 'ollama_native',
           installed_models: ['qwen3:0.6b'],
-          models: [{ id: 'ollama/@desktop/qwen3:0.6b', label: 'qwen3:0.6b', price: null, local: true }],
+          models: [{ id: 'ollama/@desktop/qwen3:0.6b', label: 'qwen3:0.6b', price: null, local: true, entered: false }],
         }),
       ),
     ).toBeNull();

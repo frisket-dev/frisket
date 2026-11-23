@@ -59,7 +59,9 @@ from frisket.local_provider_config import (
     decode_local_endpoints,
     load_local_provider_keys,
     local_secrets_path,
+    model_server_models,
     normalize_local_endpoint_name,
+    normalize_model_server_models,
     read_valid_config,
     resolve_local_endpoints,
     validate_config_shape,
@@ -73,7 +75,7 @@ from frisket.security.secrets import key_hint
 
 VALIDATION_KEY_PROVIDERS = tuple(p.id for p in PROVIDERS)
 PROVIDER_ORDER = (*WORKSPACE_KEY_PROVIDERS, "ollama")
-PROVIDER_LABELS = {p.id: p.label for p in PROVIDERS} | {"ollama": "Local server"}
+PROVIDER_LABELS = {p.id: p.label for p in PROVIDERS} | {"ollama": "Model server"}
 PROVIDER_KIND = {p.id: "platform_api" for p in PROVIDERS} | {"ollama": "local_http"}
 
 VALIDATION_TOKEN_TTL_SECONDS = 10 * 60
@@ -405,9 +407,9 @@ def create_local_endpoint(
             strict=True,
         )
         if any(row["url"] == normalized_url for row in rows):
-            raise ValueError("a local model server already uses that URL")
+            raise ValueError("a model server already uses that URL")
         if len(rows) >= MAX_LOCAL_ENDPOINTS:
-            raise ValueError("too many local model servers configured")
+            raise ValueError("too many model servers configured")
         selected_id = f"local-{secrets.token_hex(6)}"
         rows.append(
             {
@@ -418,6 +420,7 @@ def create_local_endpoint(
                 "provisioning_token": provisioning_token,
                 "edge_auth": edge_auth,
                 "pull_enabled": pull_enabled,
+                "models": [],
             }
         )
         config[LOCAL_MODEL_ENDPOINTS_KEY] = json.dumps(
@@ -455,6 +458,7 @@ def patch_local_endpoint(
         "provisioning_token",
         "edge_auth",
         "pull_enabled",
+        "models",
     }
     if set(changes) - allowed:
         raise ValueError("unknown local endpoint patch field")
@@ -487,6 +491,11 @@ def patch_local_endpoint(
             origin
         ):
             raise ValueError("a token-bearing origin must be https (or loopback)")
+        models = (
+            normalize_model_server_models(changes["models"], origin=origin)
+            if "models" in changes
+            else current["models"]
+        )
         rows[index] = {
             "id": endpoint_id,
             "name": name,
@@ -495,6 +504,7 @@ def patch_local_endpoint(
             "provisioning_token": provisioning_token,
             "edge_auth": edge_auth,
             "pull_enabled": pull_enabled,
+            "models": models,
         }
         config[LOCAL_MODEL_ENDPOINTS_KEY] = json.dumps(
             rows, separators=(",", ":"), sort_keys=True
@@ -509,6 +519,7 @@ def patch_local_endpoint(
                 provisioning_token=provisioning_token,
                 edge_auth=edge_auth,
                 pull_enabled=pull_enabled,
+                models=model_server_models(models),
             ),
             True,
         )
@@ -950,6 +961,17 @@ def local_endpoint_catalog_entry(
         "detail": probe.get("detail"),
         "protocol": probe.get("protocol", "unknown"),
         "auth_status": probe.get("auth_status", "unknown"),
+        "local": endpoint.on_this_machine,
+        "configured_models": [
+            {
+                "name": model.name,
+                "entered": model.entered,
+                "price": None
+                if model.price is None
+                else {"input": model.price[0], "output": model.price[1]},
+            }
+            for model in endpoint.models
+        ],
         "token_configured": bool(endpoint.inference_token),
         "provisioning_token_configured": bool(endpoint.provisioning_token),
         "edge_auth": endpoint.edge_auth,
@@ -959,16 +981,29 @@ def local_endpoint_catalog_entry(
     authoritative = entry["protocol"] in ("ollama_native", "openai_compatible")
     if authoritative or installed:
         entry["installed_models"] = installed
-        entry["models"] = [
-            {
-                "id": format_local_model_id(endpoint.endpoint_id, name),
-                "label": name,
-                "price": _price_for(format_local_model_id(endpoint.endpoint_id, name)),
-                "local": True,
-            }
-            for name in installed
-        ]
+    listed = set(installed)
+    entered = [
+        model.name
+        for model in endpoint.models
+        if model.entered and model.name not in listed
+    ]
+    entry["models"] = [
+        _model_server_model(endpoint, name, entered=False) for name in installed
+    ] + [_model_server_model(endpoint, name, entered=True) for name in entered]
     return entry
+
+
+def _model_server_model(
+    endpoint: LocalModelEndpointConfig, name: str, *, entered: bool
+) -> dict[str, Any]:
+    model_id = format_local_model_id(endpoint.endpoint_id, name)
+    return {
+        "id": model_id,
+        "label": name,
+        "price": _price_for(model_id),
+        "local": endpoint.on_this_machine,
+        "entered": entered,
+    }
 
 
 def build_provider_catalog(
@@ -1023,7 +1058,8 @@ def build_provider_catalog(
                 "id": f"{provider}/{model['id']}",
                 "label": model["label"],
                 "price": _price_for(f"{provider}/{model['id']}"),
-                "local": provider == "ollama",
+                "local": False,
+                "entered": False,
             }
             for model in MODEL_ENTRIES.get(provider, [])
         ]

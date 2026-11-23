@@ -10,6 +10,7 @@ commands, and server routes share one canonical reader and resolution order.
 from __future__ import annotations
 
 import json
+import math
 import os
 from collections.abc import Mapping
 from pathlib import Path
@@ -17,8 +18,10 @@ from typing import Any
 
 from frisket.ai.llm.endpoint_config import (
     LocalModelEndpointConfig,
+    ModelServerModel,
     normalize_ollama_url,
     origin_is_https_or_loopback,
+    origin_is_loopback,
     resolve_env_local_endpoint,
 )
 from frisket.ai.models.gateway_config import (
@@ -40,6 +43,8 @@ ENV_VAR = {p.id: p.env_var for p in PROVIDERS}
 MODELS_GATEWAY_CONFIG_KEY = "models_gateway_v1"
 LOCAL_MODEL_ENDPOINTS_KEY = "local_model_endpoints_v1"
 MAX_LOCAL_ENDPOINTS = 16
+MAX_MODEL_SERVER_MODELS = 64
+MAX_MODEL_NAME_LENGTH = 200
 SEARCH_PROVIDER_CONFIG_KEY = "search_provider_v1"
 
 _ENDPOINT_FIELDS = frozenset(
@@ -51,8 +56,12 @@ _ENDPOINT_FIELDS = frozenset(
         "provisioning_token",
         "edge_auth",
         "pull_enabled",
+        "models",
     }
 )
+# Rows written before models could be entered carry no "models" field; they
+# read as a server with no configured models.
+_ENDPOINT_FIELDS_WITHOUT_MODELS = _ENDPOINT_FIELDS - {"models"}
 
 
 class InvalidProviderConfigError(ValueError):
@@ -170,17 +179,94 @@ def resolve_models_gateway(
 def normalize_local_endpoint_name(name: str) -> str:
     normalized = " ".join((name or "").split())
     if not normalized:
-        raise ValueError("local model server name is required")
+        raise ValueError("model server name is required")
     if len(normalized) > 80:
-        raise ValueError("local model server name is too long")
+        raise ValueError("model server name is too long")
     return normalized
+
+
+def _model_rate(value: Any, *, label: str) -> float:
+    if isinstance(value, bool) or not isinstance(value, int | float):
+        raise ValueError(f"model {label} price must be a number")
+    rate = float(value)
+    if not math.isfinite(rate) or rate < 0:
+        raise ValueError(f"model {label} price must be a non-negative number")
+    return rate
+
+
+def _model_price(price: Any, *, on_this_machine: bool) -> dict[str, float] | None:
+    if price is None:
+        return None
+    if on_this_machine:
+        raise ValueError("a model server on this machine is free and takes no price")
+    if not isinstance(price, dict) or set(price) != {"input", "output"}:
+        raise ValueError("model price needs exactly input and output")
+    return {
+        "input": _model_rate(price["input"], label="input"),
+        "output": _model_rate(price["output"], label="output"),
+    }
+
+
+def _model_entry(item: Any, *, on_this_machine: bool) -> dict[str, Any]:
+    if not isinstance(item, dict) or set(item) != {"name", "entered", "price"}:
+        raise ValueError("each model needs exactly name, entered and price")
+    name = item["name"]
+    entered = item["entered"]
+    if not isinstance(name, str) or not isinstance(entered, bool):
+        raise ValueError("model name must be text and entered a boolean")
+    name = name.strip()
+    if not name or name.startswith(("@", "/")) or len(name) > MAX_MODEL_NAME_LENGTH:
+        raise ValueError("model name must be a model id such as gpt-4o-mini")
+    price = _model_price(item["price"], on_this_machine=on_this_machine)
+    if not entered and price is None:
+        raise ValueError(f"model {name!r} is neither entered by hand nor priced")
+    return {"name": name, "entered": entered, "price": price}
+
+
+def normalize_model_server_models(raw: Any, *, origin: str) -> list[dict[str, Any]]:
+    """Validate the models configured for one server into their stored shape.
+
+    Each entry is ``{"name", "entered", "price"}``: ``entered`` marks a model
+    id typed by hand, ``price`` is ``{"input", "output"}`` USD per million
+    tokens or null. A server on this machine is free, so it takes no price.
+    """
+    if not isinstance(raw, list):
+        raise ValueError("model server models must be a list")
+    if len(raw) > MAX_MODEL_SERVER_MODELS:
+        raise ValueError("too many models configured for one model server")
+    on_this_machine = origin_is_loopback(origin)
+    models = [_model_entry(item, on_this_machine=on_this_machine) for item in raw]
+    names = [model["name"] for model in models]
+    duplicate = next((name for name in names if names.count(name) > 1), None)
+    if duplicate is not None:
+        raise ValueError(f"model {duplicate!r} is configured twice")
+    return models
+
+
+def model_server_models(rows: list[dict[str, Any]]) -> tuple[ModelServerModel, ...]:
+    """The typed models of one stored endpoint row's ``models`` list."""
+    return tuple(
+        ModelServerModel(
+            name=row["name"],
+            entered=row["entered"],
+            price=(
+                None
+                if row["price"] is None
+                else (row["price"]["input"], row["price"]["output"])
+            ),
+        )
+        for row in rows
+    )
 
 
 def _decode_one_local_endpoint(
     raw: Any,
     seen_ids: set[str],
 ) -> dict[str, Any] | None:
-    if not isinstance(raw, dict) or set(raw) != _ENDPOINT_FIELDS:
+    if not isinstance(raw, dict) or set(raw) not in (
+        _ENDPOINT_FIELDS,
+        _ENDPOINT_FIELDS_WITHOUT_MODELS,
+    ):
         return None
     endpoint_id = raw.get("id")
     name = raw.get("name")
@@ -212,6 +298,12 @@ def _decode_one_local_endpoint(
         normalized_url
     ):
         return None
+    try:
+        models = normalize_model_server_models(
+            raw.get("models", []), origin=normalized_url
+        )
+    except ValueError:
+        return None
     seen_ids.add(validated_id)
     return {
         "id": validated_id,
@@ -221,6 +313,7 @@ def _decode_one_local_endpoint(
         "provisioning_token": provisioning_token,
         "edge_auth": edge_auth,
         "pull_enabled": pull_enabled,
+        "models": models,
     }
 
 
@@ -276,6 +369,7 @@ def load_local_endpoints(
             source="local_file",
             endpoint_id=row["id"],
             display_name=row["name"],
+            models=model_server_models(row["models"]),
         )
         for row in rows
     )
