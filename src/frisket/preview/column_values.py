@@ -10,8 +10,9 @@ from __future__ import annotations
 import json
 import math
 from collections import Counter
+from collections.abc import Callable
 from datetime import date, timedelta
-from typing import Any
+from typing import Any, TypeVar
 
 from frisket.authoring.column_types import range_facet_value_kind, validate_value
 from frisket.calendar_dates import parse_utc_calendar_date
@@ -211,6 +212,43 @@ def _date_distribution(
     )
 
 
+_Cell = TypeVar("_Cell")
+
+
+def _integer_cell(raw: Any) -> int | None:
+    return raw if type(raw) is int and validate_value("integer", raw) else None
+
+
+def _number_cell(raw: Any) -> float | None:
+    # Match the SQL range predicate exactly: JSON integer/real cells only.
+    # Strings that merely look numeric and booleans are not number cells and
+    # must not appear in the histogram.
+    if type(raw) is not int and type(raw) is not float:
+        return None
+    value = float(raw)
+    return value if math.isfinite(value) else None
+
+
+def _date_cell(raw: Any) -> date | None:
+    return None if raw is None else parse_utc_calendar_date(raw)
+
+
+def _kept_cells(
+    row_ids: list[int],
+    raw_values: dict[int, Any],
+    cell: Callable[[Any], _Cell | None],
+) -> tuple[list[_Cell], list[int]]:
+    """The cells ``cell`` accepts, with the rows they came from."""
+    values: list[_Cell] = []
+    kept_rows: list[int] = []
+    for row_id in row_ids:
+        value = cell(raw_values.get(row_id))
+        if value is not None:
+            values.append(value)
+            kept_rows.append(row_id)
+    return values, kept_rows
+
+
 def _column_distribution(
     column_type: str,
     row_ids: list[int],
@@ -219,42 +257,15 @@ def _column_distribution(
 ) -> dict[str, Any] | None:
     """Histogram of the column; with a scope, also each bin's in-scope count."""
     value_kind = range_facet_value_kind(column_type)
-    kept_rows: list[int] = []
     if value_kind == "integer":
-        integer_values: list[int] = []
-        for row_id in row_ids:
-            raw = raw_values.get(row_id)
-            if type(raw) is int and validate_value("integer", raw):
-                integer_values.append(raw)
-                kept_rows.append(row_id)
-        return _integer_distribution(
-            integer_values, _scope_mask(kept_rows, scope_row_ids)
-        )
+        integers, kept_rows = _kept_cells(row_ids, raw_values, _integer_cell)
+        return _integer_distribution(integers, _scope_mask(kept_rows, scope_row_ids))
     if value_kind == "number":
-        values: list[float] = []
-        for row_id in row_ids:
-            raw = raw_values.get(row_id)
-            # Match the SQL range predicate exactly: JSON integer/real cells
-            # only. Strings that merely look numeric and booleans are not
-            # number cells and must not appear in the histogram.
-            if type(raw) is not int and type(raw) is not float:
-                continue
-            value = float(raw)
-            if math.isfinite(value):
-                values.append(value)
-                kept_rows.append(row_id)
-        return _number_distribution(values, _scope_mask(kept_rows, scope_row_ids))
+        numbers, kept_rows = _kept_cells(row_ids, raw_values, _number_cell)
+        return _number_distribution(numbers, _scope_mask(kept_rows, scope_row_ids))
     if value_kind == "date":
-        values_date: list[date] = []
-        for row_id in row_ids:
-            raw = raw_values.get(row_id)
-            if raw is None:
-                continue
-            parsed = parse_utc_calendar_date(raw)
-            if parsed is not None:
-                values_date.append(parsed)
-                kept_rows.append(row_id)
-        return _date_distribution(values_date, _scope_mask(kept_rows, scope_row_ids))
+        dates, kept_rows = _kept_cells(row_ids, raw_values, _date_cell)
+        return _date_distribution(dates, _scope_mask(kept_rows, scope_row_ids))
     return None
 
 
@@ -508,23 +519,7 @@ def _resolve_column_values_preview_snapshot(
     value_mode: Any = "exact",
     scope_row_ids: frozenset[int] | None = None,
 ) -> dict[str, Any]:
-    if not isinstance(sheet_id, int) or isinstance(sheet_id, bool) or sheet_id < 1:
-        raise ColumnValuesPreviewError(
-            "invalid_input_ref",
-            "column values preview requires a positive sheet_id",
-            field="sheet_id",
-        )
-    if not isinstance(input_column, str) or not input_column.strip():
-        raise ColumnValuesPreviewError(
-            "invalid_input_ref",
-            "column values preview requires a non-empty input_column",
-            field="input_column",
-        )
-    if value_mode not in ("exact", "bounded"):
-        raise ColumnValuesPreviewError(
-            "invalid_params", "value_mode must be exact or bounded", field="value_mode"
-        )
-    column = input_column.strip()
+    column = _validated_ref(sheet_id, input_column, value_mode)
     effective_search = _validated_search(search)
     effective_limit = _validated_limit(limit)
     effective_offset = _validated_offset(offset)
@@ -564,21 +559,9 @@ def _resolve_column_values_preview_snapshot(
         )
         value_hash = hash_column_values(row_ids, raw_values)
 
-    counts: Counter[str] = Counter()
-    scoped_counts: Counter[str] = Counter()
-    missing = 0
-    for row_id in inspected_rows:
-        raw = raw_values.get(row_id)
-        if raw is None:
-            missing += 1
-            continue
-        surface = str(raw)
-        if not surface.strip():
-            missing += 1
-            continue
-        counts[surface] += 1
-        if scope_row_ids is not None and row_id in scope_row_ids:
-            scoped_counts[surface] += 1
+    counts, scoped_counts, missing = _surface_counts(
+        inspected_rows, raw_values, scope_row_ids
+    )
 
     ordered = sorted(counts.items(), key=lambda item: (-item[1], item[0]))
     if effective_search is not None and effective_search != "":
@@ -627,15 +610,70 @@ def _resolve_column_values_preview_snapshot(
         payload["omitted_rows"] = omitted_rows
         _bound_response(payload)
     if scope_row_ids is not None:
-        payload["scope"] = {
-            "total_rows": sum(1 for row_id in row_ids if row_id in scope_row_ids),
-            "values": [
-                {"value": entry["value"], "count": scoped_counts[entry["value"]]}
-                for entry in payload["values"]
-            ],
-            "distribution_counts": scoped_bins,
-        }
+        payload["scope"] = _scope_payload(
+            row_ids, scope_row_ids, payload["values"], scoped_counts, scoped_bins
+        )
     return payload
+
+
+def _validated_ref(sheet_id: Any, input_column: Any, value_mode: Any) -> str:
+    """The trimmed column name, once the sheet, column and mode are valid."""
+    if not isinstance(sheet_id, int) or isinstance(sheet_id, bool) or sheet_id < 1:
+        raise ColumnValuesPreviewError(
+            "invalid_input_ref",
+            "column values preview requires a positive sheet_id",
+            field="sheet_id",
+        )
+    if not isinstance(input_column, str) or not input_column.strip():
+        raise ColumnValuesPreviewError(
+            "invalid_input_ref",
+            "column values preview requires a non-empty input_column",
+            field="input_column",
+        )
+    if value_mode not in ("exact", "bounded"):
+        raise ColumnValuesPreviewError(
+            "invalid_params", "value_mode must be exact or bounded", field="value_mode"
+        )
+    return input_column.strip()
+
+
+def _surface_counts(
+    row_ids: list[int],
+    raw_values: dict[int, Any],
+    scope_row_ids: frozenset[int] | None,
+) -> tuple[Counter[str], Counter[str], int]:
+    """Each non-blank cell surface's count, its in-scope count, and the number
+    of null or blank cells."""
+    counts: Counter[str] = Counter()
+    scoped_counts: Counter[str] = Counter()
+    missing = 0
+    for row_id in row_ids:
+        raw = raw_values.get(row_id)
+        surface = "" if raw is None else str(raw)
+        if not surface.strip():
+            missing += 1
+            continue
+        counts[surface] += 1
+        if scope_row_ids is not None and row_id in scope_row_ids:
+            scoped_counts[surface] += 1
+    return counts, scoped_counts, missing
+
+
+def _scope_payload(
+    row_ids: list[int],
+    scope_row_ids: frozenset[int],
+    values: list[dict[str, Any]],
+    scoped_counts: Counter[str],
+    scoped_bins: Any,
+) -> dict[str, Any]:
+    return {
+        "total_rows": sum(1 for row_id in row_ids if row_id in scope_row_ids),
+        "values": [
+            {"value": entry["value"], "count": scoped_counts[entry["value"]]}
+            for entry in values
+        ],
+        "distribution_counts": scoped_bins,
+    }
 
 
 def resolve_column_value_counts(

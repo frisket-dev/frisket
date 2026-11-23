@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from frisket.server.services.view_selection import open_sheet_selection
 from frisket.preview.ocr import (
     OcrComparePreviewError,
     compare_ocr_preview,
@@ -84,8 +85,6 @@ class PreviewService:
         """Every row the selection keeps; the preview itself rejects a bad sheet_id."""
         if not isinstance(sheet_id, int) or isinstance(sheet_id, bool):
             return None
-        from frisket.server.services.view_selection import open_sheet_selection
-
         try:
             with open_sheet_selection(project, sheet_id, selection, None) as selected:
                 return frozenset(int(hit["row_id"]) for hit in selected.hits())
