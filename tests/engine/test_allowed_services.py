@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import threading
 from typing import Any
 
 import httpx
@@ -318,3 +319,57 @@ def test_frisket_cloud_route_needs_all_services_except_on_cloud(
     finally:
         register_workspace_edition(root, "solo")
     assert requests == []
+
+
+def test_a_concurrent_tightening_is_not_loosened_without_confirmation(
+    project: Project, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Writer A asks for Approved services (stricter than All services) and
+    pauses after reading the current value; writer B tightens to This machine
+    only meanwhile. A must not then loosen B's choice unconfirmed."""
+    from frisket.engine.store import project_meta
+
+    real_read = project_meta.allowed_services
+    a_read, b_done = threading.Event(), threading.Event()
+    writer_a = threading.current_thread()
+    outcome: dict[str, BaseException | None] = {}
+
+    def paused_read(target: Any) -> AllowedServices:
+        value = real_read(target)
+        if threading.current_thread() is writer_a and not a_read.is_set():
+            a_read.set()
+            b_done.wait(timeout=5)
+        return value
+
+    def run_a() -> None:
+        nonlocal writer_a
+        writer_a = threading.current_thread()
+        try:
+            project.set_allowed_services(
+                "approved_services", confirm_allowed_services=None
+            )
+            outcome["a"] = None
+        except AllowedServicesConfirmationRequired as exc:
+            outcome["a"] = exc
+
+    def run_b() -> None:
+        project.set_allowed_services(
+            "this_machine_only", confirm_allowed_services=None
+        )
+
+    monkeypatch.setattr(project_meta, "allowed_services", paused_read)
+    a = threading.Thread(target=run_a)
+    a.start()
+    assert a_read.wait(timeout=5)
+    b = threading.Thread(target=run_b)
+    b.start()
+    # B either commits at once (A read outside its write transaction) or
+    # waits for A's transaction; release A after a moment either way.
+    b.join(timeout=1)
+    b_done.set()
+    a.join(timeout=15)
+    b.join(timeout=15)
+
+    history = [row for row in project.history() if row["kind"] == "allowed_services"]
+    assert outcome["a"] is not None or real_read(project) == "this_machine_only"
+    assert history == []
