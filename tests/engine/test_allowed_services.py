@@ -31,6 +31,7 @@ from frisket.service_access import (
     ApprovedEndpoints,
     AllowedServices,
     classify_destination,
+    register_workspace_edition,
     write_approved_endpoints,
 )
 
@@ -283,4 +284,36 @@ def test_a_configured_model_server_is_approved_until_it_is_removed(
     assert delete_local_endpoint(project.path.parent, created.endpoint_id)
     with pytest.raises(validation.ServiceRefused):
         gate()
+    assert requests == []
+
+
+@pytest.mark.parametrize("edition", ["solo", "team", "cloud"])
+def test_frisket_cloud_route_needs_all_services_except_on_cloud(
+    project: Project, edition: str
+) -> None:
+    requests: list[httpx.Request] = []
+    router = _router(requests)
+    plan = _classify_plan(project, MODELS["this_machine"])
+    root = project.path.parent
+    register_workspace_edition(root, edition)
+    try:
+        for setting in ("approved_services", "all_services"):
+            _set(project, setting)
+
+            def gate() -> None:
+                validation.assert_allowed_services(
+                    project,
+                    plan.program,
+                    plan.spec_dict(),
+                    router=router,
+                    selected_egress_class="frisket_shared",
+                )
+
+            if edition == "cloud" or setting == "all_services":
+                gate()
+            else:
+                with pytest.raises(validation.ServiceRefused):
+                    gate()
+    finally:
+        register_workspace_edition(root, "solo")
     assert requests == []

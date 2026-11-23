@@ -72,6 +72,7 @@ from frisket.service_access import (
     ALLOWED_SERVICES_VALUES,
     DEFAULT_ALLOWED_SERVICES,
     AllowedServices,
+    register_workspace_edition,
 )
 from frisket.authoring.workbench.plugin_runtime import (
     bootstrap_project_bundled_plugins,
@@ -223,6 +224,7 @@ class Workspace:
         self.root = root
         self.edition = str(edition).strip().lower()
         self.root.mkdir(parents=True, exist_ok=True)
+        register_workspace_edition(self.root, self.edition)
         ensure_writable_data_root(self.root)
         self._projects: dict[str, Project] = {}
         self._metadata_enqueue_pending: set[str] = set()

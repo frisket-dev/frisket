@@ -896,7 +896,10 @@ def assert_allowed_services(
             access.check_url(destination)
         if capability is not None:
             access.check_remote_service(capability)
-        if selected_egress_class in {"frisket_shared", "frisket_dedicated_org"}:
+        if (
+            selected_egress_class in {"frisket_shared", "frisket_dedicated_org"}
+            and not access.frisket_processing_allowed
+        ):
             access.check_remote_service("Frisket Cloud")
     except ServiceNotAllowed as exc:
         raise ServiceRefused(exc.destination, str(exc)) from None

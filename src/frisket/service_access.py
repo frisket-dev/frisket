@@ -59,6 +59,23 @@ def is_looser(current: AllowedServices, requested: AllowedServices) -> bool:
     return _LOOSENESS[requested] > _LOOSENESS[current]
 
 
+_WORKSPACE_EDITIONS: dict[str, str] = {}
+
+
+def register_workspace_edition(workspace_root: str | Path, edition: str) -> None:
+    """Record which edition serves the projects under ``workspace_root``.
+
+    The execution paths that check a project's destinations hold the project,
+    not its server, so the edition is looked up by the bundle's workspace.
+    An unregistered workspace is a Local one.
+    """
+    _WORKSPACE_EDITIONS[str(Path(workspace_root).resolve())] = edition
+
+
+def workspace_edition(workspace_root: str | Path) -> str:
+    return _WORKSPACE_EDITIONS.get(str(Path(workspace_root).resolve()), "solo")
+
+
 def allowed_services_offered(edition: str, value: AllowedServices) -> bool:
     """Frisket Cloud does not offer This machine only: projects live there."""
     return not (edition == "cloud" and value == "this_machine_only")
@@ -205,10 +222,17 @@ def classify_destination(
 
 @dataclass(frozen=True)
 class ServiceAccess:
-    """One project's setting with the workspace's approved endpoints."""
+    """One project's setting with the workspace's approved endpoints.
+
+    ``frisket_processing_allowed`` holds on Frisket Cloud, where the project
+    already lives on Frisket's servers: Frisket's own processing there is
+    allowed under every offered choice. Elsewhere a Frisket Cloud route is a
+    remote service.
+    """
 
     allowed_services: AllowedServices
     approved_endpoints: tuple[ApprovedEndpoint, ...] = ()
+    frisket_processing_allowed: bool = False
 
     @property
     def allows_all_services(self) -> bool:
@@ -256,6 +280,8 @@ __all__ = [
     "host_is_loopback",
     "is_looser",
     "read_approved_endpoints",
+    "register_workspace_edition",
     "setting_allows",
+    "workspace_edition",
     "write_approved_endpoints",
 ]

@@ -18,6 +18,7 @@ from frisket.service_access import (
     ServiceAccess,
     host_is_loopback,
     read_approved_endpoints,
+    workspace_edition,
 )
 
 if TYPE_CHECKING:
@@ -59,5 +60,7 @@ def project_service_access(project: Project) -> ServiceAccess:
         return ServiceAccess(setting)
     root = project.path.parent
     return ServiceAccess(
-        setting, read_approved_endpoints(root) + configured_model_server_endpoints(root)
+        setting,
+        read_approved_endpoints(root) + configured_model_server_endpoints(root),
+        frisket_processing_allowed=workspace_edition(root) == "cloud",
     )
