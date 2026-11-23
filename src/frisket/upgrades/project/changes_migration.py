@@ -140,9 +140,10 @@ def _rewrite_request(value: Any) -> tuple[Any, bool]:
         return value, False
     rewritten = dict(value)
     action_id = rewritten.get("action_id")
-    changed = isinstance(action_id, str) and action_id in _ACTION_KIND_MAP
-    if changed:
+    changed = False
+    if isinstance(action_id, str) and action_id in _ACTION_KIND_MAP:
         rewritten["action_id"] = _ACTION_KIND_MAP[action_id]
+        changed = True
     params, params_changed = _rewrite_action_params(value.get("params"), action_id)
     if params_changed:
         rewritten["params"] = params
