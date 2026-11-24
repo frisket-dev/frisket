@@ -113,7 +113,7 @@ def test_trace_pdf_sanitization_keeps_existing_cycle_and_truncation_guards():
     assert redact(result) == result
 
 
-def test_runner_pdf_estimate_discloses_approximation_and_preserves_unknown(monkeypatch):
+def test_runner_pdf_estimate_prices_pages_and_preserves_unknown(monkeypatch):
     from frisket.engine.runner import validation
 
     messages = [{"role": "user", "content": [document()]}]
@@ -135,7 +135,7 @@ def test_runner_pdf_estimate_discloses_approximation_and_preserves_unknown(monke
         project, {"sheet_id": 1}, program=program
     ).presentation
     assert estimate["cost"] > 0
-    assert "approximate" in estimate["warning"]
+    assert "warning" not in estimate
     assert 6200 < estimate["avg_input_tokens"] < 6300
     messages[0]["content"][0]["page_count"] = None
     unknown = validation._estimate_run(
@@ -183,52 +183,3 @@ def test_oversized_or_partial_serialized_pdf_diagnostics_do_not_leak(payload):
 
 def test_pdf_with_unextractable_native_text_still_has_page_estimate():
     assert estimate_input_tokens([document(text_char_count=None)]) > 6000
-
-
-@pytest.mark.parametrize("action_kind", ["map.ask", "map.extract", "map.summarize"])
-@pytest.mark.parametrize("column_type", ["text", "file"])
-def test_routed_pdf_warning_reads_real_project_column_rows(
-    make_project, monkeypatch, action_kind, column_type
-):
-    from frisket.engine.runner import validation
-    from frisket.execution.resolver import ResolvedExecution
-
-    project = make_project("routed-estimate")
-    sheet_id = project.add_sheet("Sources")
-    project.add_column(sheet_id, "source", type=column_type)
-    # Exercise the store's actual sqlite3.Row mapping, including plain-text
-    # sources that must not receive a PDF warning or fail their preview.
-    assert not hasattr(project.columns(sheet_id)[0], "get")
-    spec = {"action_kind": action_kind, "sheet_id": sheet_id}
-    program = SimpleNamespace(
-        is_llm=lambda _spec: True,
-        source_columns=lambda _spec: ["source"],
-    )
-    resolved = ResolvedExecution(
-        resolution=SimpleNamespace(
-            facts=SimpleNamespace(cost_posture="platform_metered")
-        ),
-        persistence="ephemeral",
-        promise_set=SimpleNamespace(promises=()),
-        cost_basis=SimpleNamespace(bound=0.01),
-    )
-    # Rating and consent are independent of the column warning; retain the
-    # real routed estimator and store boundary while isolating those seams.
-    monkeypatch.setattr(
-        validation,
-        "confirmation_estimate",
-        lambda _recipe, _spec, out, **_kwargs: out,
-    )
-    monkeypatch.setattr(validation, "_bind_rated_estimate", lambda route, _out: route)
-    monkeypatch.setattr(
-        validation, "project_uncovered_user_claims", lambda *_args, **_kwargs: []
-    )
-    result = validation._estimate_run(
-        project,
-        spec,
-        program=program,
-        resolution=resolved,
-        pricing_policy=object(),
-    ).presentation
-    assert result["cost"] == 0.01
-    assert ("warning" in result) is (column_type == "file")

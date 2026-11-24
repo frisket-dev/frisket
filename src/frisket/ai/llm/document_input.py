@@ -7,7 +7,6 @@ from frisket.ai.llm.types import LLMError
 MAX_PDF_INPUT_BYTES = 20 * 1024 * 1024
 MAX_PDF_BYTES = MAX_PDF_INPUT_BYTES
 MAX_PDF_PAGES = 100
-PDF_ACTION_IDS = frozenset({"map.ask", "map.summarize", "map.extract"})
 
 
 def model_supports_pdf(model: str) -> bool:
