@@ -11,17 +11,21 @@ from frisket.actions.entity_package_types import ImportedEntityDataset
 from frisket.authoring.plugin_registry import _reset_default_registry_for_tests
 from frisket.authoring.workbench import plugin_runtime, plugin_runtime_status
 from frisket.authoring.workbench.installed_actions import resolve_installed_action
+from frisket.engine.executor.action_inventory import ExecutorDeps
 from frisket.engine.executor.actions import run_action_spec
 from frisket.server.app import create_app
+
+OPERATOR_FILES = ExecutorDeps(operator_local_files=True)
 
 
 def test_installed_ftm_import_export_and_replay(tmp_path, monkeypatch):
     pytest.importorskip("followthemoney")
-    from frisket.followthemoney.import_planner import (
-        plan_followthemoney_import,
-    )
     from ftm_migration_harness import (
         _canonical_export_inputs,
+    )
+
+    from frisket.followthemoney.import_planner import (
+        plan_followthemoney_import,
     )
 
     repo = Path(__file__).resolve().parents[2]
@@ -34,7 +38,6 @@ def test_installed_ftm_import_export_and_replay(tmp_path, monkeypatch):
     app = create_app(
         tmp_path / "workspace",
         enable_provider_config=False,
-        edition="team",
         serve_spa=False,
     )
     try:
@@ -85,13 +88,18 @@ def test_installed_ftm_import_export_and_replay(tmp_path, monkeypatch):
                 },
                 "idempotency_key": "import-once",
             }
-            imported = run_action_spec(project, request, project_id=pid)
+            imported = run_action_spec(
+                project, request, project_id=pid, deps=OPERATOR_FILES
+            )
             assert imported.status == "completed", imported.errors
             assert (
                 ImportedEntityDataset.model_validate(imported.value).dataset_name
                 == "Installed case"
             )
-            assert run_action_spec(project, request, project_id=pid) == imported
+            assert (
+                run_action_spec(project, request, project_id=pid, deps=OPERATOR_FILES)
+                == imported
+            )
             plan = plan_followthemoney_import(
                 source.read_bytes(), dataset_name="Installed case"
             )
@@ -107,11 +115,16 @@ def test_installed_ftm_import_export_and_replay(tmp_path, monkeypatch):
                 },
                 "idempotency_key": "export-once",
             }
-            exported = run_action_spec(project, exported_request, project_id=pid)
+            exported = run_action_spec(
+                project, exported_request, project_id=pid, deps=OPERATOR_FILES
+            )
             assert exported.status == "completed", exported.errors
             assert exported.value["filename"] == "installed.zip"
             assert (
-                run_action_spec(project, exported_request, project_id=pid) == exported
+                run_action_spec(
+                    project, exported_request, project_id=pid, deps=OPERATOR_FILES
+                )
+                == exported
             )
             assert exported.receipt_id != imported.receipt_id
             assert {output.kind for output in exported.outputs} == {"export"}

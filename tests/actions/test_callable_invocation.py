@@ -3,21 +3,26 @@
 from pathlib import Path
 
 import pytest
-
-from test_callable_host import ReportParams, _bound, _query, source as source
+from test_callable_host import ReportParams, _bound, _query
+from test_callable_host import source as source
 from test_entity_package import (
     Params,
-    _bound as _entity_bound,
     _selection,
+)
+from test_entity_package import (
+    _bound as _entity_bound,
+)
+from test_entity_package import (
     entities as entities,
 )
+
 from frisket.actions.entity_package_types import (
     FollowTheMoneyExporter,
     FollowTheMoneyImporter,
 )
 from frisket.actions.types import SheetCsvExporter
 from frisket.contracts.action import ReceiptIO
-from frisket.engine.executor.action_inventory import _TypedProjectEnvelope
+from frisket.engine.executor.action_inventory import ExecutorDeps, _TypedProjectEnvelope
 from frisket.engine.executor.callable_action import (
     run_callable_invocation,
     run_typed_callable_action,
@@ -25,6 +30,8 @@ from frisket.engine.executor.callable_action import (
 from frisket.engine.executor.query_action import QueryPreviewCapability
 from frisket.engine.sandbox.shim import SandboxTeardownError
 from frisket.engine.store.receipts import ReceiptStore
+
+OPERATOR_FILES = ExecutorDeps(operator_local_files=True)
 
 
 def _action():
@@ -115,9 +122,9 @@ def test_native_teardown_failure_preserves_completed_primitive(source):
 
     bound, _registry = _bound(report, params)
     with pytest.raises(SandboxTeardownError) as caught:
-        run_typed_callable_action(project, "p", bound)
+        run_typed_callable_action(project, "p", bound, deps=OPERATOR_FILES)
     assert caught.value is fatal
-    result = run_typed_callable_action(project, "p", bound)
+    result = run_typed_callable_action(project, "p", bound, deps=OPERATOR_FILES)
     assert result.errors[0].code == "idempotency_in_progress"
     receipt = ReceiptStore(project).parsed_by_id(result.errors[0].details["receipt_id"])
     assert receipt.status == "running"
@@ -163,7 +170,7 @@ def test_same_package_bytes_keep_each_export_filename(source, entities):
         return [first.filename, second.filename]
 
     bound, _registry = _entity_bound(report, {"document": str(path)})
-    result = run_typed_callable_action(project, "p", bound)
+    result = run_typed_callable_action(project, "p", bound, deps=OPERATOR_FILES)
     assert result.status == "completed", result.errors
     receipt = ReceiptStore(project).parsed_by_id(result.receipt_id)
     assert [item["filename"] for item in receipt.exports] == ["a.zip", "b.zip"]
@@ -173,7 +180,7 @@ def test_same_package_bytes_keep_each_export_filename(source, entities):
         if item.ref.get("kind") == "export_project_file"
     ]
     assert [item["filename"] for item in package_outputs] == ["a.zip", "b.zip"]
-    assert run_typed_callable_action(project, "p", bound) == result
+    assert run_typed_callable_action(project, "p", bound, deps=OPERATOR_FILES) == result
     assert calls == ["invoke"]
 
 
