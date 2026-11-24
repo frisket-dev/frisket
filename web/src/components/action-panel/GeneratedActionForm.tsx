@@ -1253,6 +1253,7 @@ function GeneratedActionFormContents({
   const displayedUsd = estimatedUsd(displayedEstimate);
   const venueLabel = displayedEstimate?.venue_label?.trim() || null;
   const billingLabel = displayedEstimate?.billing_label?.trim() || null;
+  const estimateWarning = displayedEstimate?.warning?.trim() || null;
   const estimateRowCount = displayedEstimate?.rows
     ?? (sheet ? effectiveRunScope === 'selected' ? hasViewScope ? null : scopeSelectedRowIds.length : sheet.rowCount : null);
   const viewEstimateRows = effectiveRunScope === 'selected'
@@ -1391,6 +1392,7 @@ function GeneratedActionFormContents({
             {venueLabel ? <> · <span data-testid="cost-venue-label">{venueLabel}</span></> : null}
             {billingLabel ? <> · <span data-testid="cost-billing-label">{billingLabel}</span></> : null}
             {currentEstimatePending ? <> · Updating…</> : null}
+            {estimateWarning ? <> · <span data-testid="cost-estimate-warning">{estimateWarning}</span></> : null}
           </>}
       </div>
     )}

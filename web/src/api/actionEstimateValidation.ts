@@ -59,6 +59,7 @@ export function runEstimateFromV1Wire(
     billing_label: estimate.billing_label ?? undefined,
     venue_label: estimate.venue_label ?? undefined,
     cost_source: estimate.cost_source,
+    warning: estimate.warning ?? undefined,
     claims: estimate.claims ?? undefined,
     promise_set_hash: estimate.promise_set_hash ?? undefined,
     // Carried, not dropped: the panel renders through the same three-state

@@ -1806,6 +1806,9 @@ export interface RunEstimate {
    * `free_public_api` lets the panel say that no provider/API charge exists
    * without inventing a dollar price for a free public service. */
   cost_source?: string;
+  /** Why the server could not price the run, in the server's own words (e.g.
+   *  missing duration metadata). Surfaced instead of a bare "UNKNOWN". */
+  warning?: string;
 }
 
 /** One param's server verdict from /actions/v1/validate-params. `position` is

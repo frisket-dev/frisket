@@ -591,12 +591,12 @@ describe('media cost presentation', () => {
   });
 
   it.each([null, undefined])('never substitutes provider cost for missing billed quote %s', async (billed_cost) => {
-    const { onExecute, estimateAction } = form('media.transcribe', { estimate: {
-      cost: 0.11, rows: 2, billed_cost,
+    const { onExecute } = form('media.transcribe', { estimate: {
+      cost: 0.11, rows: 2, billed_cost, warning: 'Audio duration is missing; run metadata backfill',
       ...(billed_cost === null ? { policy_id: 'acme.cost_plus.v1' } : {}),
     } });
-    await waitFor(() => expect(estimateAction).toHaveBeenCalled());
-    await waitFor(() => expect(screen.getByTestId('cost-estimate')).toHaveTextContent('UNKNOWN'));
+    await waitFor(() => expect(screen.getByTestId('cost-estimate')).toHaveTextContent('Audio duration is missing'));
+    expect(screen.getByTestId('cost-estimate')).toHaveTextContent('UNKNOWN');
     expect(screen.getByTestId('cost-estimate')).not.toHaveTextContent('$0.11');
     await run();
     expect(onExecute.mock.lastCall?.[0]).not.toHaveProperty('confirmation');
