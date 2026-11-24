@@ -53,8 +53,6 @@ from frisket.team.schema import (
     project_roles,
     users,
 )
-from frisket.project_settings import UsageDataSharing
-from frisket.service_access import AllowedServices
 from tests.team_setup_helpers import (
     claim_server,
     seed_member_invite,
@@ -1069,18 +1067,11 @@ def test_failed_corrupt_project_rebuild_keeps_intent_and_skips_registration(
         name: str,
         *,
         project_id: str | None = None,
-        allowed_services: AllowedServices = "all_services",
-        usage_data_sharing: UsageDataSharing = "inherit",
+        **settings: Any,
     ) -> Any:
         if project_id == failed_slug:
             raise RuntimeError("simulated rebuild failure")
-        return original_create(
-            self,
-            name,
-            project_id=project_id,
-            allowed_services=allowed_services,
-            usage_data_sharing=usage_data_sharing,
-        )
+        return original_create(self, name, project_id=project_id, **settings)
 
     monkeypatch.setattr(Workspace, "create", fail_rebuild)
     with pytest.raises(RuntimeError, match="simulated rebuild failure"):
