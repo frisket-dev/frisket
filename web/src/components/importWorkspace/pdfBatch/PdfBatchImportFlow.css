@@ -444,3 +444,6 @@
   .pdf-batch-organization legend { float: none; width: auto; margin-bottom: 8px; }
   .pdf-batch-organization > div { margin-left: 0; grid-template-columns: 1fr; }
 }
+
+.pdf-batch-loading { padding: 24px; }
+.pdf-batch-loading .pdf-packet-preparing { width: min(460px, 100%); box-shadow: none; }
