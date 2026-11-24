@@ -35,6 +35,7 @@ from frisket.retrieval.query import (
 )
 from frisket.retrieval.ranking import RankingError
 from frisket.retrieval.store import RetrievalStore
+from frisket.project_service_access import remote_service_refusal
 
 from .facade import EmbeddingFacade
 from .gateway import (
@@ -605,10 +606,13 @@ def _manual_query(
                 field="anchor.text",
             )
         assert isinstance(accounting_project, Project)
-        if accounting_project.effective_network_policy() == "off":
+        refusal = remote_service_refusal(
+            accounting_project, f"provider:{provider_kind}"
+        )
+        if refusal is not None:
             raise SimilarityError(
-                "network_disabled",
-                "this project's network setting blocks remote query embedding",
+                refusal.code,
+                str(refusal),
                 field="anchor.text",
                 details={"capability": f"provider:{provider_kind}"},
             )

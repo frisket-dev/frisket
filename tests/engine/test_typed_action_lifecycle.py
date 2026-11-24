@@ -31,7 +31,7 @@ from frisket.engine.executor.map_rows_action import (
     typed_request_hash,
     run_typed_map_rows_action as _run_typed_map_rows_action,
 )
-from frisket.engine.runner import MapRunner, NetworkDisabled, validation
+from frisket.engine.runner import MapRunner, ServiceRefused, validation
 from frisket.engine.store import Project
 from frisket.engine.store.generated_column_claims import GeneratedColumnClaimStore
 from frisket.engine.store.receipts import ReceiptStore
@@ -863,7 +863,7 @@ def test_typed_action_maps_network_refusal_and_cleans_reservation(
     request = _request(sheet_id, row_ids)
 
     def refuse_network(*_args: Any, **_kwargs: Any) -> None:
-        raise NetworkDisabled("external:typed-test")
+        raise ServiceRefused("external:typed-test", "refused by Allowed services")
 
     monkeypatch.setattr(MapRunner, "_prepare", refuse_network)
     result = run_typed_map_rows_action(
@@ -876,7 +876,7 @@ def test_typed_action_maps_network_refusal_and_cleans_reservation(
     )
 
     assert result.status == "failed"
-    assert result.errors[0].code == "network_disabled"
+    assert result.errors[0].code == "service_not_allowed"
     assert result.errors[0].details == {"capability": "external:typed-test"}
     assert ReceiptStore(store).count() == 0
     assert store.db.execute("SELECT COUNT(*) FROM runs").fetchone()[0] == 0

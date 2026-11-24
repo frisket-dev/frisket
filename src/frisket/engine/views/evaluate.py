@@ -541,15 +541,11 @@ def open_selection(
             clauses = [
                 "SELECT NULL sheet_id,NULL row_id,NULL column_id,NULL position,NULL search_score,NULL similarity_score,NULL relevance_score WHERE 0"
             ]
-        if not order and has_matches:
-            score = (
-                "relevance"
-                if selection.get("ranking") == "hybrid"
-                else "similarity"
-                if "similarity" in selection
-                else "search"
-            )
-            order = [f"{score}_score DESC"]
+        # A selection is ordered only as it says: with no order it keeps sheet
+        # order, searched or not. Ranking is an explicit score order, or the
+        # hybrid ranking, which has no order item of its own.
+        if not order and has_matches and selection.get("ranking") == "hybrid":
+            order = ["relevance_score DESC"]
         order += ["sheet_id ASC", "position ASC", "row_id ASC"]
         relation = "(" + " UNION ALL ".join(clauses) + ") AS selected"
         yield SelectionRead(

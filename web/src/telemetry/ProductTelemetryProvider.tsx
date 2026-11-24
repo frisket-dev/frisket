@@ -57,7 +57,7 @@ export function ProductTelemetryProvider({ children }: { children: ReactNode }) 
               <input type="checkbox" checked={checked} onChange={(event) => setChecked(event.currentTarget.checked)} />
               <span>Send product telemetry</span>
             </label>
-            <p className="muted">You can change this anytime in Settings → Personal → Privacy. Sensitive projects send no project telemetry.</p>
+            <p className="muted">You can change this anytime in Settings → Personal → Privacy. A project set not to share usage data sends no project telemetry.</p>
             <div className="form-actions">
               <Button type="button" className="btn-primary" onClick={continueToFrisket}>Continue</Button>
             </div>

@@ -541,7 +541,7 @@ def test_typed_preview_uses_cached_remote_query_without_admission(
         ('{"allow_remote":false}', index_id),
     )
     project.db.commit()
-    project.set_network_policy(mode="off")
+    project.set_allowed_services("approved_services", confirm_allowed_services=None)
     with write_transaction(project.db):
         project.set_provider_key(
             provider="openai",
@@ -628,14 +628,14 @@ def test_manual_text_honors_effective_network_policy_before_remote_call(make_pro
         policy={"allow_remote": True},
         key="network-off",
     )
-    project.set_network_policy(mode="off")
+    project.set_allowed_services("approved_services", confirm_allowed_services=None)
 
     with pytest.raises(SimilarityError) as exc:
         resolve_embedding_similarity(
             project, _manual_query(index_id, "uncached network query"), gateway=gateway
         )
 
-    assert exc.value.code == "network_disabled"
+    assert exc.value.code == "service_not_allowed"
     assert exc.value.details == {"capability": "provider:platform_api"}
     assert gateway.calls == []
     project.close()

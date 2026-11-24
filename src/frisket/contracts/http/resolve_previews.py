@@ -36,6 +36,12 @@ class ColumnValuesPreviewRequest(_CompatibleRequest):
     search: Any = None
     limit: Any = None
     offset: Any = None
+    selection: Any = None
+
+
+class ColumnValueCountsRequest(_CompatibleRequest):
+    sheet_id: Any = None
+    input_columns: Any = None
 
 
 class ReplaceRulesPreviewRequest(_CompatibleRequest):
@@ -165,6 +171,14 @@ class DateColumnDistribution(_OpenPreviewResponse):
     bins: list[DateColumnDistributionBin]
 
 
+class ColumnValuesScope(_OpenPreviewResponse):
+    """Counts within the rows a request's selection keeps."""
+
+    total_rows: int
+    values: list[ColumnValueCount]
+    distribution_counts: list[int] | None
+
+
 class ColumnValuesPreviewResponse(_OpenPreviewResponse):
     """Required distinct-values preview core with additive producer metadata."""
 
@@ -190,6 +204,22 @@ class ColumnValuesPreviewResponse(_OpenPreviewResponse):
     list_facet: ListFacetPreview | None = None
     inventory_complete: bool = True
     omitted_rows: int = 0
+    scope: ColumnValuesScope | None = None
+
+
+class ColumnDistinctCount(_OpenPreviewResponse):
+    """One column's whole-column counts."""
+
+    input_column: str
+    distinct: int
+    omitted_rows: int
+    list_distinct: int | None
+
+
+class ColumnValueCountsResponse(_OpenPreviewResponse):
+    schema_version: Literal["frisket.column_value_counts.v1"]
+    sheet_id: int
+    columns: list[ColumnDistinctCount]
 
 
 class ReplaceRuleMatchCount(_OpenPreviewResponse):
@@ -219,6 +249,8 @@ class ReplaceRulesPreviewResponse(_OpenPreviewResponse):
 __all__ = [
     "ClusterPreviewRequest",
     "ClusterPreviewResponse",
+    "ColumnValueCountsRequest",
+    "ColumnValueCountsResponse",
     "ColumnValuesPreviewRequest",
     "ColumnValuesPreviewResponse",
     "ReplaceRulesPreviewRequest",

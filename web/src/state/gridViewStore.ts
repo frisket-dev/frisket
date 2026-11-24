@@ -1,6 +1,6 @@
 // Owns exactly the grid slice of WorkspaceUiState (workspace/workspaceState.ts):
-// the filter/sort draft+applied split, per-sheet column layout maps, and the
-// global row-height/wrap-text display prefs. Everything else that transition also
+// the applied filter/sort/selection, the Filter sidebar, per-sheet column
+// layout maps, and the global wrap-text display pref. Everything else that transition also
 // touches (selection, row/column drawers, child filter) stays on the legacy
 // reducer and is composed at the bind layer (useWorkspaceModel.tsx), never
 // imported here — state/ must not import sibling stores.
@@ -12,21 +12,11 @@ import { createStore } from '../core/store/createStore';
 import type { Store } from '../core/store/types';
 import type {
   GridFilterSpec,
-  GridSortDirection,
   GridSortSpec,
   ViewSelection,
   SheetMeta,
 } from '../api/open';
 import type { ColumnGroupViewSpec } from '../grid/SheetGrid';
-import {
-  ROW_HEIGHTS,
-  WRAP_ROW_HEIGHT,
-} from '../workspace/workspaceState';
-
-interface GridViewDraftState {
-  sortColumn: string;
-  sortDirection: GridSortDirection;
-}
 
 interface GridViewAppliedState {
   scopeRowIds?: number[] | null;
@@ -49,63 +39,49 @@ interface GridViewAppliedState {
   filterValueLabel: string | null;
 }
 
-interface InlineFilterState {
-  sheetId: string;
+export type FilterSidebarTab = 'filter' | 'views';
+
+/** The sheet's Filter sidebar. `focusFacet` names the facet card opened from a
+ *  chip or a column menu; `focusSearch` increments each time a caller asks for
+ *  the search box to take focus and is 0 when the last open did not ask;
+ *  `searchScope` is the scope the search box
+ *  applies to its next text ('all' or a column name). */
+interface FilterSidebarState {
   open: boolean;
-  column: string;
+  tab: FilterSidebarTab;
+  focusFacet: string | null;
+  focusSearch: number;
+  searchScope: string;
 }
 
 interface GridViewState {
-  draft: GridViewDraftState;
   applied: GridViewAppliedState;
-  sortPanelOpen: boolean;
+  sidebar: FilterSidebarState;
   columnOrderBySheet: Record<string, string[]>;
   frozenColumnCountBySheet: Record<string, number>;
   hiddenColumnsBySheet: Record<string, string[]>;
   columnGroupSpecs: ColumnGroupViewSpec[];
   columnGroupsVersion: number;
-  rowHeight: number;
   wrapText: boolean;
   /** The Saved View definition currently represented by the grid.  This is
    * retained while edited so the UI can show Modified and explicitly save. */
   activeViewId: number | null;
   presentationEdited: boolean;
-  /** Survives sheet switches by design-of-record: no reset path clears it.
-   *  The sheetId guard in selectInlineFilterOpen/selectInlineFilterColumn masks
-   *  the retained state while another sheet is active. */
-  inlineFilter: InlineFilterState;
 }
 
-export function selectInlineFilterOpen(state: GridViewState, sheetId: string | undefined): boolean {
-  return state.inlineFilter.sheetId === sheetId && state.inlineFilter.open;
-}
-
-export function selectInlineFilterColumn(state: GridViewState, sheetId: string | undefined): string {
-  return state.inlineFilter.sheetId === sheetId ? state.inlineFilter.column : '';
-}
-
-/** Matches createWorkspaceUiState()'s rowHeight/wrapText read exactly —
- *  same localStorage keys, same fallback. Every other field starts at the
- *  same default that reducer used. */
+/** Wrap text is a per-browser preference; everything else starts empty. */
 function createGridViewState(): GridViewState {
-  const storedRowHeight = Number(localStorage.getItem('frisket:row-height'));
   return {
-    draft: {
-      sortColumn: '',
-      sortDirection: 'asc',
-    },
     applied: { filter: null, sort: null, filterValueLabel: null },
-    sortPanelOpen: false,
+    sidebar: { open: false, tab: 'filter', focusFacet: null, focusSearch: 0, searchScope: 'all' },
     columnOrderBySheet: {},
     frozenColumnCountBySheet: {},
     hiddenColumnsBySheet: {},
     columnGroupSpecs: [],
     columnGroupsVersion: 0,
-    rowHeight: ROW_HEIGHTS.some((h) => h.value === storedRowHeight) ? storedRowHeight : 34,
     wrapText: localStorage.getItem('frisket:wrap-text') === '1',
     activeViewId: null,
     presentationEdited: false,
-    inlineFilter: { sheetId: '', open: false, column: '' },
   };
 }
 
@@ -121,8 +97,6 @@ export interface GridViewFilterApplication {
 }
 
 export interface GridViewSortApplication {
-  column: string;
-  direction: GridSortDirection;
   sort: GridSortSpec;
 }
 
@@ -136,8 +110,6 @@ export interface ViewApplication {
   sheetId: string;
   filter: GridFilterSpec | null;
   sort: GridSortSpec | null;
-  draftSortColumn: string;
-  draftSortDirection: GridSortDirection;
   columns: string[];
   hiddenColumns: string[];
   columnGroupSpecs: ColumnGroupViewSpec[];
@@ -152,20 +124,15 @@ export function createGridViewStore(currentSheet: () => SheetMeta | undefined = 
   applyViewGrid(grid: ViewApplication): void;
   clearActiveView(viewId?: number): void;
   setSelection(selection: ViewSelection | null): void;
-  /** = the grid-owned fields of the 'selectSheet' reducer case:
-   *  sortPanelOpen/
-   *  activeGridFilter/activeGridSort/
-   *  draftSortDirection reset to their sheet-switch defaults. The non-grid
-   *  fields that same case resets (currentSheetId, selectedRows, headerMenu)
-   *  stay on the legacy reducer. */
+  /** Resets the applied filter, sort and selection to their sheet-switch
+   *  defaults. The non-grid fields a sheet switch resets (current sheet,
+   *  selected rows, header menu) belong to other stores. */
   resetForSheetChange(): void;
-  setSortPanelOpen(open: boolean): void;
-  setDraftSortColumn(column: string): void;
-  setDraftSortDirection(direction: GridSortDirection): void;
-  setRowHeight(n: number): void;
+  openSidebar(tab: FilterSidebarTab, focus?: { facet?: string; search?: boolean; scope?: string }): void;
+  setSearchScope(scope: string): void;
+  closeSidebar(): void;
+  setSidebarTab(tab: FilterSidebarTab): void;
   toggleWrap(): void;
-  setInlineFilterColumn(sheetId: string, column: string): void;
-  closeInlineFilter(): void;
   setColumnOrder(sheetId: string, order: string[]): void;
   setFrozenColumnCount(sheetId: string, count: number): void;
   setHiddenColumns(sheetId: string, names: string[]): void;
@@ -199,7 +166,6 @@ export function createGridViewStore(currentSheet: () => SheetMeta | undefined = 
     applySort(spec) {
       store.set((s) => ({
         ...s,
-        draft: { ...s.draft, sortColumn: spec.column, sortDirection: spec.direction },
         applied: { ...s.applied, sort: spec.sort, sortColumnIds: bindColumns(spec.sort.map((item) => item.column), s.applied.sortColumnIds) },
       }));
     },
@@ -221,10 +187,6 @@ export function createGridViewStore(currentSheet: () => SheetMeta | undefined = 
     applyViewGrid(grid) {
       store.set((s) => ({
         ...s,
-        draft: {
-          sortColumn: grid.draftSortColumn,
-          sortDirection: grid.draftSortDirection,
-        },
         // A view restores a filter SPEC and nothing else: the spelling
         // the user originally clicked was never persisted, so the chip falls
         // back to naming the type rather than carrying a stale one.
@@ -253,41 +215,36 @@ export function createGridViewStore(currentSheet: () => SheetMeta | undefined = 
     resetForSheetChange() {
       store.set((s) => ({
         ...s,
-        sortPanelOpen: false,
         applied: { filter: null, sort: null, filterValueLabel: null },
-        draft: { ...s.draft, sortDirection: 'asc' },
         activeViewId: null,
         presentationEdited: false,
       }));
     },
 
-    setSortPanelOpen(open) {
-      store.set((s) => (s.sortPanelOpen === open ? s : { ...s, sortPanelOpen: open }));
+    openSidebar(tab, focus = {}) {
+      store.set((s) => ({
+        ...s,
+        sidebar: {
+          open: true,
+          tab,
+          focusFacet: focus.facet ?? null,
+          focusSearch: focus.search ? s.sidebar.focusSearch + 1 : 0,
+          searchScope: focus.scope ?? s.sidebar.searchScope,
+        },
+      }));
     },
-    setDraftSortColumn(column) {
-      store.set((s) => ({ ...s, draft: { ...s.draft, sortColumn: column } }));
+    setSearchScope(scope) {
+      store.set((s) => (s.sidebar.searchScope === scope ? s : { ...s, sidebar: { ...s.sidebar, searchScope: scope } }));
     },
-    setDraftSortDirection(direction) {
-      store.set((s) => ({ ...s, draft: { ...s.draft, sortDirection: direction } }));
+    closeSidebar() {
+      store.set((s) => (s.sidebar.open ? { ...s, sidebar: { ...s.sidebar, open: false, focusFacet: null } } : s));
+    },
+    setSidebarTab(tab) {
+      store.set((s) => (s.sidebar.tab === tab ? s : { ...s, sidebar: { ...s.sidebar, tab, focusFacet: null } }));
     },
 
-    setRowHeight(n) {
-      store.set((s) => ({ ...s, rowHeight: n }));
-    },
     toggleWrap() {
-      store.set((s) => {
-        const nextWrapText = !s.wrapText;
-        const nextRowHeight =
-          nextWrapText && s.rowHeight < WRAP_ROW_HEIGHT ? WRAP_ROW_HEIGHT : s.rowHeight;
-        return { ...s, wrapText: nextWrapText, rowHeight: nextRowHeight };
-      });
-    },
-
-    setInlineFilterColumn(sheetId, column) {
-      store.set((s) => ({ ...s, inlineFilter: { sheetId, open: true, column } }));
-    },
-    closeInlineFilter() {
-      store.set((s) => ({ ...s, inlineFilter: { ...s.inlineFilter, open: false } }));
+      store.set((s) => ({ ...s, wrapText: !s.wrapText }));
     },
 
     setColumnOrder(sheetId, order) {

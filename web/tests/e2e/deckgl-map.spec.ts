@@ -317,7 +317,7 @@ test('deck.gl map: filter to this area applies a grid bbox filter', async ({ pag
   expect(filtered.total).toBe(1);
 
   await expect(page.getByTestId('grid')).toBeVisible();
-  await expect(page.getByTestId('active-grid-filter')).toContainText('in map area');
+  await expect(page.getByTestId('row-filter-chips')).toContainText('in map area');
 });
 
 test('deck.gl map: reflects and refreshes on active grid filter change', async ({ page }) => {
@@ -334,7 +334,7 @@ test('deck.gl map: reflects and refreshes on active grid filter change', async (
   await expect(page.getByTestId('grid')).toBeVisible();
   await openFriendlyFilterSidebar(page, columns, 'status');
   await page.getByTestId('facet-check-status-open').check();
-  await expect(page.getByTestId('active-grid-filter')).toContainText('status');
+  await expect(page.getByTestId('row-filter-chips')).toContainText('status');
 
   await clickHeaderMenu(page, columns, 'point');
   await page.getByTestId('header-menu-open-map').click();

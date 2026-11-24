@@ -446,6 +446,8 @@ def _case_local_team_surface(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) ->
         "tenant.set_provider_key.put",
         "tenant.uninstall_artifact.post",
         "tenant.update_runtime_config.patch",
+        "tenant.list_approved_endpoints.get",
+        "tenant.replace_approved_endpoints.put",
         "tenant.update_local_endpoint.patch",
         "tenant.validate_provider_key.post",
         *mcp_local_only,
@@ -475,6 +477,8 @@ def _case_local_team_surface(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) ->
         "outer.list_tokens.get",
         "outer.revoke_token.delete",
         "outer.set_organization_key.post",
+        "outer.list_organization_approved_endpoints.get",
+        "outer.replace_organization_approved_endpoints.put",
         "outer.set_organization_env_var.post",
         "outer.validate_organization_key.post",
         "outer.delete_organization_key.delete",
@@ -895,10 +899,10 @@ def _case_canonical_id_integrity(
             "/api/projects/{pid}/blobs/{digest}",
         ),
         (
-            "update_project_sensitivity",
-            "update_project_sensitivity",
+            "update_project_usage_data_sharing",
+            "update_project_usage_data_sharing",
             "PATCH",
-            "/api/projects/{pid}/sensitivity",
+            "/api/projects/{pid}/usage-data-sharing",
         ),
     )
     alias_policies: list[EndpointPolicy] = []
@@ -919,7 +923,7 @@ def _case_canonical_id_integrity(
         policies=tuple(alias_policies),
     )
     assert _operation_ids(aliases) == {
-        "outer.update_project_sensitivity.patch",
+        "outer.update_project_usage_data_sharing.patch",
         "tenant.get_blob.get",
         "tenant.health.get",
         "tenant.runtime_config.get",
@@ -1214,11 +1218,10 @@ def _case_project_config_identity_and_parity(
     document = exporter.export_real_compositions(tmp_path / "state")
     operation_ids = _operation_ids(document)
     expected = {
-        "outer.update_project_network.patch",
+        "outer.update_project_usage_data_sharing.patch",
         "tenant.compact_project.post",
         "tenant.delete_project_provider_key.delete",
         "tenant.delete_project_secret.delete",
-        "tenant.get_project_network.get",
         "tenant.get_project_provider_keys.get",
         "tenant.get_project_retention.get",
         "tenant.get_project_secrets.get",
@@ -1230,14 +1233,10 @@ def _case_project_config_identity_and_parity(
         "tenant.validate_project_provider_key.post",
     }
     assert expected <= operation_ids
-    assert "tenant.update_project_network.patch" not in operation_ids
-    network = _operation(document, "outer.update_project_network.patch")
-    assert network["x-frisket-editions"] == ["local", "team"]
-    assert {row["owner"] for row in network["x-frisket-effective-identities"]} == {
-        "tenant",
-        "outer",
-    }
-    assert "409" not in network["responses"]
+    assert not any("project_network" in operation for operation in operation_ids)
+    assert "tenant.update_project_usage_data_sharing.patch" not in operation_ids
+    usage = _operation(document, "outer.update_project_usage_data_sharing.patch")
+    assert usage["x-frisket-editions"] == ["local", "team"]
 
 
 Case = Callable[[Path, pytest.MonkeyPatch], None]

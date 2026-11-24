@@ -376,6 +376,9 @@ def test_openai_whisper_1_availability_follows_effective_provider_keys(
     assert validated.language == ["fr"]
 
     class _ProjectWithProviderKey:
+        def remote_services_refused(self):
+            return False
+
         path = tmp_path / "catalog.frisket"
 
         def provider_model_keys(self):

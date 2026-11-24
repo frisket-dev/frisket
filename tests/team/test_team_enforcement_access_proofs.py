@@ -288,7 +288,6 @@ def test_invite_service_editor_gate_uses_injected_project_access(
                 slug="proof",
                 name="Proof",
                 sensitive=False,
-                network="inherit",
             )
         )
 
@@ -316,7 +315,6 @@ def test_invite_creation_role_ladder_uses_real_project_access(tmp_path: Path) ->
                 slug="proof",
                 name="Proof",
                 sensitive=False,
-                network="inherit",
             )
         )
         for user_id, role in enumerate(roles, start=1):
@@ -387,7 +385,6 @@ def test_project_invite_replay_and_stale_inviter_are_refused(tmp_path: Path) -> 
                 slug="proof",
                 name="Proof",
                 sensitive=False,
-                network="inherit",
             )
         )
         connection.execute(
@@ -552,7 +549,6 @@ def test_organization_owner_fallback_satisfies_the_strongest_base_project_role(
                 slug="proof",
                 name="Proof",
                 sensitive=False,
-                network="inherit",
             )
         )
 

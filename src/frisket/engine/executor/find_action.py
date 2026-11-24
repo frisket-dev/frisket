@@ -14,6 +14,7 @@ from frisket.actions.find_types import (
     PreparedFind,
 )
 from frisket.actions.types import SheetRows
+from frisket.ai.llm.types import provider_from_model_id
 from frisket.contracts.action import (
     ActionError,
     ActionIdentity,
@@ -40,6 +41,8 @@ from frisket.engine.executor.map_find_scan import scan_find_plans
 from frisket.engine.executor.map_find_source import _snapshot_payload
 from frisket.engine.store.receipts import ReceiptStore
 from frisket.execution.consent_coverage import effective_consent_coverage
+from frisket.project_service_access import check_model_call
+from frisket.service_access import ServiceNotAllowed
 
 
 class FindRefused(ValueError):
@@ -296,7 +299,6 @@ def _dispatch_refusal(project, bound, prepared, admitted, deps):
 
 def run_typed_find_action_job(project, envelope, *, execution, deps=None):
     from frisket.ai.llm.router import model_call_cannot_go_live
-    from frisket.ai.llm.types import provider_from_model_id
     from frisket.engine.jobs.runs import project_scoped_router
     from frisket.engine.runner.validation import (
         ProviderKeyRefusal,
@@ -346,19 +348,11 @@ def run_typed_find_action_job(project, envelope, *, execution, deps=None):
     execution.check()
     router = router.for_execution(execution)
     if not model_call_cannot_go_live(router):
-        if (
-            project.effective_network_policy() == "off"
-            and provider_from_model_id(prepared.operation.model) != "ollama"
-        ):
-            return _failure_before_egress(
-                project,
-                envelope,
-                ActionError(
-                    code="network_disabled",
-                    message="Project network access is disabled",
-                    action_kind=envelope.action_kind,
-                ),
-            )
+        refusal = _service_refusal(
+            project, router, prepared.operation.model, envelope.action_kind
+        )
+        if refusal is not None:
+            return _failure_before_egress(project, envelope, refusal)
         try:
             assert_provider_spend_cap(
                 project, provider_from_model_id(prepared.operation.model)
@@ -429,3 +423,16 @@ def run_typed_find_action(project, project_id, bound, router=None):
     return ActionCtx(project_id, bound.action.action_id).fail(
         "action_job_required", "Find must execute through its queued action job"
     )
+
+
+def _service_refusal(
+    project: Any, router: Any, model: str, action_kind: str
+) -> ActionError | None:
+    """Why the project's settings refuse this scan's model call, if they do."""
+    try:
+        check_model_call(
+            project, model, destination=router.destination_for_model(model)
+        )
+    except ServiceNotAllowed as exc:
+        return ActionError(code=exc.code, message=str(exc), action_kind=action_kind)
+    return None

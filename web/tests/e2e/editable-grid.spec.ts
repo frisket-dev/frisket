@@ -106,6 +106,7 @@ test('grid edits source cells and appends rows through logged UI actions', async
   await page.keyboard.press('Escape');
   await expect(page.getByTestId('row-drawer')).toBeHidden();
 
+  await page.getByTestId('add-menu-button').click();
   await page.getByTestId('add-row-button').click();
   await expect(page.getByTestId('sheet-stats')).toHaveText('3 rows · 1 column');
   await expect.poll(async () => (await sheetData(page.request, pid, sheetId)).total).toBe(3);
@@ -202,4 +203,22 @@ test('the in-place editor wraps a long unbroken text value', async ({ page }) =>
     wrapped: true,
     noHorizontalScroll: true,
   });
+});
+
+test('Add row announces the new row and Undo reverts exactly that change', async ({ page }) => {
+  const pid = await createProject(page.request, uniqueName('e2e-add-row-undo'));
+  const sheetId = await importCsv(page.request, pid, 'rows.csv', 'name\nAda\nGrace\n');
+  await openProject(page, pid, sheetId);
+  await expect(page.getByTestId('sheet-stats')).toHaveText('2 rows · 1 column');
+
+  await page.getByTestId('add-menu-button').click();
+  await page.getByTestId('add-row-button').click();
+  const toast = page.getByTestId('row-added-toast');
+  await expect(toast).toHaveText(/Row 3 added/);
+  await expect(page.getByTestId('sheet-stats')).toHaveText('3 rows · 1 column');
+
+  await toast.getByRole('button', { name: 'Undo' }).click();
+  await expect(toast).toHaveCount(0);
+  await expect(page.getByTestId('sheet-stats')).toHaveText('2 rows · 1 column');
+  await expect.poll(async () => (await sheetData(page.request, pid, sheetId)).total).toBe(2);
 });

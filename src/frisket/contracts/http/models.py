@@ -15,6 +15,9 @@ from frisket.authoring.workbench.contracts import (
     WorkbenchDescriptorPackageSchemaVersion,
 )
 from frisket.contracts.http.import_errors import ImportSourceErrorGroup
+from frisket.project_cover import CoverSeed
+from frisket.project_settings import UsageDataSharing
+from frisket.service_access import AllowedServices
 
 
 ActionJobSchemaVersion = Literal["frisket.job.v1"]
@@ -179,8 +182,13 @@ class HttpError(WireModel):
 
 
 class CreateProjectRequest(WireModel):
-    name: str
-    sensitive: bool = False
+    # An empty name creates "Untitled project".
+    name: str = ""
+    # Omitted, a new project starts from the workspace's default.
+    allowed_services: AllowedServices | None = None
+    usage_data_sharing: UsageDataSharing = "inherit"
+    # The card cover's seed; without one the cover derives from the id.
+    cover_seed: CoverSeed | None = None
 
 
 class ProjectDeleteRequest(WireModel):
@@ -192,8 +200,14 @@ class ProjectDeleteRequest(WireModel):
     project_row_id: int | None = Field(default=None, gt=0)
 
 
-class UpdateProjectSensitivityRequest(WireModel):
-    sensitive: bool
+class UpdateProjectUsageDataSharingRequest(WireModel):
+    usage_data_sharing: UsageDataSharing
+
+
+class UpdateProjectAllowedServicesRequest(WireModel):
+    allowed_services: AllowedServices
+    # A looser value takes effect only when the request names it again here.
+    confirm_allowed_services: AllowedServices | None = None
 
 
 class UpdateProjectRequest(WireModel):
@@ -217,7 +231,11 @@ class Project(WireModel):
     id: str
     name: str
     description: str
+    # True exactly when usage_data_sharing is "off".
     sensitive: bool
+    usage_data_sharing: UsageDataSharing
+    allowed_services: AllowedServices
+    cover_seed: str | None = None
     starred: bool = False
     archived: bool = False
 
@@ -232,6 +250,8 @@ class ProjectListItem(WireModel):
     name: str
     description: str
     sensitive: bool
+    allowed_services: AllowedServices
+    cover_seed: str | None = None
     updated_at: str | None
     pending_review_count: int = Field(ge=0)
     starred: bool

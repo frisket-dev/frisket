@@ -15,15 +15,14 @@ from frisket.contracts.http.models import (
     Sheet,
     SheetDeleteResponse,
     SheetList,
+    UpdateProjectAllowedServicesRequest,
     UpdateProjectRequest,
-    UpdateProjectSensitivityRequest,
+    UpdateProjectUsageDataSharingRequest,
     UpdateSheetRequest,
 )
 from frisket.contracts.http.organization_providers import OrganizationProviderCatalog
 from frisket.contracts.http.project_config import (
     ProjectCompactResponse,
-    ProjectNetworkRequest,
-    ProjectNetworkResponse,
     ProjectProviderKeyCatalogResponse,
     ProjectProviderKeyDeleteResponse,
     ProjectProviderKeyRequest,
@@ -46,7 +45,6 @@ from frisket.server.services.projects import (
     ProjectDeletionBlocked,
     ProjectDeletionRequiresConfirmation,
     ProjectLifecycleService,
-    ProjectNetworkPolicyError,
     ProjectNotFound,
     ProjectRetentionError,
     ProjectSettingsError,
@@ -62,7 +60,7 @@ def register_project_lifecycle_routes(
     register_typed_error(app, ProjectNotFound, 404)
     register_typed_error(
         app,
-        (ProjectRetentionError, ProjectNetworkPolicyError, ProjectSettingsError),
+        (ProjectRetentionError, ProjectSettingsError),
         400,
     )
     register_typed_error(app, ProjectDeletionRequiresConfirmation, 422)
@@ -81,7 +79,7 @@ def register_project_lifecycle_routes(
         "/api/projects",
         response_model=Project,
         response_model_exclude_unset=True,
-        responses=http_error_responses(401, 422, 500),
+        responses=http_error_responses(400, 401, 422, 500),
     )
     def create_project(request: Request, body: CreateProjectRequest) -> Project:
         reject_unknown_query_parameters(request, EmptyQuery)
@@ -89,8 +87,7 @@ def register_project_lifecycle_routes(
         actor_id = user.get("id") if isinstance(user, dict) else None
         return Project.model_validate(
             service.create_project(
-                body.name,
-                sensitive=body.sensitive,
+                body,
                 idempotency_key=request.headers.get("idempotency-key"),
                 idempotency_scope=(
                     f"user:{int(actor_id)}" if actor_id is not None else None
@@ -136,16 +133,37 @@ def register_project_lifecycle_routes(
         )
 
     @app.patch(
-        "/api/projects/{pid}/sensitivity",
+        "/api/projects/{pid}/usage-data-sharing",
         response_model=Project,
         response_model_exclude_unset=True,
-        name="update_project_sensitivity",
+        name="update_project_usage_data_sharing",
+        responses=http_error_responses(401, 403, 404, 422, 500),
     )
-    def update_project_sensitivity(
-        pid: str, body: UpdateProjectSensitivityRequest
+    def update_project_usage_data_sharing(
+        pid: str, body: UpdateProjectUsageDataSharingRequest
     ) -> Project:
         return Project.model_validate(
-            service.update_project_sensitivity(pid, sensitive=body.sensitive)
+            service.update_usage_data_sharing(
+                pid, usage_data_sharing=body.usage_data_sharing
+            )
+        )
+
+    @app.patch(
+        "/api/projects/{pid}/allowed-services",
+        response_model=Project,
+        response_model_exclude_unset=True,
+        name="update_project_allowed_services",
+        responses=http_error_responses(400, 401, 403, 404, 422, 500),
+    )
+    def update_project_allowed_services(
+        pid: str, body: UpdateProjectAllowedServicesRequest
+    ) -> Project:
+        return Project.model_validate(
+            service.update_allowed_services(
+                pid,
+                allowed_services=body.allowed_services,
+                confirm_allowed_services=body.confirm_allowed_services,
+            )
         )
 
     @app.get(
@@ -173,28 +191,6 @@ def register_project_lifecycle_routes(
                 pin_evidence_by_default=body.pin_evidence_by_default,
                 no_compact=body.no_compact,
             )
-        )
-
-    @app.get(
-        "/api/projects/{pid}/network",
-        response_model=ProjectNetworkResponse,
-        response_model_exclude_unset=True,
-        responses=http_error_responses(401, 403, 404, 500),
-    )
-    def get_project_network(pid: str) -> ProjectNetworkResponse:
-        return ProjectNetworkResponse.model_validate(service.network_policy(pid))
-
-    @app.patch(
-        "/api/projects/{pid}/network",
-        response_model=ProjectNetworkResponse,
-        response_model_exclude_unset=True,
-        responses=http_error_responses(400, 401, 403, 404, 422, 500),
-    )
-    def update_project_network(
-        pid: str, body: ProjectNetworkRequest
-    ) -> ProjectNetworkResponse:
-        return ProjectNetworkResponse.model_validate(
-            service.update_network_policy(pid, mode=body.mode)
         )
 
     @app.get(

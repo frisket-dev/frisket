@@ -1439,7 +1439,7 @@ def test_direct_join_semantic_stale_clear_retry_resumes_abandoned_run(
     see rows already bought under the abandoned run and re-buys them.
 
     A raised Python exception is not a faithful crash: every escape hatch
-    in this codebase (NetworkDisabled, ValueError/RuntimeError, even a bare
+    in this codebase (ServiceRefused, ValueError/RuntimeError, even a bare
     ``except Exception`` and, empirically, an in-loop ``KeyboardInterrupt``
     swallowed by asyncio's own cancellation bookkeeping) still runs enough
     cleanup to terminalize the run as 'cancelled' rather than leave it

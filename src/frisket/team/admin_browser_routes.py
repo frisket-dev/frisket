@@ -68,6 +68,7 @@ _PROJECT_AUDIT_ACTIONS = frozenset(
         "project_deleted",
         "project_sensitivity_updated",
         "project_network_updated",
+        "organization_allowed_services_default_updated",
         "project_member_set",
         "project_member_removed",
         "project_invited",

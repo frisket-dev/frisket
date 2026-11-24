@@ -12,12 +12,18 @@ and silently ignored forever.
 from __future__ import annotations
 
 import json
-from typing import Any, Literal
+from typing import Any, Literal, get_args
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 PROJECT_SETTINGS_META_KEY = "project_settings_v1"
 PROJECT_MCP_SERVERS_META_KEY = "project_mcp_servers_v1"
+
+# A project's usage-data override: "inherit" follows the workspace-wide
+# setting, so later workspace changes reach projects that never overrode it.
+UsageDataSharing = Literal["inherit", "on", "off"]
+USAGE_DATA_SHARING_VALUES: tuple[UsageDataSharing, ...] = get_args(UsageDataSharing)
+DEFAULT_USAGE_DATA_SHARING: UsageDataSharing = "inherit"
 
 
 class ProjectSettings(BaseModel):

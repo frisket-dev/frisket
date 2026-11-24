@@ -27,7 +27,7 @@ from frisket.engine.runner import (
     EmptyInputColumns,
     InvalidTargetRows,
     InvalidTargetSheet,
-    NetworkDisabled,
+    ServiceRefused,
     OutputColumnExists,
     ProviderKeyRefusal,
 )
@@ -81,9 +81,9 @@ _REFUSAL_FIELDS: tuple[tuple[type[Exception], _RefusalFields], ...] = (
         },
     ),
     (
-        NetworkDisabled,
+        ServiceRefused,
         lambda exc, site: {
-            "code": "network_disabled",
+            "code": exc.code,
             "message": str(exc),
             "details": {"capability": exc.capability},
         },

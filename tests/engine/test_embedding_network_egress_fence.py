@@ -90,11 +90,11 @@ def test_network_off_blocks_remote_backed_refresh_before_egress(project) -> None
     assert created.status == "completed", created.errors
     index_id = created.outputs[0].ref["index_id"]
 
-    project.set_network_policy(mode="off")
+    project.set_allowed_services("approved_services", confirm_allowed_services=None)
     gw = FakeGateway()
     result = _run(project, _refresh_action(index_id, key="r@1"), gateway=gw)
     assert result.status == "failed"
-    assert result.errors[0].code == "network_disabled"
+    assert result.errors[0].code == "service_not_allowed"
     assert gw.calls == []  # blocked BEFORE any provider call
     backend = UnifiedEmbeddingProbe(project)
     backend.ensure_schema()
@@ -115,7 +115,7 @@ def test_network_off_still_allows_local_backed_refresh(project) -> None:
     assert created.status == "completed", created.errors
     index_id = created.outputs[0].ref["index_id"]
 
-    project.set_network_policy(mode="off")
+    project.set_allowed_services("approved_services", confirm_allowed_services=None)
     gw = FakeGateway(dim=384, kind="local_process")
     result = _run(project, _refresh_action(index_id, key="r@2"), gateway=gw)
     assert result.status == "completed", result.errors

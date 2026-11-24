@@ -171,6 +171,9 @@ class SelectorRouteOption(WireModel):
     label: str
     status: Literal["ready", "needs_setup", "working", "unavailable"]
     disabled_reason: str | None = None
+    # A stable code when the project's settings refuse this route
+    # ("service_not_allowed" for Allowed services), so the web can hide it.
+    disabled_code: str | None = None
 
 
 class SelectorRouteSelection(WireModel):

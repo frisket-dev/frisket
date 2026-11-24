@@ -2413,7 +2413,8 @@ def test_v1_action_run_queues_research_web_search_and_worker_finalizes_receipt(
         "idempotency_key": "v1-web-search-backfill@stable",
     }
     network_off = client.patch(
-        f"/api/projects/{project_id}/network", json={"mode": "off"}
+        f"/api/projects/{project_id}/allowed-services",
+        json={"allowed_services": "approved_services"},
     )
     assert network_off.status_code == 200
     blocked = copy.deepcopy(backfill)
@@ -2422,10 +2423,14 @@ def test_v1_action_run_queues_research_web_search_and_worker_finalizes_receipt(
         f"/api/projects/{project_id}/actions/v1/run", json=blocked
     )
     blocked_result = ActionResult.model_validate(blocked_response.json())
-    assert blocked_result.errors[0].code == "network_disabled"
+    assert blocked_result.errors[0].code == "service_not_allowed"
     assert len(_FakeDDGS.seen) == 2
     network_on = client.patch(
-        f"/api/projects/{project_id}/network", json={"mode": "on"}
+        f"/api/projects/{project_id}/allowed-services",
+        json={
+            "allowed_services": "all_services",
+            "confirm_allowed_services": "all_services",
+        },
     )
     assert network_on.status_code == 200
 

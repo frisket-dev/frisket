@@ -1196,7 +1196,9 @@ def test_network_off_preserves_policy_refusal_for_keyless_hosted_engine(
             configure_project_credentials=True,
         ),
     )
-    workspace.get(project_id).set_network_policy(mode="off")
+    workspace.get(project_id).set_allowed_services(
+        "approved_services", confirm_allowed_services=None
+    )
     response = client.post(
         f"/api/projects/{project_id}/selector-choices",
         json=_query(
@@ -1214,7 +1216,7 @@ def test_network_off_preserves_policy_refusal_for_keyless_hosted_engine(
     assert current["can_author"] is False
     assert current["can_run"] is False
     assert current["setup"] is None
-    assert "network" in current["blocker"]["message"].lower()
+    assert current["blocker"]["code"] == "service_not_allowed"
 
 
 def test_ambient_embedding_key_does_not_unlock_an_unconfigured_effective_router(
@@ -1287,7 +1289,7 @@ def test_embedding_picker_and_refresh_share_offline_provider_eligibility(
         ),
     )
     project = workspace.get(project_id)
-    project.set_network_policy(mode="off")
+    project.set_allowed_services("approved_services", confirm_allowed_services=None)
     response = client.post(
         f"/api/projects/{project_id}/selector-choices",
         json=_query(
@@ -1311,7 +1313,7 @@ def test_embedding_picker_and_refresh_share_offline_provider_eligibility(
     assert current["can_run"] is runnable
     assert current["status"] == ("ready" if runnable else "unavailable")
     if not runnable:
-        assert current["blocker"]["code"] == "project_network_off"
+        assert current["blocker"]["code"] == "service_not_allowed"
         assert current["setup"] is None
 
     sheet = project.add_sheet("source")
@@ -1369,7 +1371,7 @@ def test_embedding_picker_and_refresh_share_offline_provider_eligibility(
     if runnable:
         assert gateway.calls == [(provider, model)]
     else:
-        assert refreshed.errors[0].code == "network_disabled"
+        assert refreshed.errors[0].code == "service_not_allowed"
         assert gateway.calls == []
 
 

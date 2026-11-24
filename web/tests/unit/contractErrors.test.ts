@@ -132,3 +132,17 @@ describe('errorFromContract envelope shapes', () => {
     }).toEqual(expected);
   });
 });
+
+describe('errorFromContract Allowed services refusal', () => {
+  const message = "This project's Allowed services setting is This machine only; it does not allow OpenAI. Change Allowed services in the project settings to use it.";
+
+  it.each([
+    ['an action error', { schema_version: 'frisket.action_error.v1', code: 'service_not_allowed', message }],
+    ['a route error', { detail: { code: 'service_not_allowed', message } }],
+  ])('keeps the message as given in %s', (_shape, payload) => {
+    const error = errorFromContract(400, payload);
+    if (!(error instanceof ApiError)) throw new Error('expected an ApiError');
+    expect(error.message).toBe(message);
+    expect(error.code).toBe('service_not_allowed');
+  });
+});

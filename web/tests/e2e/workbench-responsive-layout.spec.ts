@@ -5,10 +5,10 @@ import {
   importCsv,
   openCellDrawer,
   openProject,
-  openToolbarOverflow,
   setColumnType,
   sheetColumns,
   uniqueName,
+  openReceipts,
 } from './helpers';
 import { routeGeoPluginLifecycle } from './workbenchPluginLifecycleFixture';
 
@@ -112,8 +112,7 @@ test('phone layout stacks companion panes and keeps modal and row drawer reachab
   expect(gridBox.width).toBeGreaterThan(140);
   expect(mapBox.width).toBeGreaterThan(140);
 
-  await openToolbarOverflow(page);
-  await page.getByTestId('open-provenance-manifest').click();
+  await openReceipts(page);
   const modalRegion = page.getByTestId('workbench-region-modalOrPeek');
   const provenance = page.getByTestId('workbench-contribution-frisket-core-panel-provenance');
   await expect(modalRegion).toHaveAttribute('data-modal-stack-host', 'true');

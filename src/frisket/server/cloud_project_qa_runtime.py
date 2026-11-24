@@ -17,7 +17,9 @@ from frisket.cloud_llm_checkpoint import CloudLLMCheckpointCoordinator
 from frisket.cloud_targets import CLOUD_LLM_TRANSPORT, cloud_fallback_is_blocked
 from frisket.engine.store.project_qa import ProjectQAStore
 from frisket.engine.store.writer_fence import WriterFence
-from frisket.engine.runner.validation import assert_selected_egress_policy
+from frisket.engine.runner.validation import ServiceRefused
+from frisket.project_service_access import SelectedRoute, check_model_call
+from frisket.service_access import ServiceNotAllowed
 from frisket.execution.resolver import Refusal, resolve
 from frisket.execution.targets import CAPABILITY_LLM
 from frisket.server.thread_worker import await_thread_worker
@@ -125,7 +127,19 @@ class SoloCloudProjectQARuntimePort:
             )
 
         if not model_call_cannot_go_live(router):
-            assert_selected_egress_policy(project, outcome.facts.egress_class)
+            try:
+                check_model_call(
+                    project,
+                    model,
+                    destination=router.destination_for_model(model),
+                    route=SelectedRoute(
+                        outcome.facts.target_id,
+                        outcome.facts.egress_class,
+                        outcome.connection.base_url,
+                    ),
+                )
+            except ServiceNotAllowed as exc:
+                raise ServiceRefused(exc.destination, str(exc)) from None
         payer = outcome.facts.cloud_payer
         if payer is None:
             return SoloCloudProjectQATurnRuntime(

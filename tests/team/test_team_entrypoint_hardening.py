@@ -268,7 +268,6 @@ def test_out_of_scope_pat_is_unauthorized_before_team_route_dispatch(
                 slug=project_id,
                 name="Org fence proof",
                 sensitive=False,
-                network="inherit",
             )
         )
         cx.execute(organizations.insert().values(id=2, name="Other org"))
@@ -461,7 +460,6 @@ def test_dual_member_cannot_use_organization_two_pat_on_organization_one_routes(
                 slug=target_project,
                 name="Dual-member invite target",
                 sensitive=False,
-                network="inherit",
             )
         )
         cx.execute(

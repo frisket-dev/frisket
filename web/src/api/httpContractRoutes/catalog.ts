@@ -4,11 +4,25 @@ import {
   type RequestOptions,
 } from '../httpContract';
 import type { ActionCatalogPayload } from '../types';
+import { isRecord } from '../wireValues';
+import { SERVICE_NOT_ALLOWED } from '../../allowedServices';
 
 type GlobalActionCatalogWire =
   HttpContractSuccessResponse<'tenant.v1_action_catalog.get'>;
 type ProjectActionCatalogWire =
   HttpContractSuccessResponse<'tenant.project_v1_action_catalog.get'>;
+type UiHintsWire = NonNullable<ProjectActionCatalogWire['actions'][number]['ui_hints']>;
+
+/** An engine the project's Allowed services refuses is hidden from every
+ *  picker; other unavailable engines keep their reason. */
+function withoutRefusedEngines(hints: UiHintsWire): UiHintsWire {
+  const engines = hints.engines;
+  if (!Array.isArray(engines)) return hints;
+  return {
+    ...hints,
+    engines: engines.filter((engine) => !(isRecord(engine) && engine.error_code === SERVICE_NOT_ALLOWED)),
+  };
+}
 
 function mapActionCatalog(
   wire: GlobalActionCatalogWire | ProjectActionCatalogWire,
@@ -46,7 +60,7 @@ function mapActionCatalog(
         async_mode: action.async_mode,
         writes_project: action.writes_project,
         examples: action.examples ?? [],
-        ui_hints: action.ui_hints ?? {},
+        ui_hints: withoutRefusedEngines(action.ui_hints ?? {}),
         receipt_policy: action.receipt_policy ?? 'deferred_until_receipts_table',
         row_scope_policy: action.row_scope_policy == null
           ? null

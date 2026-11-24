@@ -23,21 +23,18 @@ from collections.abc import Mapping
 from typing import Literal
 from urllib.parse import urlparse
 
+from frisket.service_access import host_is_loopback
+
 # The dummy bearer a tokenless local-server adapter sends. Ollama's own
 # OpenAI-compatible surface ignores the Authorization header, while adapters
 # still use one uniform authenticated request shape.
 DEFAULT_OLLAMA_BEARER = "ollama"
 
-# Origins that count as "loopback": a connection to one never leaves this
-# machine, so a token on it cannot be intercepted and a model behind it is
-# this machine's own compute.
-_LOOPBACK_HOSTS = frozenset({"localhost", "127.0.0.1", "::1"})
-
 
 def origin_is_loopback(origin: str) -> bool:
     """Whether a model server origin is this machine. Only the configured
     address decides it, never the server's protocol or name."""
-    return (urlparse(origin).hostname or "").lower() in _LOOPBACK_HOSTS
+    return host_is_loopback(urlparse(origin).hostname or "")
 
 
 @dataclass(frozen=True)

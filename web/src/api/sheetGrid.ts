@@ -437,7 +437,7 @@ export function createSheetGridApi(dependencies: SheetGridDependencies, projectI
     async addRow(
       sheetId: string,
       cells: Record<string, CellValue> = {},
-    ): Promise<{ rowId: string; total: number }> {
+    ): Promise<{ rowId: string; total: number; changeId: string | null }> {
       const project = captureProjectIdentity();
       const targetSheetId = Number(sheetId);
       if (!Number.isInteger(targetSheetId) || targetSheetId <= 0) {
@@ -461,7 +461,8 @@ export function createSheetGridApi(dependencies: SheetGridDependencies, projectI
           || !Number.isInteger(total)) {
           throw new ApiError(500, 'Row add did not return the added row');
         }
-        return { rowId: String(rowId), total };
+        const changeId = out.change_ids?.[0];
+        return { rowId: String(rowId), total, changeId: changeId == null ? null : String(changeId) };
       });
     },
 

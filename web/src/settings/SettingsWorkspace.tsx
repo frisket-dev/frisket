@@ -13,6 +13,7 @@ import { SkillsSettings } from '../components/SkillsSettings';
 import { PersonalProfileSettings, PersonalPreferencesSettings, PersonalPrivacySettings } from './PersonalSettings';
 import { WorkspaceAiProvidersSettings, ProjectAiProvidersSettings } from './AiProviderSettings';
 import { DiagnosticsSettings } from './DiagnosticsSettings';
+import { ApprovedEndpointsSettings } from './ApprovedEndpointsSettings';
 import {
   OrganizationAiProvidersSettings,
   OrganizationSecretsSettings,
@@ -109,12 +110,16 @@ function SettingsSectionRenderer({
         return <PersonalPrivacySettings />;
       case 'personal.aiProviders':
         return <WorkspaceAiProvidersSettings />;
+      case 'personal.approvedEndpoints':
+        return <ApprovedEndpointsSettings scope="workspace" />;
       case 'personal.diagnostics':
         return <DiagnosticsSettings />;
       case 'personal.skills':
         return <SkillsSettings />;
       case 'organization.aiProviders':
         return <OrganizationAiProvidersSettings />;
+      case 'organization.approvedEndpoints':
+        return <ApprovedEndpointsSettings scope="organization" />;
       case 'organization.secrets':
         return <OrganizationSecretsSettings />;
       case 'organization.apiKeys':

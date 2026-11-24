@@ -173,6 +173,9 @@ def test_hosted_engine_available_from_project_secret(monkeypatch) -> None:
     monkeypatch.delenv("DEEPL_API_KEY", raising=False)
 
     class _StubProject:
+        def remote_services_refused(self):
+            return False
+
         def secret_plaintext(self, name: str):
             return "project-secret" if name == "DEEPL_API_KEY" else None
 
@@ -265,6 +268,9 @@ def test_llm_availability_consults_project_keys_not_just_env(
     _clear_provider_env(monkeypatch)
 
     class _ProjectWithKeys:
+        def remote_services_refused(self):
+            return False
+
         path = tmp_path / "proj.frisket"
 
         def provider_model_keys(self):
@@ -288,6 +294,9 @@ def test_llm_availability_consults_workspace_provider_file(
     provider_config.save_local_provider_key(tmp_path, "openai", "sk-file")
 
     class _ProjectInWorkspace:
+        def remote_services_refused(self):
+            return False
+
         path = tmp_path / "proj.frisket"  # parent == workspace root == tmp_path
 
         def provider_model_keys(self):

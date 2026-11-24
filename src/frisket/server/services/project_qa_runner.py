@@ -31,9 +31,15 @@ from frisket.authoring.project_ask import (
     default_project_ask_model,
 )
 from frisket.engine.runner.validation import (
+    ServiceRefused,
     assert_provider_spend_cap,
-    assert_selected_egress_policy,
 )
+from frisket.project_service_access import (
+    SelectedRoute,
+    check_model_call,
+    project_service_access,
+)
+from frisket.service_access import ServiceNotAllowed
 from frisket.engine.store import Project
 from frisket.engine.store.project_qa import ProjectQAConflictError, ProjectQAStore
 from frisket.querysets import BUILTIN_FILTER_OPERATORS
@@ -153,6 +159,35 @@ async def _search_with_purchase(
             return error.provider_result
 
 
+def _assert_ask_model_allowed(
+    project: Project,
+    router: Any,
+    model: str,
+    selected_egress_class: str | None,
+) -> None:
+    """Refuse an Ask model call the project's Allowed services does not allow."""
+    try:
+        check_model_call(
+            project,
+            model,
+            destination=router.destination_for_model(model),
+            route=SelectedRoute("project-ask", selected_egress_class)
+            if selected_egress_class is not None
+            else None,
+        )
+    except ServiceNotAllowed as exc:
+        raise ServiceRefused(exc.destination, str(exc)) from None
+
+
+def _web_step_refusal(project: Project, service: str) -> str | None:
+    """Why the project's Allowed services refuses a public-web step, if it does."""
+    try:
+        project_service_access(project).check_remote_service(service)
+    except ServiceNotAllowed as exc:
+        return str(exc)
+    return None
+
+
 async def run_turn(
     project: Project,
     router: Any,
@@ -206,10 +241,12 @@ async def run_turn(
         raise ValueError("Project Ask requires a configured model")
 
     async def before_request(request: LLMRequest) -> None:
-        if selected_egress_class is not None and not model_call_cannot_go_live(router):
+        if not model_call_cannot_go_live(router):
             await await_thread_worker(
-                assert_selected_egress_policy,
+                _assert_ask_model_allowed,
                 project,
+                router,
+                request.model,
                 selected_egress_class,
             )
         provider = provider_from_model_id(request.model)
@@ -477,6 +514,10 @@ async def run_turn(
     async def search_web(query: str) -> dict[str, Any]:
         """Search public sources only when this submitted turn enabled web access."""
         await progress("search_web", "started", query=query)
+        refusal = await await_thread_worker(_web_step_refusal, project, "web search")
+        if refusal is not None:
+            await progress("search_web", "completed", error="service_not_allowed")
+            return {"unavailable": refusal, "results": []}
         try:
             async with tool_lock:
                 service = search_service or SearchService(effective_keys={})
@@ -551,6 +592,10 @@ async def run_turn(
     async def open_web_page(url: str) -> dict[str, Any]:
         """Read one guarded public page only when this turn enabled web access."""
         await progress("open_web_page", "started")
+        refusal = await await_thread_worker(_web_step_refusal, project, "web pages")
+        if refusal is not None:
+            await progress("open_web_page", "completed", error="service_not_allowed")
+            return {"unavailable": refusal}
         try:
             async with tool_lock:
                 page = await fetch_web_page(url, http=router.client, fetch=fetch_page)

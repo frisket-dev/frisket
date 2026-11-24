@@ -8,7 +8,7 @@ interface ViewSummary {
   summary: string;
 }
 
-export function summarizeViewDefinition(
+function summarizeViewDefinition(
   spec: ViewDefinitionInput,
   unavailableReason: string | null = null,
 ): ViewSummary {

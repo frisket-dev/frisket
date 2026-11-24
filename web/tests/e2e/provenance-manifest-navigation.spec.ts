@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { createProject, importCsv, openProject, openToolbarOverflow, uniqueName } from './helpers';
+import { createProject, importCsv, openProject, uniqueName, openReceipts } from './helpers';
 
 const CSV = `story
 "A city auditor found duplicate invoices in the public works department."
@@ -199,8 +199,7 @@ test('provenance drawer navigates run and receipt pages independently', async ({
   });
 
   await openProject(page, pid, sheetId);
-  await openToolbarOverflow(page);
-  await page.getByTestId('open-provenance-manifest').click();
+  await openReceipts(page);
 
   const contribution = page.getByTestId('workbench-contribution-frisket-core-panel-provenance');
   await expect(contribution).toBeVisible();

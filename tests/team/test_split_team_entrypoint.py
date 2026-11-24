@@ -1067,11 +1067,11 @@ def test_failed_corrupt_project_rebuild_keeps_intent_and_skips_registration(
         name: str,
         *,
         project_id: str | None = None,
-        sensitive: bool = False,
+        **settings: Any,
     ) -> Any:
         if project_id == failed_slug:
             raise RuntimeError("simulated rebuild failure")
-        return original_create(self, name, project_id=project_id, sensitive=sensitive)
+        return original_create(self, name, project_id=project_id, **settings)
 
     monkeypatch.setattr(Workspace, "create", fail_rebuild)
     with pytest.raises(RuntimeError, match="simulated rebuild failure"):

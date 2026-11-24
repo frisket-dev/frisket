@@ -24,6 +24,7 @@ from frisket.ai.research.search import (
 )
 from frisket.engine.store.writer_fence import WriterFence
 from frisket.ops.base import ActionProgramInvocationHalt
+from frisket.project_service_access import remote_service_refusal
 
 MAX_ATTEMPTS = 4
 
@@ -81,10 +82,11 @@ class AdmittedWebSearcher:
                 "preview_unsupported", "Web search requires a run"
             )
         project = self._ctx.project
-        if project is not None and project.effective_network_policy() == "off":
-            raise ActionProgramInvocationHalt(
-                "network_disabled", "Web search requires network access"
-            )
+        refusal = (
+            None if project is None else remote_service_refusal(project, "web search")
+        )
+        if refusal is not None:
+            raise ActionProgramInvocationHalt(refusal.code, str(refusal))
         dispatch_for_context(self._ctx).check()
 
     async def aclose(self):

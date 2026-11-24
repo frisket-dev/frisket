@@ -126,6 +126,9 @@ def test_clef_uses_execution_credential_sources(
     monkeypatch.setenv("CLOUDFLARE_ACCOUNT_ID", "a" * 32)
 
     class ProjectSecrets:
+        def remote_services_refused(self):
+            return False
+
         def secret_plaintext(self, name):
             return "fixture-token" if name == "CLOUDFLARE_API_TOKEN" else None
 

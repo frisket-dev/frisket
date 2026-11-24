@@ -3,10 +3,10 @@ import {
   createProject,
   listSheets,
   openProject,
-  openToolbarOverflow,
   postAction,
   typedActionRequest,
   uniqueName,
+  openReceipts,
 } from './helpers';
 
 function importRowsAction() {
@@ -60,8 +60,7 @@ test('provenance drawer exposes and inspects v1 executor receipts', async ({
   const sheet = (await listSheets(request, pid)).find((item) => item.name === 'Receipt UI Rows');
   if (!sheet) throw new Error('v1 import.rows did not create the expected sheet');
   await openProject(page, pid, sheet.id);
-  await openToolbarOverflow(page);
-  await page.getByTestId('open-provenance-manifest').click();
+  await openReceipts(page);
 
   const drawer = page.getByTestId('provenance-manifest');
   await expect(drawer).toBeVisible();

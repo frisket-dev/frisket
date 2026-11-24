@@ -9,8 +9,8 @@
 //
 // Reading the GRID's row count: the grid itself is a canvas
 // (glide-data-grid), so the filtered row count is asserted twice — once on the
-// on-screen sheet heading (`sheet-stats`, "5 rows · 2 columns", which counts
-// the VISIBLE rows) and once on the `total` of the grid's own filtered
+// on-screen sheet heading (`sheet-stats`, "5 of N rows · 2 columns", which
+// counts the VISIBLE rows) and once on the `total` of the grid's own filtered
 // /sheets/{id}/data fetch, the request whose result the user is looking at.
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -26,11 +26,11 @@ import {
   selectActionSourceColumns,
   openDiscoverTab,
   openProject,
-  openToolbarOverflow,
   runAndWait,
   sheetColumns,
   typedActionRequest,
   uniqueName,
+  openViewsTab,
 } from './helpers';
 import type { ViewSelection } from '../../src/api/types';
 
@@ -266,7 +266,7 @@ test('2 — a multi-form group discloses its spellings; grouped and exact filter
   await expect(surfaces.getByTestId('mentions-surface-Acme-Corporation')).toContainText('2 rows');
   await expect(surfaces.getByTestId('mentions-surface-acme-corp')).toContainText('1 row');
   await expect(surfaces.getByTestId('mentions-surface-ACME-Corp')).toContainText('exact spelling');
-  await expect(page.getByTestId('active-grid-filter')).toHaveCount(0);
+  await expect(page.getByTestId('row-filter-chips')).toHaveCount(0);
   await shoot(page, '2-expanded');
 
   // Grouped click → every spelling in the group.
@@ -275,14 +275,14 @@ test('2 — a multi-form group discloses its spellings; grouped and exact filter
   // The toolbar chip names the SPELLING the clicked group is known by: the
   // click carried it (the entity_eq payload holds only a fingerprint), so this
   // is no longer the same chip for every organization on the sheet.
-  await expect(page.getByTestId('active-grid-filter')).toContainText(
+  await expect(page.getByTestId('row-filter-chips')).toContainText(
     'entities · “ACME Corp.” (Organization, grouped forms)',
   );
   await expect(panel.getByTestId('mentions-active-filter')).toContainText(
     '“ACME Corp.” · Organization, grouped forms',
   );
   // Same number, on screen: the sheet heading counts the VISIBLE rows.
-  await expect(page.getByTestId('sheet-stats')).toHaveText('5 rows · 2 columns');
+  await expect(page.getByTestId('sheet-stats')).toHaveText(/^5 of \d+ rows · 2 columns$/);
   await shoot(page, '2-grouped-filter');
 
   // Exact-spelling click → only that literal surface, and it REPLACES the
@@ -291,13 +291,13 @@ test('2 — a multi-form group discloses its spellings; grouped and exact filter
     surfaces.getByTestId('mentions-surface-ACME-Corp').click(),
   );
   expect(exactRows).toBe(3);
-  await expect(page.getByTestId('active-grid-filter')).toContainText(
+  await expect(page.getByTestId('row-filter-chips')).toContainText(
     'entities · “ACME Corp.” (Organization, exact spelling)',
   );
   await expect(panel.getByTestId('mentions-active-filter')).toContainText(
     '“ACME Corp.” · Organization, exact spelling',
   );
-  await expect(page.getByTestId('sheet-stats')).toHaveText('3 rows · 2 columns');
+  await expect(page.getByTestId('sheet-stats')).toHaveText(/^3 of \d+ rows · 2 columns$/);
   await shoot(page, '2-exact-filter');
 });
 
@@ -406,14 +406,11 @@ test('4 — a view keeps its entity_eq mention filter through leave and restore'
   const grouped = panel.getByTestId('mentions-group-organization-fingerprint-acme-corp');
   await expect(grouped).toBeVisible({ timeout: 30_000 });
   expect(await gridRowsAfter(page, pid, sheetId, () => grouped.click())).toBe(5);
-  await expect(page.getByTestId('active-grid-filter')).toContainText(
+  await expect(page.getByTestId('row-filter-chips')).toContainText(
     'entities · “ACME Corp.” (Organization, grouped forms)',
   );
 
-  await openToolbarOverflow(page);
-  await page.getByTestId('open-views-submenu').click();
-  await page.getByTestId('views-overflow-open-panel').click();
-  await expect(page.getByTestId('views-panel')).toBeVisible();
+  await openViewsTab(page);
   await page.getByTestId('create-view').click();
   await page.getByTestId('view-name-input').fill('Acme mentions');
   const created = page.waitForResponse((res) =>
@@ -436,11 +433,9 @@ test('4 — a view keeps its entity_eq mention filter through leave and restore'
   await page.goto('/');
   await expect(page.getByTestId('grid')).toHaveCount(0);
   await openProject(page, pid, sheetId);
-  await expect(page.getByTestId('active-grid-filter')).toHaveCount(0);
+  await expect(page.getByTestId('row-filter-chips')).toHaveCount(0);
 
-  await openToolbarOverflow(page);
-  await page.getByTestId('open-views-submenu').click();
-  await page.getByTestId('views-overflow-open-panel').click();
+  await openViewsTab(page);
   const item = page.getByTestId('view-item').filter({ hasText: 'Acme mentions' });
   await expect(item).toBeVisible();
   const restoredRows = await gridRowsAfter(page, pid, sheetId, () =>
@@ -453,10 +448,10 @@ test('4 — a view keeps its entity_eq mention filter through leave and restore'
   // filter SPEC, never the spelling that was clicked to make it, so carrying
   // one here would mean inventing it. The in-panel chip still names the
   // spelling because it resolves it from the groups it just loaded.
-  await expect(page.getByTestId('active-grid-filter')).toContainText(
+  await expect(page.getByTestId('row-filter-chips')).toContainText(
     'entities · Organization mentions (grouped forms)',
   );
-  await expect(page.getByTestId('sheet-stats')).toHaveText('5 rows · 2 columns');
+  await expect(page.getByTestId('sheet-stats')).toHaveText(/^5 of \d+ rows · 2 columns$/);
   const restoredPanel = await openMentionsPanel(page);
   await expect(restoredPanel.getByTestId('mentions-active-filter')).toContainText(
     '“ACME Corp.” · Organization, grouped forms',
@@ -518,7 +513,7 @@ test('6 — filtering by a group that only exists on page 2 keeps both pages loa
 
   // The same single row, read off the sheet heading the way demos 2 and 4 read
   // theirs — the one place this suite has only ever landed on a PLURAL count.
-  await expect(page.getByTestId('sheet-stats')).toHaveText('1 row · 2 columns');
+  await expect(page.getByTestId('sheet-stats')).toHaveText(/^1 of \d+ rows · 2 columns$/);
 });
 
 // ---------------------------------------------------------------------------

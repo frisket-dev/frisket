@@ -8,14 +8,14 @@ import { TextInput } from '../components/FormControls';
 // Saved-views panel. This is intentionally presentational: persistence and
 // successful-create/update transitions belong to the workspace controller.
 import { useEffect, useRef, useState } from 'react';
-import { Pencil, Plus, Save, Trash2, X } from 'lucide-react';
-import type { View, ViewDefinitionInput } from '../api/open';
+import { Pencil, Plus, Save, Trash2 } from 'lucide-react';
+import type { View } from '../api/open';
 import type {
   ViewsConfirmation,
   ViewsEditor,
   ViewsPublication,
 } from '../state/viewsStore';
-import { summarizeView, summarizeViewDefinition } from './summarizeView';
+import { summarizeView } from './summarizeView';
 
 export interface ViewsPanelProps {
   views: View[];
@@ -27,9 +27,15 @@ export interface ViewsPanelProps {
   confirmation?: ViewsConfirmation | null;
   confirmationError?: string | null;
   canEdit: boolean;
-  viewModified?: boolean;
-  currentDefinition?: ViewDefinitionInput | null;
-  activeViewId?: View['id'] | null;
+  /** The saved view whose selection deep-equals the current one. */
+  currentViewId?: View['id'] | null;
+  /** Nothing is active: "All rows" is the current view. */
+  allRowsCurrent?: boolean;
+  /** What saving now would keep, e.g. `Search “the” · 5 columns`. */
+  currentSummary?: string | null;
+  /** `· 5 columns`-style suffix for the All rows card. */
+  columnCount?: number;
+  onApplyAllRows?(): void;
   onNameChange(name: string): void;
   onStartCreating(): void;
   onSave(): void;
@@ -54,9 +60,11 @@ export function ViewsPanel({
   confirmation = null,
   confirmationError = null,
   canEdit,
-  activeViewId = null,
-  viewModified = false,
-  currentDefinition = null,
+  currentViewId = null,
+  allRowsCurrent = false,
+  currentSummary = null,
+  columnCount,
+  onApplyAllRows,
   onNameChange,
   onStartCreating,
   onSave,
@@ -84,17 +92,6 @@ export function ViewsPanel({
     ? editor.kind === 'edit'
       ? `edit:${editor.view.id}`
       : 'create'
-    : null;
-  const createSummary = currentDefinition
-    ? (() => {
-        const info = summarizeViewDefinition(currentDefinition);
-        return info.hasNoEffectiveFilter
-          && !info.sortSummary
-          && currentDefinition.selection.limit == null
-          && info.columnCount === null
-          ? 'All rows (no filters)'
-          : info.summary;
-      })()
     : null;
   const publishedView = lastPublication
     ? views.find((candidate) => candidate.id === lastPublication.viewId)
@@ -166,8 +163,8 @@ export function ViewsPanel({
           {editor.kind === 'edit' ? (
             <span className="view-summary" data-testid="view-filter-summary">{summarizeView(editor.view).summary}</span>
           ) : (
-            createSummary && (
-              <span className="view-summary" data-testid="view-create-summary">Saving: {createSummary}</span>
+            currentSummary && (
+              <span className="view-summary" data-testid="view-create-summary">Saving: {currentSummary}</span>
             )
           )}
           <TextInput
@@ -190,7 +187,7 @@ export function ViewsPanel({
               }
             }}
           />
-          {nameIsBlank && <span id={nameErrorId}>Enter a name to continue.</span>}
+          {nameIsBlank && <span id={nameErrorId} className="sr-only">Enter a name to continue.</span>}
           <div className="views-editor-actions">
             {editor.kind === 'edit' ? (
               <Button
@@ -210,7 +207,7 @@ export function ViewsPanel({
                 disabled={nameIsBlank || isSaving}
                 onClick={onSave}
               >
-                <Save size={14} /> {isSaving ? 'Saving…' : 'Save view'}
+                {isSaving ? 'Saving…' : 'Save view'}
               </Button>
             )}
             <Button
@@ -220,7 +217,7 @@ export function ViewsPanel({
               disabled={isSaving}
               onClick={onCancel}
             >
-              <X size={14} /> Cancel
+              Cancel
             </Button>
           </div>
         </div>
@@ -228,22 +225,42 @@ export function ViewsPanel({
         canEdit && (
           <Button
             type="button"
-            className="btn-primary"
+            className="views-save-current"
             data-testid="create-view"
             disabled={isSaving}
             onClick={onStartCreating}
           >
-            <Plus size={14} /> Save as new view
+            <Plus size={14} /> Save current view
           </Button>
         )
       )}
       <div className="views-list" data-testid="views-list" ref={listRef} tabIndex={-1}>
+        {onApplyAllRows && (
+          <div className="view-item" data-testid="view-item-all-rows" data-current={allRowsCurrent ? 'true' : undefined}>
+            <div className="view-main">
+              <button
+                type="button"
+                className="view-apply"
+                data-testid="apply-all-rows"
+                aria-current={allRowsCurrent ? 'true' : undefined}
+                disabled={isSaving}
+                onClick={() => { onApplyAllRows(); announce('Showing all rows'); }}
+              >
+                All rows
+              </button>
+              <span className="view-summary">
+                No filters{columnCount !== undefined ? ` · ${columnCount.toLocaleString()} ${columnCount === 1 ? 'column' : 'columns'}` : ''}
+              </span>
+            </div>
+          </div>
+        )}
         {views.length === 0 ? (
-          <div className="views-empty">No views yet.</div>
+          !onApplyAllRows && <div className="views-empty">No views yet.</div>
         ) : (
           views.map((view) => (
             <div
               className="view-item"
+              data-current={currentViewId === view.id ? 'true' : undefined}
               data-testid="view-item"
               key={view.id}
               ref={(node) => {
@@ -257,6 +274,7 @@ export function ViewsPanel({
                   type="button"
                   className="view-apply"
                   data-testid="apply-view"
+                  aria-current={currentViewId === view.id ? 'true' : undefined}
                   disabled={isSaving || !!view.unavailable_reason}
                   onClick={() => {
                     if (view.sheet_id === null) setResultsView(view);
@@ -266,7 +284,6 @@ export function ViewsPanel({
                   {view.name}
                 </button>
                 <span className="view-summary" data-testid="view-filter-summary">{summarizeView(view).summary}</span>
-                {activeViewId === view.id && <span className="view-active">{viewModified ? 'Modified' : 'Active'}</span>}
               </div>
               {canEdit && (
                 <div className="view-actions">

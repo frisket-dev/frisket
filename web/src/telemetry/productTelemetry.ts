@@ -112,6 +112,12 @@ export function telemetryPreference(): TelemetryPreference {
   return readStored()?.state ?? 'unanswered';
 }
 
+/** The workspace-wide usage-data setting a project's "inherit" follows:
+ *  this deployment has a receiver and this browser chose to send. */
+export function workspaceSharesUsageData(): boolean {
+  return available && telemetryPreference() === 'enabled';
+}
+
 export function setTelemetryPreference(enabled: boolean): void {
   writeStored({ schema_version: 1, state: enabled ? 'enabled' : 'disabled' });
   if (!enabled) appOpenedSent = false;

@@ -19,7 +19,8 @@ from urllib.parse import quote
 from frisket.authoring.action_metadata import action_available_in_edition
 from frisket.authoring.project_ask import default_project_ask_model
 from frisket.ai.embeddings.capabilities import resolve_embedding_capability
-from frisket.ai.models.metadata import provider_network_blocked
+from frisket.ai.models.metadata import REMOTE_PROVIDER_KINDS
+from frisket.project_service_access import model_call_allowed
 from frisket.contracts.http.selector_choices import (
     ActionSelectorSubject,
     ProjectAskSelectorSubject,
@@ -72,7 +73,7 @@ from frisket.server.services.selector_choices_capabilities import (
 )
 
 from frisket.server.services.selector_choices_projection import (
-    _network_off,
+    _services_refusal,
     _mapping,
     _credential_label,
     _credential_source,
@@ -392,9 +393,8 @@ class SelectorChoiceService:
         catalog = build_provider_catalog(
             self._workspace.root,
             # Keep authored and exact composed models visible. The selector
-            # applies network policy to the resolved target below, preserving
+            # applies Allowed services to the resolved target below, preserving
             # the selected choice instead of filtering or reranking it.
-            network_off=False,
             local_endpoints=router.local_endpoints,
             local_endpoint_authority="instance"
             if self._edition == "solo"
@@ -492,7 +492,7 @@ class SelectorChoiceService:
             default_model = _default_action_model(
                 choices,
                 composition,
-                network_off=_network_off(project),
+                services_refusal=_services_refusal(project),
             )
             default_selection = _model_selection(default_model)
             depends_on: list[str] = []
@@ -543,7 +543,7 @@ class SelectorChoiceService:
                 _default_action_model(
                     choices,
                     composition,
-                    network_off=_network_off(project),
+                    services_refusal=_services_refusal(project),
                 )
                 if has_model_field and default_engine == "llm"
                 else None
@@ -629,7 +629,17 @@ class SelectorChoiceService:
             selection_kind="model",
             provider_spend_states=spend_by_provider,
         )
-        network_off = _network_off(project)
+        if project.allowed_services() != "all_services":
+            candidate_models = [
+                model
+                for model in candidate_models
+                if model_call_allowed(project, router, model)
+            ]
+            direct_models = [
+                model
+                for model in direct_models
+                if model_call_allowed(project, router, model)
+            ]
         return _response(
             project_id,
             subject={"kind": "project_ask"},
@@ -642,8 +652,7 @@ class SelectorChoiceService:
                     _recommendation_composition(composition),
                     candidate_models=candidate_models,
                     directly_runnable_models=direct_models,
-                    network_off=network_off,
-                    allow_setup_fallback=not network_off,
+                    allow_setup_fallback=True,
                 )
             ),
             server_labels=_server_labels(provider_catalog),
@@ -869,6 +878,7 @@ class SelectorChoiceService:
                             "field": None,
                         }
                 target, destination = _model_target(provider)
+                model_destination = router.destination_for_model(model["id"])
                 route_capable = not local_http
                 outcome, selected_route = _resolve_route_choice(
                     composition,
@@ -893,7 +903,8 @@ class SelectorChoiceService:
                     settings_url=cloud.project_settings_url,
                     credential_label=own_credential_label,
                     credential_source=own_credential_source,
-                    network_off=_network_off(project),
+                    services_refusal=_services_refusal(project),
+                    model_destination=model_destination,
                     preserve_unbound_catalog=local_http,
                 )
                 cloud_setup = cloud.setup()
@@ -907,6 +918,7 @@ class SelectorChoiceService:
                         presentation,
                         refusal=outcome,
                         cloud_setup=cloud_setup,
+                        services_refusal=_services_refusal(project),
                     )
                     facts = []
                 elif selected_route == "cloud" and presentation.target is not None:
@@ -922,7 +934,8 @@ class SelectorChoiceService:
                         selected=selected_route,
                         can_mutate=capabilities.may_author_actions,
                         cloud_unknown=cloud_setup is not None,
-                        network_off=_network_off(project),
+                        services_refusal=_services_refusal(project),
+                        model_destination=model_destination,
                         own_blocker=blocker if status == "unavailable" else None,
                     )
                     if route_capable
@@ -1002,7 +1015,10 @@ class SelectorChoiceService:
         else:
             refusal = None
             target = outcome.target
-        policy_forbidden = _network_policy_forbids_target(_network_off(project), target)
+        services_refusal = _services_refusal(project)
+        policy_forbidden = _network_policy_forbids_target(
+            services_refusal, composition, target
+        )
         ready = refusal is None and not policy_forbidden
         destination = _engine_destination(engine, target)
         return _choice(
@@ -1023,12 +1039,8 @@ class SelectorChoiceService:
             status="ready" if ready else "unavailable",
             can_author=capabilities.may_author_actions and ready,
             can_run=capabilities.may_run_actions and ready,
-            blocker={
-                "code": "project_network_off",
-                "message": "This project's network setting is off.",
-                "field": None,
-            }
-            if policy_forbidden
+            blocker=services_refusal.blocker()
+            if services_refusal is not None and policy_forbidden
             else {
                 "code": refusal.family,
                 "message": refusal.remedy,
@@ -1227,9 +1239,10 @@ class SelectorChoiceService:
             available = bool(engine.get("available"))
             # Catalog-only engines retain their legacy tier check. Routed
             # engines are gated from the exact selected target after resolve.
+            services_refusal = _services_refusal(project)
             policy_forbidden = (
                 outcome is None
-                and _network_off(project)
+                and services_refusal is not None
                 and engine.get("tier") == "remote"
             )
             status = "ready" if available else "unavailable"
@@ -1266,15 +1279,9 @@ class SelectorChoiceService:
                 and downloadable
                 else None
             )
-            if policy_forbidden:
+            if services_refusal is not None and policy_forbidden:
                 status = "unavailable"
-                blocker = {
-                    "code": "project_network_off",
-                    "message": str(
-                        engine.get("error") or "This project's network setting is off."
-                    ),
-                    "field": None,
-                }
+                blocker = services_refusal.blocker()
             elif engine_setup_ref is not None:
                 operation, blocked = self._setup.model_pull_operations(engine_setup_ref)
                 if operation is not None or not available or whisper_base_missing:
@@ -1523,7 +1530,7 @@ class SelectorChoiceService:
                     balance_label=_balance_label(cloud),
                     balance_url=cloud.balance_url,
                     settings_url=cloud.project_settings_url,
-                    network_off=_network_off(project),
+                    services_refusal=_services_refusal(project),
                 )
                 if outcome is not None and execution_capability is not None
                 else None
@@ -1540,6 +1547,7 @@ class SelectorChoiceService:
                         presentation,
                         refusal=outcome,
                         cloud_setup=cloud_setup,
+                        services_refusal=_services_refusal(project),
                     )
                 target = presentation.target
                 resolved_target = presentation.resolved_target
@@ -1570,7 +1578,8 @@ class SelectorChoiceService:
                     selected=selected_route,
                     can_mutate=capabilities.may_author_actions,
                     cloud_unknown=cloud.setup() is not None,
-                    network_off=_network_off(project),
+                    services_refusal=_services_refusal(project),
+                    model_destination=None,
                 )
                 if route_capable and execution_capability is not None
                 else None
@@ -1690,16 +1699,14 @@ class SelectorChoiceService:
                     "field": None,
                 }
         target, destination = _embedding_target(row)
-        if provider_network_blocked(
-            str(row.get("provider_kind") or ""), network_off=_network_off(project)
+        services_refusal = _services_refusal(project)
+        if (
+            services_refusal is not None
+            and str(row.get("provider_kind") or "") in REMOTE_PROVIDER_KINDS
         ):
             status = "unavailable"
             setup = None
-            blocker = {
-                "code": "project_network_off",
-                "message": "This project's network setting is off.",
-                "field": None,
-            }
+            blocker = services_refusal.blocker()
         return _choice(
             selection={"kind": "embedding", "provider": provider, "model": model},
             label=str(row.get("label") or model or provider),

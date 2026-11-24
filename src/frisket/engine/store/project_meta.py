@@ -1,6 +1,7 @@
 """Meta/manifest store for a project bundle: the manifest.json writer and its
 externalized summaries (name/description/sensitive/starred/archived and the
-pending-review count), plus the project-level retention and network policies
+pending-review count), plus the project-level retention policy and Allowed
+services setting
 persisted in the meta table. Free functions over the facade's per-thread
 SQLite connection; ``project`` stays duck-typed (``Any``) so this leaf never
 re-imports the facade module."""
@@ -15,6 +16,22 @@ from typing import Any
 
 from filelock import FileLock
 
+from frisket.project_settings import (
+    DEFAULT_USAGE_DATA_SHARING as DEFAULT_USAGE_DATA_SHARING,
+    USAGE_DATA_SHARING_VALUES,
+    UsageDataSharing,
+)
+from frisket.service_access import (
+    ALLOWED_SERVICES_LABELS,
+    ALLOWED_SERVICES_VALUES,
+    DEFAULT_ALLOWED_SERVICES,
+    AllowedServices,
+    is_looser,
+)
+
+from frisket.project_cover import project_cover_seed
+
+from .change_log import append_change_in_transaction
 from .schema import FORMAT_VERSION
 from .transactions import write_transaction
 
@@ -25,10 +42,16 @@ PROJECT_SCHEMA_VERSION = "frisket.project.v1"
 RETENTION_POLICY_META_KEY = "retention_policy"
 
 
-NETWORK_POLICY_META_KEY = "network_policy"
-
-
 STORAGE_ID_META_KEY = "storage_id"
+
+
+ALLOWED_SERVICES_META_KEY = "allowed_services"
+# An unreadable stored value reads as the strictest choice and is never
+# written back, so a damaged setting cannot quietly open the project up.
+UNREADABLE_ALLOWED_SERVICES: AllowedServices = "this_machine_only"
+ALLOWED_SERVICES_CHANGE_KIND = "allowed_services"
+
+USAGE_DATA_SHARING_META_KEY = "usage_data_sharing"
 
 
 SUPPORTED_RETENTION_VALUES = ("compactable", "pinned", "materialized")
@@ -58,50 +81,6 @@ def _normalize_retention_policy(data: object | None = None) -> dict[str, Any]:
     for key in ("pin_evidence_by_default", "no_compact"):
         if key in data:
             policy[key] = bool(data[key])
-    return policy
-
-
-SUPPORTED_NETWORK_POLICY_MODES = ("inherit", "on", "off")
-
-
-# The organization default is a two-state effective value; "inherit" is only a
-# project-level deferral, never an organization value.
-SUPPORTED_NETWORK_ORGANIZATION_DEFAULTS = ("on", "off")
-
-
-DEFAULT_NETWORK_POLICY: dict[str, Any] = {
-    "mode": "inherit",
-    # Team edition materializes the organization default into the bundle (the same
-    # reason `sensitive` syncs): the gate reads policy from the Project at
-    # validate/dispatch/replay time, where no control-plane handle exists.
-    # Local edition never writes it — None resolves to "on".
-    "organization_default": None,
-}
-
-
-def _normalize_network_policy(data: object | None = None) -> dict[str, Any]:
-    policy = dict(DEFAULT_NETWORK_POLICY)
-    if data is None:
-        return policy
-    if not isinstance(data, dict):
-        raise ValueError("network policy must be an object")
-    if "mode" in data:
-        mode = str(data["mode"])
-        if mode not in SUPPORTED_NETWORK_POLICY_MODES:
-            raise ValueError(f"unsupported network mode: {mode}")
-        policy["mode"] = mode
-    raw_default = (
-        data["organization_default"]
-        if "organization_default" in data
-        else data.get("org_default")
-    )
-    if raw_default is not None:
-        organization_default = str(raw_default)
-        if organization_default not in SUPPORTED_NETWORK_ORGANIZATION_DEFAULTS:
-            raise ValueError(
-                f"unsupported network organization default: {organization_default}"
-            )
-        policy["organization_default"] = organization_default
     return policy
 
 
@@ -181,9 +160,11 @@ def _write_manifest(project: Any, **updates: Any) -> None:
             # then written back into the control plane's projects.sensitive,
             # turning a lost manifest into a durably wrong record of which
             # projects are protected.
-            stored_sensitive = project.get_meta("sensitive")
-            if stored_sensitive is not None:
-                manifest["sensitive"] = stored_sensitive == "true"
+            manifest["sensitive"] = usage_data_sharing(project) == "off"
+        if USAGE_DATA_SHARING_META_KEY not in manifest:
+            manifest[USAGE_DATA_SHARING_META_KEY] = usage_data_sharing(project)
+        if ALLOWED_SERVICES_META_KEY not in manifest:
+            manifest[ALLOWED_SERVICES_META_KEY] = allowed_services(project)
         write_manifest_atomically(project.path, manifest)
 
 
@@ -221,11 +202,12 @@ def project_metadata(project: Any) -> dict[str, Any]:
         "description": str(
             manifest.get("description") or project.get_meta("description", "") or ""
         ),
-        "sensitive": bool(
-            manifest.get("sensitive")
-            if "sensitive" in manifest
-            else project.get_meta("sensitive", "false") == "true"
-        ),
+        # ``sensitive`` is the projection of usage-data sharing that Team's
+        # control plane and older readers of the manifest key on.
+        "sensitive": usage_data_sharing(project) == "off",
+        "usage_data_sharing": usage_data_sharing(project),
+        "allowed_services": allowed_services(project),
+        "cover_seed": project_cover_seed(project),
         # Shell/Home project flags: additive manifest booleans, default
         # False on legacy bundles that never wrote them.
         "starred": bool(manifest.get("starred", False)),
@@ -256,6 +238,8 @@ def set_project_metadata(
         name=next_name,
         description=next_description,
         sensitive=bool(current["sensitive"]),
+        usage_data_sharing=current["usage_data_sharing"],
+        allowed_services=current["allowed_services"],
         starred=next_starred,
         archived=next_archived,
         retention=project.retention_policy(),
@@ -263,19 +247,100 @@ def set_project_metadata(
     return project.project_metadata()
 
 
-def set_project_sensitivity(project: Any, sensitive: bool) -> dict[str, Any]:
-    """Persist the explicit project-level automated-egress safety flag."""
-    if not isinstance(sensitive, bool):
-        raise TypeError("sensitive must be a boolean")
-    project.set_meta("sensitive", "true" if sensitive else "false")
-    project._write_manifest(sensitive=sensitive)
+def usage_data_sharing(project: Any) -> UsageDataSharing:
+    """The project's usage-data override; an unreadable value shares nothing."""
+    stored = project.get_meta(USAGE_DATA_SHARING_META_KEY)
+    for value in USAGE_DATA_SHARING_VALUES:
+        if stored == value:
+            return value
+    return "off"
+
+
+def shares_usage_data(project: Any, *, workspace_shares: bool) -> bool:
+    """The effective value: the project's override, else the workspace's."""
+    override = usage_data_sharing(project)
+    if override == "inherit":
+        return workspace_shares
+    return override == "on"
+
+
+def set_usage_data_sharing(project: Any, value: UsageDataSharing) -> dict[str, Any]:
+    """Persist the usage-data override and its manifest projection."""
+    if value not in USAGE_DATA_SHARING_VALUES:
+        raise ValueError(f"unsupported usage_data_sharing: {value!r}")
+    project.set_meta(USAGE_DATA_SHARING_META_KEY, value)
+    project._write_manifest(usage_data_sharing=value, sensitive=value == "off")
     return project.project_metadata()
 
 
-# The reading of an UNREADABLE retention policy. Unlike its network-policy
-# sibling (whose default is the permissive "on" by a considered tradeoff --
-# the off-switch is an explicit choice and a corrupt value there costs a
-# blocked call at worst), retention gates a DESTRUCTIVE operation: resetting
+def allowed_services(project: Any) -> AllowedServices:
+    """The project's Allowed services setting; absent means All services."""
+    stored = project.get_meta(ALLOWED_SERVICES_META_KEY)
+    if stored is None:
+        return DEFAULT_ALLOWED_SERVICES
+    for value in ALLOWED_SERVICES_VALUES:
+        if stored == value:
+            return value
+    return UNREADABLE_ALLOWED_SERVICES
+
+
+class AllowedServicesConfirmationRequired(ValueError):
+    """A looser Allowed services value was requested without confirming it."""
+
+    def __init__(self, current: AllowedServices, requested: AllowedServices) -> None:
+        super().__init__(
+            f"Changing Allowed services from {ALLOWED_SERVICES_LABELS[current]} to "
+            f"{ALLOWED_SERVICES_LABELS[requested]} lets Frisket use more services; "
+            f"confirm by sending confirm_allowed_services={requested!r}."
+        )
+        self.current = current
+        self.requested = requested
+
+
+def set_allowed_services(
+    project: Any,
+    requested: AllowedServices,
+    *,
+    confirm_allowed_services: AllowedServices | None,
+) -> dict[str, Any]:
+    """Change the project's Allowed services setting.
+
+    A stricter value takes effect at once. A looser one needs the request to
+    name that value again in ``confirm_allowed_services`` and leaves an entry
+    in the project's history; it changes no data, so Undo passes over it.
+    """
+    if requested not in ALLOWED_SERVICES_VALUES:
+        raise ValueError(f"unsupported allowed_services: {requested!r}")
+    # The current value is read and judged inside the write transaction, so a
+    # concurrent change is either seen here or waits for this one to finish.
+    with write_transaction(project.db, what="project allowed services"):
+        current = allowed_services(project)
+        looser = is_looser(current, requested)
+        if looser and confirm_allowed_services != requested:
+            raise AllowedServicesConfirmationRequired(current, requested)
+        if requested == current:
+            return project.project_metadata()
+        project.db.execute(
+            "INSERT INTO meta (key, value) VALUES (?, ?) "
+            "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+            (ALLOWED_SERVICES_META_KEY, requested),
+        )
+        if looser:
+            append_change_in_transaction(
+                project,
+                ALLOWED_SERVICES_CHANGE_KIND,
+                {"from": current, "to": requested},
+                label=(
+                    f"Allowed services: {ALLOWED_SERVICES_LABELS[current]} to "
+                    f"{ALLOWED_SERVICES_LABELS[requested]}"
+                ),
+            )
+    project._write_manifest(allowed_services=allowed_services(project))
+    return project.project_metadata()
+
+
+# The reading of an UNREADABLE retention policy. Retention gates a
+# DESTRUCTIVE operation: resetting
 # to DEFAULT_RETENTION_POLICY would re-enable compaction of evidence a user
 # explicitly pinned, and persisting that reset would destroy the only record
 # that they had chosen otherwise. So an unparseable value reads as the most
@@ -343,50 +408,10 @@ def set_retention_policy(
     return _persist_retention_policy(project, policy)
 
 
-def network_policy(project: Any) -> dict[str, Any]:
-    """Project-level network policy.
-
-    ``{"mode": "inherit"|"on"|"off", "organization_default": "on"|"off"|None}``.
-    A safety default, explicitly NOT a guarantee: enforcement is
-    app-level (picker filter + dispatch/replay gate); plugins,
-    notification delivery and source polling are not covered here.
-    """
-    raw = project.get_meta(NETWORK_POLICY_META_KEY)
-    if raw:
-        try:
-            return _normalize_network_policy(json.loads(raw))
-        except (json.JSONDecodeError, ValueError):
-            return _persist_network_policy(project, None)
-    return _normalize_network_policy()
-
-
-def set_network_policy(
-    project: Any,
-    *,
-    mode: str | None = None,
-    organization_default: str | None = None,
-    clear_organization_default: bool = False,
-) -> dict[str, Any]:
-    policy = project.network_policy()
-    if mode is not None:
-        policy["mode"] = mode
-    if organization_default is not None:
-        policy["organization_default"] = organization_default
-    if clear_organization_default:
-        policy["organization_default"] = None
-    return _persist_network_policy(project, policy)
-
-
-def effective_network_policy(project: Any) -> str:
-    """The gate's two-state read: ``"on"`` or ``"off"``.
-
-    ``project mode -> organization default -> "on"``. The un-configured state is
-    ``on`` (turnkey: existing remote-engine workflows keep working; the
-    off-switch is an explicit choice)."""
-    policy = project.network_policy()
-    if policy["mode"] in ("on", "off"):
-        return str(policy["mode"])
-    return str(policy["organization_default"] or "on")
+def remote_services_refused(project: Any) -> bool:
+    """Whether the project refuses services beyond this machine and approved
+    endpoints, which sites with no destination to classify read."""
+    return project.allowed_services() != "all_services"
 
 
 def _read_manifest(project: Any) -> dict[str, Any]:
@@ -409,16 +434,4 @@ def _persist_retention_policy(project: Any, policy: object | None) -> dict[str, 
             (RETENTION_POLICY_META_KEY, json.dumps(normalized, sort_keys=True)),
         )
     project._write_manifest(retention=normalized)
-    return normalized
-
-
-def _persist_network_policy(project: Any, policy: object | None) -> dict[str, Any]:
-    normalized = _normalize_network_policy(policy)
-    with write_transaction(project.db, what="project network policy"):
-        project.db.execute(
-            "INSERT INTO meta (key, value) VALUES (?, ?) "
-            "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
-            (NETWORK_POLICY_META_KEY, json.dumps(normalized, sort_keys=True)),
-        )
-    project._write_manifest(network=normalized)
     return normalized
