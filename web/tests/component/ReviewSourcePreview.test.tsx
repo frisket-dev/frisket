@@ -12,10 +12,13 @@ const projectApi = vi.hoisted(() => ({
 }));
 
 vi.mock('../../src/bind/useWorkspaceStores', () => ({
-  useWorkspaceStores: () => ({ projectApi }),
+  useWorkspaceStores: () => ({ projectApi, chromePreferences: { projectId: 'p' } }),
 }));
 vi.mock('../../src/components/rowInspection/FieldValue', () => ({
   FieldValue: ({ value }: { value: unknown }) => <span>{value == null ? '(empty)' : String(value)}</span>,
+}));
+vi.mock('../../src/media/PdfViewer', () => ({
+  PdfViewer: ({ url }: { url: string }) => <div data-testid="pdf-viewer" data-url={url} />,
 }));
 vi.mock('../../src/components/citations/ArtifactSource', () => ({
   ArtifactSource: ({ artifact, emphasizedSpanIds }: { artifact: { stable_id: string }; emphasizedSpanIds?: string[] }) => (
@@ -113,6 +116,32 @@ describe('ReviewSourcePreview', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Inputs · 1' }));
     expect(screen.getByTestId('review-row-fields-drawer')).toHaveTextContent('Empty input');
     expect(screen.getByTestId('review-row-fields-drawer')).toHaveTextContent('(empty)');
+  });
+
+  it('opens a PDF input as the document and keeps the other inputs one tab away', async () => {
+    projectApi.getCellCitations.mockResolvedValue(cellEvidence([]));
+    const row: ReviewBundle = { ...bundle, sources: [
+      { columnId: 'input-1', columnName: 'notes', columnType: 'text', semanticType: null, format: null, value: 'A note' },
+      { columnId: 'input-2', columnName: 'media', columnType: 'file', semanticType: null, format: null,
+        value: JSON.stringify({ blob: 'sha256:abc', mime: 'application/pdf', filename: 'report.pdf' }) },
+    ] };
+    render(<ReviewSourcePreview bundle={row} activeField={fieldOne} sourceEntries={[]} />);
+    const pane = await screen.findByTestId('review-input-preview');
+    expect(screen.getByRole('tab', { name: 'media' })).toHaveAttribute('aria-selected', 'true');
+    expect(pane).toHaveTextContent('Current input · no saved citation for this result');
+    expect((await screen.findByTestId('pdf-viewer')).dataset.url).toContain('/blobs/sha256%3Aabc');
+    fireEvent.click(screen.getByRole('tab', { name: 'notes' }));
+    expect(screen.queryByTestId('pdf-viewer')).toBeNull();
+    expect(pane).toHaveTextContent('A note');
+  });
+
+  it('shows a file input that is not a PDF as its value', async () => {
+    projectApi.getCellCitations.mockResolvedValue(cellEvidence([]));
+    const row: ReviewBundle = { ...bundle, sources: [{ columnId: 'input-1', columnName: 'media', columnType: 'file',
+      semanticType: null, format: null, value: JSON.stringify({ blob: 'sha256:abc', mime: 'application/zip', filename: 'a.zip' }) }] };
+    render(<ReviewSourcePreview bundle={row} activeField={fieldOne} sourceEntries={[]} />);
+    await screen.findByTestId('review-input-preview');
+    expect(screen.queryByTestId('review-input-pdf')).toBeNull();
   });
 
   it('shows bounded current-input excerpts and revision downloads without parsing them', async () => {
