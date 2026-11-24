@@ -450,6 +450,7 @@ def register_embedding_refresh_handler(
         execution: Any = None,
         deps: ExecutorDeps | None = None,
     ) -> ActionResult:
+        del deps
         from frisket.engine.executor.action_families.embeddings import (
             run_index_refresh_action_job,
         )
@@ -457,9 +458,7 @@ def register_embedding_refresh_handler(
         result = run_index_refresh_action_job(
             project,
             envelope,
-            router=deps.router
-            if deps is not None and deps.router is not None
-            else router,
+            router=router,
             embedding_gateway=gateway,
             execution=execution,
         )
