@@ -46,8 +46,9 @@ const selectorState = vi.hoisted(() => ({
   reportChoice: true,
 }));
 vi.mock('../../src/engine-selector/SelectorField', () => ({
-  SelectorField: ({ query, onCurrentChoiceChange }: {
+  SelectorField: ({ query, disabled, onCurrentChoiceChange }: {
     query: { subject: { params: { engine: string; model?: string | null } } };
+    disabled?: boolean;
     onCurrentChoiceChange?(choice: unknown): void;
   }) => {
     const { engine, model } = query.subject.params;
@@ -64,7 +65,7 @@ vi.mock('../../src/engine-selector/SelectorField', () => ({
         blocker: selectorState.blocker ? { message: selectorState.blocker } : null,
       });
     }, [engine, hasModel, model]);
-    return <button type="button">{engine}</button>;
+    return <button type="button" data-testid="ocr-engine" disabled={disabled}>{engine}</button>;
   },
 }));
 
@@ -741,6 +742,38 @@ describe('PDF batch import flow', () => {
     await waitFor(() => expect(check).toBeEnabled());
     fireEvent.click(check);
     expect(await screen.findByRole('radio', { name: /Split into documents/ })).toBeChecked();
+  });
+
+  it('shows finished copying and checking as complete and lists categories only when keeping documents', async () => {
+    const { api } = createApi();
+    const flow = (organization: 'split_documents' | 'keep_documents') => render(<PdfBatchImportFlow
+      projectId="project-1" files={files()} initialOrganization={organization}
+      destinationSheets={[]} api={api} onContextChange={vi.fn()} registerCloseGuard={vi.fn()}
+      onImported={vi.fn()} onDiscarded={vi.fn()} onError={vi.fn()}
+    />);
+    const kept = flow('keep_documents');
+    expect(await screen.findByText('Copying complete')).toBeInTheDocument();
+    expect(screen.getByText('Text layers checked')).toBeInTheDocument();
+    expect(kept.container.querySelector('.pdf-batch-add .activity-progress-spinner')).toBeNull();
+    expect(screen.getByRole('table', { name: 'Found so far' })).toBeInTheDocument();
+    kept.unmount();
+
+    flow('split_documents');
+    expect(await screen.findByText('Copying complete')).toBeInTheDocument();
+    await waitFor(() => expect(screen.queryByRole('table', { name: 'Found so far' })).not.toBeInTheDocument());
+  });
+
+  it('disables the OCR engine while no OCR is chosen', async () => {
+    const { api } = createApi();
+    render(<PdfBatchImportFlow
+      projectId="project-1" files={files()} destinationSheets={[]} api={api}
+      onContextChange={vi.fn()} registerCloseGuard={vi.fn()} onImported={vi.fn()}
+      onDiscarded={vi.fn()} onError={vi.fn()}
+    />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Check text →' }));
+    await waitFor(() => expect(screen.getByTestId('ocr-engine')).toBeEnabled());
+    fireEvent.click(screen.getByRole('radio', { name: /None/ }));
+    await waitFor(() => expect(screen.getByTestId('ocr-engine')).toBeDisabled());
   });
 
   it('applies Split PDFs entry defaults to a newly admitted archive draft', async () => {

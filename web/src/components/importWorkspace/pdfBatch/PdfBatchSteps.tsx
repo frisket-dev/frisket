@@ -56,6 +56,7 @@ export function AddFilesStep({
   const uploadBytesTotal = snapshot.upload.bytes_total ?? 0;
   const checkedTotal = snapshot.analysis.files_total ?? snapshot.upload.files_done;
   const uploadComplete = snapshot.upload.files_done >= uploadTotal;
+  const checkComplete = !reading && uploadComplete && checkedTotal > 0 && snapshot.analysis.files_done >= checkedTotal;
   return <PanelFrame fill className="pdf-batch-add" aria-label="Add files">
     <PanelBody className="">
       <header><h2>Add files</h2><p>Files are copied to a holding area. Nothing is added to the project until Import.</p></header>
@@ -67,6 +68,7 @@ export function AddFilesStep({
       </div> : <><div className="pdf-batch-progress-grid">
         <ProgressCard
           title={reading ? 'Reading folder' : uploadComplete ? 'Copying complete' : 'Copying files'}
+          complete={!reading && uploadComplete}
           done={snapshot.upload.files_done}
           total={reading ? null : uploadTotal}
           detail={reading
@@ -77,7 +79,8 @@ export function AddFilesStep({
           </Button>}
         />
         <ProgressCard
-          title="Checking text layers"
+          title={checkComplete ? 'Text layers checked' : 'Checking text layers'}
+          complete={checkComplete}
           done={snapshot.analysis.files_done}
           total={checkedTotal || null}
           detail={`${count(snapshot.analysis.files_done, 'file')} checked · ${count(snapshot.upload.files_done, 'file')} copied`}
@@ -122,7 +125,7 @@ export function AddFilesStep({
           />
         </label>
       </div>}
-      <CategoryTable snapshot={snapshot} showUnchecked />
+      {snapshot.choices.organization !== 'split_documents' && <CategoryTable snapshot={snapshot} showUnchecked />}
     </PanelBody>
     <PanelFooter>
       <Button type="button" onClick={onCancel}>Cancel</Button>
@@ -134,16 +137,18 @@ export function AddFilesStep({
   </PanelFrame>;
 }
 
-function ProgressCard({ title, done, total, detail, action }: {
+function ProgressCard({ title, done, total, detail, complete, action }: {
   title: string;
   done: number;
   total: number | null;
   detail: string;
+  complete: boolean;
   action?: ReactNode;
 }) {
-  return <ActivityProgressCard state="active" title={title} footer={action}
+  const state = complete ? 'complete' : 'active';
+  return <ActivityProgressCard state={state} title={title} footer={action}
     detail={<>{total == null ? `${done.toLocaleString()} found so far` : `${done.toLocaleString()} of ${total.toLocaleString()}`} · {detail}</>}>
-    <ProgressBar label={title} completed={done} total={total} state="active" />
+    <ProgressBar label={title} completed={done} total={total} state={state} />
   </ActivityProgressCard>;
 }
 
@@ -281,7 +286,7 @@ export function CheckTextStep({
               query={{ schema_version: 'frisket.selector_choices_query.v1', subject: { kind: 'action', action_id: 'media.ocr', field: 'engine', params: { engine: currentOcr.engine, ...(currentOcr.kind === 'engine_model' ? { model: currentOcr.model } : {}) } } }}
               recentNamespace="pdf-batch-ocr"
               testId="pdf-batch-ocr-engine"
-              disabled={busy}
+              disabled={busy || snapshot.choices.ocr_policy === 'none'}
               onSelect={(choice) => { const selection = ocrSelectionOf(choice); if (selection) onOcrSelection(selection); }}
               onCurrentChoiceChange={(choice) => {
                 onOcrChoice(choice);

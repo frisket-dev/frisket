@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useReducer, useRef, useState, type ReactNode } from 'react';
 import { Button } from '../../Button';
-import { ProgressBar } from '../../ActivityProgress';
+import { ActivityProgressCard, ProgressBar } from '../../ActivityProgress';
 import { WindowCloseButton } from '../../WindowCloseButton';
 import { DiscardImportConfirm } from '../pdfBatch/DiscardImportConfirm';
 import { count } from '../pdfBatch/model';
@@ -107,11 +107,12 @@ export function PdfPacketReview({ projectId, snapshot: initial, onReviewed, onBa
       <WindowCloseButton ref={closeButtonRef} label="Close split PDFs" onClick={() => requestExit('close')} />
     </header>}
     {!onClose && headerContent}
-    {snapshot.status === 'preparing' ? <div className="pdf-batch-loading" role="status">
-      <strong>Preparing pages</strong>
-      <span>{snapshot.prepare.progress.done} of {snapshot.prepare.progress.total ?? pageCount} pages</span>
-      <ProgressBar label="Preparing pages" completed={snapshot.prepare.progress.done} total={snapshot.prepare.progress.total ?? pageCount} state="active" />
-      <Button type="button" onClick={() => requestExit('back')}>Back</Button>
+    {snapshot.status === 'preparing' ? <div className="pdf-batch-loading">
+      <ActivityProgressCard state="active" title="Preparing pages" className="pdf-packet-preparing"
+        detail={`${snapshot.prepare.progress.done.toLocaleString()} of ${(snapshot.prepare.progress.total ?? pageCount).toLocaleString()} pages`}
+        footer={<Button type="button" onClick={() => requestExit('back')}>Back</Button>}>
+        <ProgressBar label="Preparing pages" completed={snapshot.prepare.progress.done} total={snapshot.prepare.progress.total ?? pageCount} state="active" />
+      </ActivityProgressCard>
     </div> : snapshot.status === 'ready' ? <PacketFindStep
       projectId={projectId} splitId={snapshot.split_id} state={state} pageCount={pageCount} dispatch={dispatch} sources={sources}
       onCancelOcr={cancelOcr} onBack={() => requestExit('back')} onContinue={() => void continueReview()}
