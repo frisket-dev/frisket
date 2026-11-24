@@ -234,3 +234,55 @@ def test_retry_rejects_a_replacement_bundle_without_touching_it(tmp_path) -> Non
         keys = {row[0] for row in db.execute("SELECT key FROM meta")}
     assert "usage_data_sharing" not in keys
     assert "sensitive" in keys
+
+
+def _workspace_default(value: str):
+    """A changeable workspace default and the callable that reads it."""
+    default = {"value": value}
+    return default, lambda: default["value"]
+
+
+def test_create_without_a_choice_starts_from_the_workspace_default(tmp_path) -> None:
+    _default, read_default = _workspace_default("approved_services")
+    client = TestClient(
+        create_app(tmp_path / "workspace", allowed_services_default=read_default)
+    )
+    made = client.post("/api/projects", json={"name": "Inherited"})
+    assert made.status_code == 200, made.text
+    assert made.json()["allowed_services"] == "approved_services"
+    stored = client.get(f"/api/projects/{made.json()['id']}").json()
+    assert stored["allowed_services"] == "approved_services"
+
+
+def test_create_keeps_an_explicit_choice_over_the_workspace_default(tmp_path) -> None:
+    _default, read_default = _workspace_default("approved_services")
+    client = TestClient(
+        create_app(tmp_path / "workspace", allowed_services_default=read_default)
+    )
+    made = client.post(
+        "/api/projects", json={"name": "Chosen", "allowed_services": "all_services"}
+    )
+    assert made.status_code == 200, made.text
+    assert made.json()["allowed_services"] == "all_services"
+
+
+def test_keyed_retry_returns_the_recorded_choice_after_the_default_changes(
+    tmp_path,
+) -> None:
+    default, read_default = _workspace_default("approved_services")
+    client = TestClient(
+        create_app(tmp_path / "workspace", allowed_services_default=read_default)
+    )
+    headers = {"Idempotency-Key": "inherit-default"}
+    first = client.post("/api/projects", json={"name": "Keyed"}, headers=headers)
+    assert first.status_code == 200, first.text
+    assert first.json()["allowed_services"] == "approved_services"
+
+    default["value"] = "this_machine_only"
+    retried = client.post("/api/projects", json={"name": "Keyed"}, headers=headers)
+    assert retried.status_code == 200, retried.text
+    assert retried.json()["id"] == first.json()["id"]
+    assert retried.json()["allowed_services"] == "approved_services"
+    assert [row["allowed_services"] for row in client.get("/api/projects").json()] == [
+        "approved_services"
+    ]

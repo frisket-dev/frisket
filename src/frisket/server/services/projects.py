@@ -352,13 +352,23 @@ class ProjectLifecycleService:
         idempotency_scope: str | None = None,
     ) -> dict[str, Any]:
         name = request.name.strip() or UNTITLED_PROJECT_NAME
-        allowed_services = request.allowed_services
+        requested_services = request.allowed_services
         usage_data_sharing = request.usage_data_sharing
         cover_seed = request.cover_seed
-        self._require_offered(allowed_services)
+        if requested_services is not None:
+            self._require_offered(requested_services)
+
+        def resolved_services() -> AllowedServices:
+            if requested_services is not None:
+                return requested_services
+            default = self._workspace.allowed_services_default()
+            self._require_offered(default)
+            return default
+
         operation_key = (idempotency_key or "").strip()
         lock_path = self._workspace.root / ".project-creation-operations.lock"
         if not operation_key:
+            allowed_services = resolved_services()
             with FileLock(str(lock_path), timeout=-1):
                 return self._workspace.create(
                     name,
@@ -510,9 +520,14 @@ class ProjectLifecycleService:
                     raise RuntimeError(
                         "project creation operation record is invalid"
                     ) from exc
+                # An omitted choice replays the one recorded at creation, never
+                # the workspace's current default.
                 if (
                     project["name"] != name
-                    or project["allowed_services"] != allowed_services
+                    or (
+                        requested_services is not None
+                        and project["allowed_services"] != requested_services
+                    )
                     or project["usage_data_sharing"] != usage_data_sharing
                     # A record written before seeds existed binds no seed.
                     or project.get("cover_seed") != cover_seed
@@ -591,6 +606,7 @@ class ProjectLifecycleService:
                 project_id = validate_project_slug(
                     f"{slug[: 64 - len(suffix_text)]}{suffix_text}"
                 )
+            allowed_services = resolved_services()
             project = {
                 "id": project_id,
                 "name": name,

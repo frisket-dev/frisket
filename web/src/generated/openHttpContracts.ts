@@ -6092,7 +6092,7 @@ export type HttpCreateProjectInviteRequest = ({
 });
 
 export type HttpCreateProjectRequest = ({
-  "allowed_services"?: ("this_machine_only" | "approved_services" | "all_services") & (string);
+  "allowed_services"?: ((("this_machine_only" | "approved_services" | "all_services") & (string)) | ((null)));
   "cover_seed"?: (((string)) | ((null)));
   "name"?: (string);
   "usage_data_sharing"?: ("inherit" | "on" | "off") & (string);

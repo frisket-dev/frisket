@@ -184,7 +184,8 @@ class HttpError(WireModel):
 class CreateProjectRequest(WireModel):
     # An empty name creates "Untitled project".
     name: str = ""
-    allowed_services: AllowedServices = "all_services"
+    # Omitted, a new project starts from the workspace's default.
+    allowed_services: AllowedServices | None = None
     usage_data_sharing: UsageDataSharing = "inherit"
     # The card cover's seed; without one the cover derives from the id.
     cover_seed: CoverSeed | None = None
