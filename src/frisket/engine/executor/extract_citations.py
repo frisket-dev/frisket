@@ -984,31 +984,17 @@ def _source_spans(
         "warnings": [],
     }
     if bbox is not None:
-        if grounding_method == "model_bbox":
-            return _model_bbox_spans(
-                project,
-                artifact=artifact,
-                bbox=bbox,
-                page=page,
-                page_end=page_end,
-                quote=passage,
-                snippet=snippet,
-                blob_hash=blob_hash,
-                base_meta=metadata,
-            )
-        return [
-            record_source_span(
-                project,
-                artifact_id=int(artifact["id"]),
-                span_kind="region",
-                page_start=page,
-                page_end=page_end,
-                bbox=[bbox],
-                quote=passage,
-                snippet=snippet,
-                metadata=metadata,
-            )
-        ]
+        return _model_bbox_spans(
+            project,
+            artifact=artifact,
+            bbox=bbox,
+            page=page,
+            page_end=page_end,
+            quote=passage,
+            snippet=snippet,
+            blob_hash=blob_hash,
+            base_meta={**metadata, "grounding_method": "model_bbox"},
+        )
     if passage is not None:
         spans, reason = _aligned_passage_spans(
             project,

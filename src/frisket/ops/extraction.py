@@ -22,9 +22,7 @@ def extract_citation_fields(
         and (value.get("__image_b64__") or value.get("__pdf_b64__"))
         for value in row_values.values()
     ):
-        fields.update(
-            {"page", "page_start", "page_end", "bbox", "snippet", "grounding_method"}
-        )
+        fields.update({"page", "page_start", "page_end", "bbox", "snippet"})
     return frozenset(fields)
 
 
