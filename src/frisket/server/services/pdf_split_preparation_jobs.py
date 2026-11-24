@@ -189,12 +189,18 @@ class PdfSplitPreparationJobs:
                 return None
             columns = {
                 str(column["name"]): int(column["id"])
-                for column in project.columns(int(session.sheet_id))
+                for column in project.columns(
+                    int(session.sheet_id), include_hidden=True
+                )
             }
             media_column, text_column = (
-                columns[plan["roles"]["media"]],
-                columns[plan["roles"]["text"]],
+                columns.get(plan["roles"]["media"]),
+                columns.get(plan["roles"]["text"]),
             )
+            if media_column is None or text_column is None:
+                provider.update(preparation_pending=False, preparation_stopped=True)
+                write_import_header(directory, replace(header, provider_state=provider))
+                return None
             ledger = project.db.execute(
                 "SELECT source_id,child_count,state FROM import_session_pdf_sources WHERE session_id=? ORDER BY ordinal",
                 (import_ref,),

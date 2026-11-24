@@ -293,7 +293,6 @@ def test_pdf_packet_split_http_contract(tmp_path: Path) -> None:
             "confirmed_starts": [1, 3],
             "destination": {"kind": "new_sheet", "name": "Packet documents"},
             "name_pattern": "{packet} · pp {start}–{end}",
-            "keep_ocr_text": True,
         },
     )
     assert committed.status_code == 202, committed.text

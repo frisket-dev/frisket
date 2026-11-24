@@ -176,9 +176,7 @@ def _publish_pdf_split_page(
         or role is None
         or role.text_column_id != binding.text_column_id
         or not role.source_active
-        or role.source_hidden
         or not role.text_active
-        or role.text_hidden
         or not 1 <= binding.page_number <= int(child[2])
     ):
         return False
