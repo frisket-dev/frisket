@@ -12,10 +12,10 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-
 from helpers import stub_rapidocr_run_scope
-from frisket.engine.store import Project
 
+from frisket.engine.executor.action_inventory import ExecutorDeps
+from frisket.engine.store import Project
 
 PNG = (
     b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01"
@@ -525,11 +525,10 @@ def test_workspace_create_reopen_and_product_consumers_keep_blob_store(
 ) -> None:
     api = _blob_api()
     from frisket.engine.executor import run_action_spec
-    from frisket.engine.store.media_blobs import backfill_blob_metadata
+    from frisket.engine.store.media_blobs import MediaBlobStore, backfill_blob_metadata
     from frisket.ops.ocr_engines import OcrEngines
     from frisket.server import workspace as workspace_module
     from frisket.server.workspace import Workspace
-    from frisket.engine.store.media_blobs import MediaBlobStore
 
     fake_s3 = _FakeS3Client()
     stores: list[_RecordingStore] = []
@@ -582,6 +581,7 @@ def test_workspace_create_reopen_and_product_consumers_keep_blob_store(
             "idempotency_key": "import_files@sha256:blob-port",
         },
         project_id=project_id,
+        deps=ExecutorDeps(operator_local_files=True),
     )
     assert imported.status == "completed", imported.errors
     sheet = project.db.execute(
