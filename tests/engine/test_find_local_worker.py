@@ -3,8 +3,10 @@
 import json
 
 import httpx
+import pytest
 
 from frisket.actions.types import ActionRequest
+from frisket.ai.llm import ModelRouter
 from frisket.engine.jobs import (
     Worker,
     default_registry,
@@ -14,16 +16,35 @@ from frisket.engine.jobs import (
 from frisket.engine.jobs.queue import ACTION_RUN_KIND
 from frisket.engine.store import Project
 from frisket.engine.store.receipts import ReceiptStore
+from frisket.execution.purchases import LocalPurchasePolicy
+from frisket.engine.jobs.runs import resolve_run_local_endpoints
 from tests.engine.test_map_find_runtime import _queued_find
 from tests.server.test_model_server_runs import _store_server
 
 
-def test_confirmed_find_reaches_the_workspace_server_in_a_standalone_worker(
-    tmp_path, monkeypatch
+@pytest.mark.parametrize("organization_id", [None, 7])
+def test_confirmed_find_reaches_the_authorized_server_in_a_standalone_worker(
+    tmp_path, monkeypatch, organization_id
 ):
     root = tmp_path / "workspace"
     root.mkdir()
     _store_server(root, "http://127.0.0.1:11434", None)
+    origin = "http://127.0.0.1:11434"
+    endpoint_id = "local-shared000001"
+    purchases = []
+
+    class CompositionPolicy(LocalPurchasePolicy):
+        def admit_purchase(self, request):
+            purchases.append(request)
+            return super().admit_purchase(request)
+
+    if organization_id is not None:
+        origin = "http://127.0.0.1:19434"
+        monkeypatch.setenv("OLLAMA_URL", origin)
+        endpoint_id = resolve_run_local_endpoints(root, organization_id=7)[
+            0
+        ].endpoint_id
+    policy = CompositionPolicy()
     project = Project.create(root / "find.frisket", "Find")
     sheet = project.add_sheet("Sources")
     column = project.add_column(sheet, "text", "text")
@@ -34,7 +55,7 @@ def test_confirmed_find_reaches_the_workspace_server_in_a_standalone_worker(
         params={
             "source": "text",
             "instruction": "Find Acme contracts.",
-            "model": "ollama/@local-shared000001/listed-model",
+            "model": f"ollama/@{endpoint_id}/listed-model",
         },
         sheet_name="Findings",
         idempotency_key="find-local-worker",
@@ -45,7 +66,7 @@ def test_confirmed_find_reaches_the_workspace_server_in_a_standalone_worker(
 
     def server(request):
         sent.append(request)
-        assert str(request.url) == "http://127.0.0.1:11434/v1/chat/completions"
+        assert str(request.url) == f"{origin}/v1/chat/completions"
         assert json.loads(request.content)["model"] == "listed-model"
         return httpx.Response(
             200,
@@ -70,10 +91,34 @@ def test_confirmed_find_reaches_the_workspace_server_in_a_standalone_worker(
     monkeypatch.setattr(httpx.AsyncClient, "__init__", client_init)
     queue = open_queue(workspace=root)
     registry = default_registry()
-    register_production_handlers(registry, workspace_root=root, queue=queue)
+    register_production_handlers(
+        registry,
+        workspace_root=root,
+        queue=queue,
+        execution_router_factory=(
+            (lambda: ModelRouter(model_call_policy=policy, use_env_keys=False))
+            if organization_id is not None
+            else None
+        ),
+    )
+    execute_find = registry.action_executor("map.find")
+    assert execute_find is not None
+
+    def authorized_find(project, envelope, *, execution, deps=None):
+        assert deps is not None
+        assert [server.origin for server in deps.router.local_endpoints] == [origin]
+        if organization_id is not None:
+            assert deps.router.model_call_policy is policy
+        return execute_find(project, envelope, execution=execution, deps=deps)
+
+    registry.register_action_executor("map.find", authorized_find)
     job_id = queue.enqueue(
         ACTION_RUN_KIND,
-        {"project_id": "find", "action_job": envelope.to_json()},
+        {
+            "project_id": "find",
+            "organization_id": organization_id,
+            "action_job": envelope.to_json(),
+        },
         max_attempts=1,
     )
     assert Worker(queue, registry).run_once()
@@ -81,6 +126,8 @@ def test_confirmed_find_reaches_the_workspace_server_in_a_standalone_worker(
     assert job is not None
     assert job.status == "done", job.error
     assert len(sent) == 1
+    if organization_id is not None:
+        assert len(purchases) == 1
     finished = Project(root / "find.frisket")
     try:
         receipt = ReceiptStore(finished).parsed_by_id(envelope.receipt_id)

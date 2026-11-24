@@ -144,6 +144,7 @@ def test_action_job_binding_registry_invariants() -> None:
         "project",
         "envelope",
         "execution",
+        "deps",
     )
     assert not hasattr(action_job_bindings, "cache_clear")
 
@@ -175,6 +176,7 @@ def test_action_job_binding_registry_invariants() -> None:
         "project",
         "envelope",
         "execution",
+        "deps",
     )
     assert (
         ACTION_REGISTRY.get("export.google_sheets").action_id == "export.google_sheets"
@@ -237,6 +239,7 @@ def test_google_sheets_action_job_binding_resolves_composition_deps_lazily(
         "project",
         "envelope",
         "execution",
+        "deps",
     )
     assert first_operation(project, envelope, execution=dispatch_owner) is sentinel
     assert second_operation(project, envelope, execution=dispatch_owner) is sentinel
@@ -251,6 +254,13 @@ def test_google_sheets_action_job_binding_resolves_composition_deps_lazily(
         second_deps,
         first_deps,
     ]
+
+    assert (
+        first_operation(project, envelope, execution=dispatch_owner, deps=second_deps)
+        is sentinel
+    )
+    assert executor_calls[-1][2] is second_deps
+    assert len(factory_calls) == 3
 
     none_factory = action_bindings.action_job_bindings(
         executor_deps_factory=lambda _project_id, _request: None

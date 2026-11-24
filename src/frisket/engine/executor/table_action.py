@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Callable, Sequence
 from contextlib import ExitStack, contextmanager
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from itertools import chain
 import hashlib
 import inspect
@@ -1501,7 +1501,7 @@ def _run_reserved_table(
     )
 
 
-def run_typed_table_action_job(project, envelope, *, execution):
+def run_typed_table_action_job(project, envelope, *, execution, deps=None):
     from frisket.engine.executor.action_jobs import bind_typed_action_job
 
     bound = bind_typed_action_job(envelope, project=project)
@@ -1514,7 +1514,8 @@ def run_typed_table_action_job(project, envelope, *, execution):
         project,
         envelope.project_id,
         bound,
-        deps=ExecutorDeps(
+        deps=replace(
+            deps or ExecutorDeps(),
             cancelled=lambda: dispatch_cancelled(execution),
             seal_cancellation=lambda: not dispatch_cancelled(execution),
         ),

@@ -181,7 +181,11 @@ def test_queue_reserves_intent_without_index_lookup_or_handler(source, monkeypat
     result = run_action_run_job(
         project,
         {"action_job": envelope.to_json()},
-        executor_lookup=lambda kind: run_index_refresh_action_job,
+        executor_lookup=lambda kind: (
+            lambda current, envelope, *, execution, deps=None: (
+                run_index_refresh_action_job(current, envelope, execution=execution)
+            )
+        ),
     )
     assert result.status == "failed"
     assert result.errors[0].code == "embedding_index_not_found"

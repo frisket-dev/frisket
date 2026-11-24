@@ -413,7 +413,8 @@ def run_typed_temporal_extract_action(
         )
 
 
-def run_typed_temporal_extract_job(project, envelope, *, execution):
+def run_typed_temporal_extract_job(project, envelope, *, execution, deps=None):
+    del deps
     from frisket.engine.executor.action_jobs import bind_typed_action_job
 
     bound = bind_typed_action_job(envelope)

@@ -20,6 +20,7 @@ from pathlib import Path
 from typing import Any, Mapping, cast
 
 from frisket.contracts.action import ActionError
+from frisket.engine.executor.action_inventory import ExecutorDeps
 from frisket.authoring.action_metadata import (
     action_available_in_edition,
     action_edition_unavailable_message,
@@ -617,9 +618,6 @@ def project_scoped_router(project: Project, router: ModelRouter | None) -> Model
     return _router_for(
         project,
         ModelRouter(env_key_source="local", model_call_policy=LOCAL_PURCHASE_POLICY),
-        local_endpoints=resolve_run_local_endpoints(
-            project.path.parent, organization_id=None
-        ),
     )
 
 
@@ -1386,6 +1384,10 @@ def register_action_run_handler(
     require_storage_identity: bool = False,
     workspace_root_storage_organization_id: int | None = None,
     project_opener: ProjectOpener | None = None,
+    executor_deps_factory: Any | None = None,
+    execution_router_factory: Callable[[], ModelRouter] | None = None,
+    response_cache_factory: Callable[[JobHandlerContext], ResponseCache | None]
+    | None = None,
 ) -> HandlerRegistration:
     """Register the generic ``action.run`` worker handler (queued_action_job).
 
@@ -1407,9 +1409,44 @@ def register_action_run_handler(
     from frisket.engine.jobs.queue import ACTION_RUN_KIND
 
     root = Path(workspace_root)
-    _ = router  # executors that need a router pull it from their own ctx/gateway
     ports = coerce_worker_ports(worker_ports)
     admission = ports.admission_port
+
+    def executor_dependencies(project, project_id, handler_context, response_cache):
+        supplied = (
+            executor_deps_factory(project_id, None)
+            if executor_deps_factory is not None
+            else None
+        ) or ExecutorDeps()
+        organization = handler_context.trusted_job_organization_id
+        organization_id = organization if isinstance(organization, int) else None
+        keys, source = resolve_run_keys(
+            root,
+            organization_id=organization_id,
+            credentials=ports.credentials(),
+            control_database_url=control_database_url,
+        )
+        base_router = (
+            execution_router_factory()
+            if execution_router_factory is not None
+            else supplied.router or router
+        )
+        effective = _router_for(
+            project,
+            base_router,
+            keys=keys,
+            keys_source=source,
+            use_env_keys=organization_id is None,
+            local_endpoints=resolve_run_local_endpoints(
+                root, organization_id=organization_id
+            ),
+            response_cache=(
+                response_cache
+                if response_cache_factory is not None or base_router is None
+                else _RESPONSE_CACHE_UNSET
+            ),
+        )
+        return replace(supplied, router=effective)
 
     def handle(payload: dict, handler_context: JobHandlerContext) -> dict:
         project_id, project_root, project_path = claimed_project_location(
@@ -1423,6 +1460,7 @@ def register_action_run_handler(
             if project_opener is None
             else open_claimed_project(payload, project_path, project_opener)
         )
+        handler_owned_cache = None
         try:
             envelope = action_run_envelope_from_payload(payload)
             denied = False
@@ -1463,10 +1501,15 @@ def register_action_run_handler(
                     ),
                 )
             else:
+                if response_cache_factory is not None:
+                    handler_owned_cache = response_cache_factory(handler_context)
                 result = run_action_run_job(
                     project,
                     dict(payload),
                     executor_lookup=registry.action_executor,
+                    executor_deps=executor_dependencies(
+                        project, project_id, handler_context, handler_owned_cache
+                    ),
                     should_cancel=lambda: (
                         queue is not None
                         and handler_context.job_id is not None
@@ -1486,6 +1529,8 @@ def register_action_run_handler(
             )
             emit_action_run_outcome_notification(project, result)
         finally:
+            if handler_owned_cache is not None:
+                handler_owned_cache.close()
             project.close()
         return action_job_result_payload(result)
 

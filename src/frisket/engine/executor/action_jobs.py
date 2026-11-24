@@ -30,6 +30,7 @@ from frisket.execution.attempt import StaleAttemptWriter
 from frisket.execution.dispatch_control import DispatchControl
 from frisket.engine.executor.action_specs import declared_queued_action_job_kinds
 from frisket.engine.executor.action_inventory import (
+    ExecutorDeps,
     _ActionExecutionEnvelope,
     _TypedProjectEnvelope,
 )
@@ -948,7 +949,12 @@ def mark_action_job_enqueued(
 # ActionResult (or raises).
 class ActionJobExecutor(Protocol):
     def __call__(
-        self, project: Any, envelope: ActionJobEnvelope, *, execution: DispatchControl
+        self,
+        project: Any,
+        envelope: ActionJobEnvelope,
+        *,
+        execution: DispatchControl,
+        deps: ExecutorDeps | None = None,
     ) -> ActionResult: ...
 
 
@@ -1058,12 +1064,15 @@ def run_action_run_job(
     payload: Mapping[str, Any],
     *,
     executor_lookup: ActionJobExecutorLookup | None = None,
+    executor_deps: ExecutorDeps | None = None,
     should_cancel: Callable[[], bool] = lambda: False,
 ) -> ActionResult:
     """Execute one generic action.run job and terminalize its receipt.
 
     ``executor_lookup`` is the composition's registered-executor lookup
-    (``HandlerRegistry.action_executor``). Admitted installed table actions use
+    (``HandlerRegistry.action_executor``). ``executor_deps`` carries the
+    worker's claim-scoped router and other host dependencies. Admitted installed
+    table actions use
     the same table executor without global registration. The worker owns
     terminalization: on a missing
     executor, an executor exception, or a non-terminal executor result, the
@@ -1156,13 +1165,14 @@ def run_action_run_job(
                     envelope: ActionJobEnvelope,
                     *,
                     execution: DispatchControl,
+                    deps: ExecutorDeps | None = None,
                 ) -> ActionResult:
                     del execution
                     return run_inferred_batch(
                         project,
                         envelope.project_id,
                         bound,
-                        None,
+                        deps.router if deps is not None else None,
                         _default_map_runner_factory,
                         reservation={
                             "action_id": envelope.action_id,
@@ -1182,20 +1192,20 @@ def run_action_run_job(
                 from frisket.engine.executor.import_update_admission import (
                     run_rows_updater,
                 )
-                from frisket.engine.executor.action_inventory import ExecutorDeps
 
                 def _rows_updater_executor(
                     project: Any,
                     envelope: ActionJobEnvelope,
                     *,
                     execution: DispatchControl,
+                    deps: ExecutorDeps | None = None,
                 ) -> ActionResult:
                     del execution
                     return run_rows_updater(
                         project,
                         envelope.project_id,
                         bound,
-                        ExecutorDeps(cancelled=should_cancel),
+                        replace(deps or ExecutorDeps(), cancelled=should_cancel),
                     )
 
                 executor = _rows_updater_executor
@@ -1223,7 +1233,7 @@ def run_action_run_job(
                 action_kind=action_kind,
                 job_id=job_id,
             )
-        result = executor(project, envelope, execution=execution)
+        result = executor(project, envelope, execution=execution, deps=executor_deps)
     except asyncio.CancelledError:
         return action_job_cancelled_result(
             project,

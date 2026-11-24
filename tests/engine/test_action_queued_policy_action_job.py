@@ -593,7 +593,7 @@ def test_action_run_job_launches_runs_and_terminalizes(
 
     seen: dict = {}
 
-    def _executor(project, env, *, execution):
+    def _executor(project, env, *, execution, deps=None):
         seen["kind"] = env.action_kind
         # The worker owns receipt terminalization, not inference that work ran.
         return ActionResult(
@@ -649,7 +649,7 @@ def test_action_run_stale_writer_refusal_leaves_shared_receipt_untouched(
     )
     envelope = _envelope(project_id, kind=kind, receipt_id=receipt_id)
 
-    def raise_stale_writer(_project, _envelope, *, execution):
+    def raise_stale_writer(_project, _envelope, *, execution, deps=None):
         raise StaleAttemptWriter("attempt A lost its effect-site fence")
 
     with closing(Project(project_path)) as project:
@@ -694,7 +694,7 @@ def test_action_run_renewal_failure_is_rethrown_for_queue_retry(
     )
     envelope = _envelope(project_id, kind=kind, receipt_id=receipt_id)
 
-    def raise_renewal_failure(_project, _envelope, *, execution):
+    def raise_renewal_failure(_project, _envelope, *, execution, deps=None):
         raise ClaimLeaseRenewalFailed("injected claim renewal outage")
 
     with closing(Project(project_path)) as project:
@@ -803,7 +803,7 @@ def test_action_run_job_retryable_failed_result_requeues(tmp_path) -> None:
             project=project,
         )
 
-        def _executor(_project, env, *, execution):
+        def _executor(_project, env, *, execution, deps=None):
             return ActionResult(
                 action={
                     "kind": env.action_kind,
@@ -897,7 +897,7 @@ def test_retryable_action_run_exhaustion_terminalizes_receipt(tmp_path) -> None:
             project=project,
         )
 
-        def _executor(_project, env, *, execution):
+        def _executor(_project, env, *, execution, deps=None):
             return ActionResult(
                 action={
                     "kind": env.action_kind,

@@ -140,11 +140,8 @@ def test_renamed_derived_params_are_admitted_once_and_pinned_for_worker(export_c
     result = run_action_run_job(
         project,
         {"action_job": envelope.to_json()},
-        executor_lookup=lambda _kind: (
-            lambda project_, envelope_, *, execution: run_google_sheets_action_job(
-                project_, envelope_, execution=execution, deps=deps
-            )
-        ),
+        executor_lookup=lambda _kind: run_google_sheets_action_job,
+        executor_deps=deps,
     )
     assert result.status == "completed"
     assert prepared == [True]
@@ -314,15 +311,11 @@ def test_worker_rechecks_network_and_terminal_replay_skips_fresh_admission(expor
     envelope = prepare_google_sheets_action_job(project, "project", bound, deps=deps)
     project.set_network_policy(mode="off")
 
-    def execute(current, intent, *, execution):
-        return run_google_sheets_action_job(
-            current, intent, execution=execution, deps=deps
-        )
-
     refused = run_action_run_job(
         project,
         {"action_job": envelope.to_json()},
-        executor_lookup=lambda kind: execute,
+        executor_lookup=lambda kind: run_google_sheets_action_job,
+        executor_deps=deps,
     )
     assert refused.status == "failed"
     assert refused.errors[0].code == "network_disabled"
@@ -332,7 +325,8 @@ def test_worker_rechecks_network_and_terminal_replay_skips_fresh_admission(expor
     replay = run_action_run_job(
         project,
         {"action_job": envelope.to_json()},
-        executor_lookup=lambda kind: execute,
+        executor_lookup=lambda kind: run_google_sheets_action_job,
+        executor_deps=deps,
     )
     assert replay.receipt_id == refused.receipt_id
     assert replay.errors == refused.errors

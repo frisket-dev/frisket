@@ -337,7 +337,7 @@ def test_find_queue_pins_actual_author_arguments_before_model_calls(
     )
     router._adapters["anthropic"] = adapter  # noqa: SLF001
 
-    def execute(project, envelope, *, execution):
+    def execute(project, envelope, *, execution, deps=None):
         return run_typed_find_action_job(
             project, envelope, execution=execution, deps=ExecutorDeps(router=router)
         )
