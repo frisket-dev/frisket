@@ -69,10 +69,7 @@ from frisket.engine.executor.action_lifecycle import (
 from frisket.engine.executor.action_support import ActionCtx
 from frisket.engine.executor.action_receipts import _receipt_ops_are_applied
 from frisket.engine.executor.action_families.imports import _compact_import_rowset_ref
-from frisket.engine.executor.import_sources import (
-    BoundLocalFile,
-    open_local_file_reader,
-)
+from frisket.engine.executor.import_sources import open_local_file_reader
 from frisket.engine.executor.map_rows_action import typed_request_hash
 from frisket.engine.executor.project_mutation_runtime import (
     CallOnce as _CallOnce,
@@ -449,7 +446,8 @@ class _RowsAppender(_CallOnce):
     ) -> None:
         super().__init__(project, cur, action, params_hash)
         self._max_rows = max_rows
-        self._file_sources: Mapping[str, BoundLocalFile] | None = None
+        # Replaced by the capability factory; the default admits no file.
+        self._file_deps = ExecutorDeps()
 
     def append(
         self,
