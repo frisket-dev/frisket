@@ -1,6 +1,6 @@
 [project]
 name = "frisket-data"
-version = "0.1.1a120"
+version = "0.1.1a121"
 description = "Local-first AI spreadsheet workflows for journalists and researchers."
 readme = "README.md"
 authors = [
@@ -26,7 +26,10 @@ dependencies = [
     # Direct dependency for AES-256-GCM/HKDF envelope encryption.
     "cryptography>=48.0.0",
     "ddgs>=9.14.4",
-    "fastapi>=0.136.3",
+    # UnitOfWorkRoute wraps the endpoint through FastAPI's route internals,
+    # which later releases restructure; raise this bound together with that
+    # class and tests/server/test_request_unit_of_work.py.
+    "fastapi>=0.136.3,<0.137",
     "formualizer==0.13.0",
     # Local semantic search, joins, clustering, and embedding indexes are core
     # product paths. Model weights are installed separately; loading never
