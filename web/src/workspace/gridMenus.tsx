@@ -6,7 +6,8 @@ import { resolveAnchoredPosition } from '../hooks/useAnchoredPosition';
 // Grid header/filter/sort menus: pure presentational components + saved-view
 // spec normalizers/labels.
 import {
-  ArrowUpDown,
+  ArrowDown,
+  ArrowUp,
   Columns3,
   Eye,
   EyeOff,
@@ -34,7 +35,6 @@ import type {
   ActionRunEntryCallbacks,
 } from '../grid/actionRunEntry';
 import { type HeaderMenuState } from './workspaceState';
-import { gridFilterLabel } from './gridColumnState';
 
 export function GridColumnHeaderMenu({
   state,
@@ -42,10 +42,9 @@ export function GridColumnHeaderMenu({
   activeFilter,
   onSort,
   onClearSort,
+  filterLabel,
   onFilter,
   onClearFilter,
-  onOpenFilterSidebar,
-  onAdvancedSort,
   columnActions,
   onColumnAction,
   actionsDisabled,
@@ -74,11 +73,11 @@ export function GridColumnHeaderMenu({
   activeFilter: Partial<Record<GridFilterOperator, GridFilterValue>> | null;
   onSort(direction: GridSortDirection): void;
   onClearSort(): void;
+  /** `Filter…` for a faceted column; `Search in <column>…` for long text. */
+  filterLabel: string;
+  /** Opens the Filter sidebar on this column's facet or scoped search. */
   onFilter(): void;
   onClearFilter(): void;
-  /** Opens filtering's single home in the Facets sidebar. */
-  onOpenFilterSidebar(): void;
-  onAdvancedSort(): void;
   /** Actions valid for this column's type (applicability metadata) — each
    *  opens the drawer with the column preloaded (caret contract). */
   columnActions: ActionTemplate[];
@@ -115,14 +114,11 @@ export function GridColumnHeaderMenu({
   /** Sets sheets.title_column_id to this column (server-persisted). */
   onSetRowTitleColumn(): void;
 } & ActionRunEntryCallbacks) {
-  const left = Math.max(8, state.bounds.x + state.bounds.width - 246);
+  const left = Math.max(8, state.bounds.x + state.bounds.width - 240);
   const top = state.bounds.y + state.bounds.height + 4;
-  // Cap the menu to the space below its anchor so every item (incl. the
-  // filter-sidebar / advanced-sort rows) stays inside the viewport and reachable by
-  // internal scroll.
+  // Cap the menu to the space below its anchor so every item stays inside the
+  // viewport and reachable by internal scroll.
   const maxHeight = clampMaxHeightBelow(top, 220, typeof window !== 'undefined' ? window.innerHeight : 900);
-  const filterLabel = activeFilter ? gridFilterLabel({ [state.column.name]: activeFilter }) : null;
-  const sortLabel = activeSort ? `${activeSort.dir === 'asc' ? 'ascending' : 'descending'}` : null;
   const freezeTargetCount = state.columnIndex + 1;
   const showUnfreezeColumns = state.columnIndex === 0 && frozenColumnCount > 0;
   const showFreezeColumns = !showUnfreezeColumns && freezeTargetCount !== frozenColumnCount;
@@ -137,14 +133,7 @@ export function GridColumnHeaderMenu({
     >
       <div className="grid-header-menu-title">
         <span>{state.column.name}</span>
-        <span>
-          {state.column.type}
-          {filterLabel && (
-            <span className="grid-header-menu-filtered" data-testid="header-menu-filtered-badge">
-              filtered
-            </span>
-          )}
-        </span>
+        <span className="grid-header-menu-type">{state.column.type}</span>
       </div>
       {state.column.type === 'geo_point' && (
         <button
@@ -176,34 +165,35 @@ export function GridColumnHeaderMenu({
         type="button"
         className="grid-header-menu-item"
         data-testid="header-menu-sort-asc"
+        aria-pressed={activeSort?.dir === 'asc'}
         onClick={() => onSort('asc')}
       >
-        <ArrowUpDown size={14} aria-hidden />
+        <ArrowUp size={14} aria-hidden />
         Sort ascending
       </button>
       <button
         type="button"
         className="grid-header-menu-item"
         data-testid="header-menu-sort-desc"
+        aria-pressed={activeSort?.dir === 'desc'}
         onClick={() => onSort('desc')}
       >
-        <ArrowUpDown size={14} aria-hidden />
+        <ArrowDown size={14} aria-hidden />
         Sort descending
       </button>
-      <button
-        type="button"
-        className="grid-header-menu-item"
-        data-testid="header-menu-clear-sort"
-        disabled={!activeSort}
-        onClick={onClearSort}
-      >
-        <X size={14} aria-hidden />
-        Clear sort{sortLabel ? ` (${sortLabel})` : ''}
-      </button>
+      {activeSort && (
+        <button
+          type="button"
+          className="grid-header-menu-item"
+          data-testid="header-menu-clear-sort"
+          onClick={onClearSort}
+        >
+          <X size={14} aria-hidden />
+          Clear sort
+        </button>
+      )}
 
       <div className="grid-header-menu-sep" />
-      {/* Filter… opens the inline filter row for this column. The richer
-          operator/date controls live with the friendly facets below. */}
       <button
         type="button"
         className="grid-header-menu-item"
@@ -211,39 +201,19 @@ export function GridColumnHeaderMenu({
         onClick={onFilter}
       >
         <ListFilter size={14} aria-hidden />
-        Filter…{filterLabel ? ` (${filterLabel})` : ''}
+        {filterLabel}
       </button>
-      <button
-        type="button"
-        className="grid-header-menu-item"
-        data-testid="header-menu-clear-filter"
-        disabled={!activeFilter}
-        onClick={onClearFilter}
-      >
-        <X size={14} aria-hidden />
-        Clear filter
-      </button>
-
-      <div className="grid-header-menu-sep" />
-      {/* Friendly facets are the single home for richer filtering. */}
-      <button
-        type="button"
-        className="grid-header-menu-item"
-        data-testid="header-menu-filter-sidebar"
-        onClick={onOpenFilterSidebar}
-      >
-        <ListFilter size={14} aria-hidden />
-        Filter in sidebar…
-      </button>
-      <button
-        type="button"
-        className="grid-header-menu-item"
-        data-testid="header-menu-advanced-sort"
-        onClick={onAdvancedSort}
-      >
-        <ArrowUpDown size={14} aria-hidden />
-        Advanced sort…
-      </button>
+      {activeFilter && (
+        <button
+          type="button"
+          className="grid-header-menu-item"
+          data-testid="header-menu-clear-filter"
+          onClick={onClearFilter}
+        >
+          <X size={14} aria-hidden />
+          Clear filter
+        </button>
+      )}
 
       {actionRunEntry?.comparisonKind === 'row_overlay' && (
         <>

@@ -12,18 +12,18 @@
 import { expect, test, type Page } from '@playwright/test';
 import {
   clickHeaderLabel,
-  clickHeaderMenu,
   createProject,
   gridReadSelection,
   importCsv,
   mockBasemapTiles,
   openFriendlyFilterSidebar,
   openProject,
-  openToolbarOverflow,
   seedGeoSheet as seedGeoSheetBase,
   selectRow,
   sheetColumns,
   uniqueName,
+  openViewsTab,
+  openFilterSidebar,
 } from './helpers';
 
 // The geo column starts EMPTY so column.set_type → geo_point succeeds (text
@@ -249,15 +249,15 @@ test('grid header: label click sorts server-side and the second click flips dire
   await expect(page.getByTestId('grid')).toBeVisible();
 
   await clickHeaderLabel(page, columns, 'city');
-  await expect(page.getByTestId('active-grid-sort')).toContainText('city asc');
+  await expect(page.getByTestId('row-filter-chip-sort')).toContainText('Sorted by city ↑');
   await expect.poll(() => sortRequests.some((r) => r.dir === 'asc')).toBeTruthy();
 
   await clickHeaderLabel(page, columns, 'city');
-  await expect(page.getByTestId('active-grid-sort')).toContainText('city desc');
+  await expect(page.getByTestId('row-filter-chip-sort')).toContainText('Sorted by city ↓');
   await expect.poll(() => sortRequests.some((r) => r.dir === 'desc')).toBeTruthy();
 });
 
-test('grid header: the funnel opens an inline filter row that filters live via the server GridFilterSpec, clears, and leaves the advanced panels reachable', async ({
+test('a column search filters live via the server GridFilterSpec, clears from its chip, and leaves facets and views reachable', async ({
   page,
 }) => {
   const pid = await createProject(page.request, uniqueName('work-views-filter'));
@@ -277,31 +277,25 @@ test('grid header: the funnel opens an inline filter row that filters live via t
   await expect(page.getByTestId('grid')).toBeVisible();
   await expect(page.getByTestId('sheet-stats')).toContainText('4 rows');
 
-  // The caret's Filter… opens the inline filter row (the toolbar funnel retired).
-  await clickHeaderMenu(page, columns, 'status');
-  await page.getByTestId('header-menu-filter').click();
-  await expect(page.getByTestId('inline-filter-row')).toBeVisible();
-  await page.getByTestId('inline-filter-column').selectOption('status');
-  await page.getByTestId('inline-filter-input').fill('closed');
+  // The sidebar search, scoped to one column, filters with a contains condition.
+  await openFilterSidebar(page);
+  await page.getByTestId('sheet-filter-scope').selectOption('status');
+  await page.getByTestId('sheet-filter-search').fill('closed');
 
   // Rows filter live and the count updates; the server saw a real GridFilterSpec.
-  await expect(page.getByTestId('sheet-stats')).toContainText('2 rows');
-  await expect(page.getByTestId('active-grid-filter')).toContainText('status');
+  await expect(page.getByTestId('sheet-stats')).toHaveText('2 of 4 rows · 2 columns');
+  await expect(page.getByTestId('row-filter-chip-search')).toHaveText('Search “closed” in status');
   await expect
     .poll(() => filterRequests.some((condition) => condition.contains === 'closed'))
     .toBeTruthy();
 
-  // Clear restores every row.
-  await page.getByTestId('inline-filter-clear').click();
-  await expect(page.getByTestId('sheet-stats')).toContainText('4 rows');
+  // The chip's × restores every row.
+  await page.getByTestId('row-filter-chip-remove-search').click();
+  await expect(page.getByTestId('sheet-stats')).toHaveText('4 rows · 2 columns');
 
-  // Friendly filters, advanced sort, and views stay reachable through
-  // the caret/sidebar and toolbar-overflow homes.
+  // Facets and views stay reachable through the menu and the sidebar.
   await openFriendlyFilterSidebar(page, columns, 'status');
-  await openToolbarOverflow(page);
-  await page.getByTestId('open-views-submenu').click();
-  await page.getByTestId('views-overflow-open-panel').click();
-  await expect(page.getByTestId('views-panel')).toBeVisible();
+  await openViewsTab(page);
 });
 
 test('a hidden-but-data-satisfied view renders a DISABLED segment naming the reason', async ({

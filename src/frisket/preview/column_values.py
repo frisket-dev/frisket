@@ -10,8 +10,9 @@ from __future__ import annotations
 import json
 import math
 from collections import Counter
+from collections.abc import Callable
 from datetime import date, timedelta
-from typing import Any
+from typing import Any, TypeVar
 
 from frisket.authoring.column_types import range_facet_value_kind, validate_value
 from frisket.calendar_dates import parse_utc_calendar_date
@@ -27,6 +28,7 @@ from frisket.engine.store.current_value_windows import read_current_column
 from frisket.engine.store.project import ProjectReadSnapshot
 
 COLUMN_VALUES_PREVIEW_SCHEMA_VERSION = "frisket.column_values_preview.v1"
+COLUMN_VALUE_COUNTS_SCHEMA_VERSION = "frisket.column_value_counts.v1"
 COLUMN_VALUES_DEFAULT_LIMIT = 500
 COLUMN_VALUES_MAX_LIMIT = 2_000
 FACET_HISTOGRAM_BINS = 12
@@ -38,18 +40,44 @@ class ColumnValuesPreviewError(ColumnPreviewError):
     pass
 
 
-def _number_distribution(values: list[float]) -> dict[str, Any] | None:
+def _scoped_bin_counts(
+    indexes: list[int], in_scope: list[bool] | None, bin_count: int
+) -> list[int] | None:
+    """Per-bin counts of the in-scope values, binned exactly like the full column."""
+    if in_scope is None:
+        return None
+    counts = [0] * bin_count
+    for index, scoped in zip(indexes, in_scope, strict=True):
+        if scoped:
+            counts[index] += 1
+    return counts
+
+
+def _with_scoped_counts(
+    distribution: dict[str, Any], scoped_counts: list[int] | None
+) -> dict[str, Any]:
+    if scoped_counts is not None:
+        distribution["scoped_counts"] = scoped_counts
+    return distribution
+
+
+def _number_distribution(
+    values: list[float], in_scope: list[bool] | None = None
+) -> dict[str, Any] | None:
     if not values:
         return None
     lower = min(values)
     upper = max(values)
     if lower == upper:
-        return {
-            "kind": "number",
-            "min": lower,
-            "max": upper,
-            "bins": [{"start": lower, "end": upper, "count": len(values)}],
-        }
+        return _with_scoped_counts(
+            {
+                "kind": "number",
+                "min": lower,
+                "max": upper,
+                "bins": [{"start": lower, "end": upper, "count": len(values)}],
+            },
+            _scoped_bin_counts([0] * len(values), in_scope, 1),
+        )
     scale = max(abs(lower), abs(upper), 1.0)
     normalized_lower = lower / scale
     normalized_upper = upper / scale
@@ -58,76 +86,98 @@ def _number_distribution(values: list[float]) -> dict[str, Any] | None:
         # Two distinct finite subnormal values can have a span that underflows
         # to zero after normalization. Keep the preview useful and, critically,
         # never divide by that rounded-away span.
-        return {
-            "kind": "number",
-            "min": lower,
-            "max": upper,
-            "bins": [{"start": lower, "end": upper, "count": len(values)}],
-        }
+        return _with_scoped_counts(
+            {
+                "kind": "number",
+                "min": lower,
+                "max": upper,
+                "bins": [{"start": lower, "end": upper, "count": len(values)}],
+            },
+            _scoped_bin_counts([0] * len(values), in_scope, 1),
+        )
     counts = [0] * FACET_HISTOGRAM_BINS
-    for value in values:
-        index = min(
+    indexes = [
+        min(
             int(((value / scale) - normalized_lower) / normalized_width),
             FACET_HISTOGRAM_BINS - 1,
         )
+        for value in values
+    ]
+    for index in indexes:
         counts[index] += 1
-    return {
-        "kind": "number",
-        "min": lower,
-        "max": upper,
-        "bins": [
-            {
-                "start": (
-                    lower * (1 - index / FACET_HISTOGRAM_BINS)
-                    + upper * (index / FACET_HISTOGRAM_BINS)
-                ),
-                "end": upper
-                if index == FACET_HISTOGRAM_BINS - 1
-                else (
-                    lower * (1 - (index + 1) / FACET_HISTOGRAM_BINS)
-                    + upper * ((index + 1) / FACET_HISTOGRAM_BINS)
-                ),
-                "count": count,
-            }
-            for index, count in enumerate(counts)
-        ],
-    }
+    return _with_scoped_counts(
+        {
+            "kind": "number",
+            "min": lower,
+            "max": upper,
+            "bins": [
+                {
+                    "start": (
+                        lower * (1 - index / FACET_HISTOGRAM_BINS)
+                        + upper * (index / FACET_HISTOGRAM_BINS)
+                    ),
+                    "end": upper
+                    if index == FACET_HISTOGRAM_BINS - 1
+                    else (
+                        lower * (1 - (index + 1) / FACET_HISTOGRAM_BINS)
+                        + upper * ((index + 1) / FACET_HISTOGRAM_BINS)
+                    ),
+                    "count": count,
+                }
+                for index, count in enumerate(counts)
+            ],
+        },
+        _scoped_bin_counts(indexes, in_scope, FACET_HISTOGRAM_BINS),
+    )
 
 
-def _integer_distribution(values: list[int]) -> dict[str, Any] | None:
+def _integer_distribution(
+    values: list[int], in_scope: list[bool] | None = None
+) -> dict[str, Any] | None:
     if not values:
         return None
     lower = min(values)
     upper = max(values)
     if lower == upper:
-        return {
-            "kind": "integer",
-            "min": str(lower),
-            "max": str(upper),
-            "bins": [{"start": str(lower), "end": str(upper), "count": len(values)}],
-        }
+        return _with_scoped_counts(
+            {
+                "kind": "integer",
+                "min": str(lower),
+                "max": str(upper),
+                "bins": [
+                    {"start": str(lower), "end": str(upper), "count": len(values)}
+                ],
+            },
+            _scoped_bin_counts([0] * len(values), in_scope, 1),
+        )
     span = upper - lower + 1
     width = max(1, (span + FACET_HISTOGRAM_BINS - 1) // FACET_HISTOGRAM_BINS)
     bin_count = min(FACET_HISTOGRAM_BINS, (span + width - 1) // width)
     counts = [0] * bin_count
-    for value in values:
-        counts[min((value - lower) // width, bin_count - 1)] += 1
-    return {
-        "kind": "integer",
-        "min": str(lower),
-        "max": str(upper),
-        "bins": [
-            {
-                "start": str(lower + index * width),
-                "end": str(min(upper, lower + (index + 1) * width - 1)),
-                "count": count,
-            }
-            for index, count in enumerate(counts)
-        ],
-    }
+    indexes = [min((value - lower) // width, bin_count - 1) for value in values]
+    for index in indexes:
+        counts[index] += 1
+    return _with_scoped_counts(
+        {
+            "kind": "integer",
+            "min": str(lower),
+            "max": str(upper),
+            "bins": [
+                {
+                    "start": str(lower + index * width),
+                    "end": str(min(upper, lower + (index + 1) * width - 1)),
+                    "count": count,
+                }
+                for index, count in enumerate(counts)
+            ],
+        },
+        _scoped_bin_counts(indexes, in_scope, bin_count),
+    )
 
 
-def _date_distribution(values: list[date]) -> dict[str, Any] | None:
+def _date_distribution(
+    values: list[date], in_scope: list[bool] | None = None
+) -> dict[str, Any] | None:
     if not values:
         return None
     lower = min(values)
@@ -136,65 +186,95 @@ def _date_distribution(values: list[date]) -> dict[str, Any] | None:
     width_days = max(1, math.ceil(span_days / FACET_HISTOGRAM_BINS))
     bin_count = min(FACET_HISTOGRAM_BINS, math.ceil(span_days / width_days))
     counts = [0] * bin_count
-    for value in values:
-        index = min((value - lower).days // width_days, bin_count - 1)
+    indexes = [
+        min((value - lower).days // width_days, bin_count - 1) for value in values
+    ]
+    for index in indexes:
         counts[index] += 1
-    return {
-        "kind": "date",
-        "min": lower.isoformat(),
-        "max": upper.isoformat(),
-        "bins": [
-            {
-                "start": (lower + timedelta(days=index * width_days)).isoformat(),
-                "end": min(
-                    upper,
-                    lower + timedelta(days=(index + 1) * width_days - 1),
-                ).isoformat(),
-                "count": count,
-            }
-            for index, count in enumerate(counts)
-        ],
-    }
+    return _with_scoped_counts(
+        {
+            "kind": "date",
+            "min": lower.isoformat(),
+            "max": upper.isoformat(),
+            "bins": [
+                {
+                    "start": (lower + timedelta(days=index * width_days)).isoformat(),
+                    "end": min(
+                        upper,
+                        lower + timedelta(days=(index + 1) * width_days - 1),
+                    ).isoformat(),
+                    "count": count,
+                }
+                for index, count in enumerate(counts)
+            ],
+        },
+        _scoped_bin_counts(indexes, in_scope, bin_count),
+    )
+
+
+_Cell = TypeVar("_Cell")
+
+
+def _integer_cell(raw: Any) -> int | None:
+    return raw if type(raw) is int and validate_value("integer", raw) else None
+
+
+def _number_cell(raw: Any) -> float | None:
+    # Match the SQL range predicate exactly: JSON integer/real cells only.
+    # Strings that merely look numeric and booleans are not number cells and
+    # must not appear in the histogram.
+    if type(raw) is not int and type(raw) is not float:
+        return None
+    value = float(raw)
+    return value if math.isfinite(value) else None
+
+
+def _date_cell(raw: Any) -> date | None:
+    return None if raw is None else parse_utc_calendar_date(raw)
+
+
+def _kept_cells(
+    row_ids: list[int],
+    raw_values: dict[int, Any],
+    cell: Callable[[Any], _Cell | None],
+) -> tuple[list[_Cell], list[int]]:
+    """The cells ``cell`` accepts, with the rows they came from."""
+    values: list[_Cell] = []
+    kept_rows: list[int] = []
+    for row_id in row_ids:
+        value = cell(raw_values.get(row_id))
+        if value is not None:
+            values.append(value)
+            kept_rows.append(row_id)
+    return values, kept_rows
 
 
 def _column_distribution(
     column_type: str,
     row_ids: list[int],
     raw_values: dict[int, Any],
+    scope_row_ids: frozenset[int] | None = None,
 ) -> dict[str, Any] | None:
+    """Histogram of the column; with a scope, also each bin's in-scope count."""
     value_kind = range_facet_value_kind(column_type)
     if value_kind == "integer":
-        integer_values = [
-            raw
-            for row_id in row_ids
-            if type(raw := raw_values.get(row_id)) is int
-            and validate_value("integer", raw)
-        ]
-        return _integer_distribution(integer_values)
+        integers, kept_rows = _kept_cells(row_ids, raw_values, _integer_cell)
+        return _integer_distribution(integers, _scope_mask(kept_rows, scope_row_ids))
     if value_kind == "number":
-        values: list[float] = []
-        for row_id in row_ids:
-            raw = raw_values.get(row_id)
-            # Match the SQL range predicate exactly: JSON integer/real cells
-            # only. Strings that merely look numeric and booleans are not
-            # number cells and must not appear in the histogram.
-            if type(raw) is not int and type(raw) is not float:
-                continue
-            value = float(raw)
-            if math.isfinite(value):
-                values.append(value)
-        return _number_distribution(values)
+        numbers, kept_rows = _kept_cells(row_ids, raw_values, _number_cell)
+        return _number_distribution(numbers, _scope_mask(kept_rows, scope_row_ids))
     if value_kind == "date":
-        values_date: list[date] = []
-        for row_id in row_ids:
-            raw = raw_values.get(row_id)
-            if raw is None:
-                continue
-            parsed = parse_utc_calendar_date(raw)
-            if parsed is not None:
-                values_date.append(parsed)
-        return _date_distribution(values_date)
+        dates, kept_rows = _kept_cells(row_ids, raw_values, _date_cell)
+        return _date_distribution(dates, _scope_mask(kept_rows, scope_row_ids))
     return None
+
+
+def _scope_mask(
+    row_ids: list[int], scope_row_ids: frozenset[int] | None
+) -> list[bool] | None:
+    if scope_row_ids is None:
+        return None
+    return [row_id in scope_row_ids for row_id in row_ids]
 
 
 def _validated_limit(limit: Any) -> int:
@@ -395,6 +475,7 @@ def resolve_column_values_preview(
     limit: Any = None,
     offset: Any = None,
     value_mode: Any = "exact",
+    scope_row_ids: frozenset[int] | None = None,
 ) -> dict[str, Any]:
     """Compute the distinct-values payload for one column.
 
@@ -408,6 +489,11 @@ def resolve_column_values_preview(
     shared read limit and return no action hash. ``inventory_complete`` and
     ``omitted_rows`` make partial counts explicit; complete entries may also
     be paged earlier to fit the response budget. Exact authoring is unchanged.
+
+    ``scope_row_ids`` (the rows a selection keeps) adds ``scope``: the scoped
+    row total, the scoped count of each returned value in the same order, and
+    each histogram bin's scoped count. The inventory itself stays unscoped so a
+    value with no scoped matches is still listed.
     """
     with project.read_snapshot() as snapshot:
         return _resolve_column_values_preview_snapshot(
@@ -418,6 +504,7 @@ def resolve_column_values_preview(
             limit=limit,
             offset=offset,
             value_mode=value_mode,
+            scope_row_ids=scope_row_ids,
         )
 
 
@@ -430,24 +517,9 @@ def _resolve_column_values_preview_snapshot(
     limit: Any = None,
     offset: Any = None,
     value_mode: Any = "exact",
+    scope_row_ids: frozenset[int] | None = None,
 ) -> dict[str, Any]:
-    if not isinstance(sheet_id, int) or isinstance(sheet_id, bool) or sheet_id < 1:
-        raise ColumnValuesPreviewError(
-            "invalid_input_ref",
-            "column values preview requires a positive sheet_id",
-            field="sheet_id",
-        )
-    if not isinstance(input_column, str) or not input_column.strip():
-        raise ColumnValuesPreviewError(
-            "invalid_input_ref",
-            "column values preview requires a non-empty input_column",
-            field="input_column",
-        )
-    if value_mode not in ("exact", "bounded"):
-        raise ColumnValuesPreviewError(
-            "invalid_params", "value_mode must be exact or bounded", field="value_mode"
-        )
-    column = input_column.strip()
+    column = _validated_ref(sheet_id, input_column, value_mode)
     effective_search = _validated_search(search)
     effective_limit = _validated_limit(limit)
     effective_offset = _validated_offset(offset)
@@ -487,18 +559,9 @@ def _resolve_column_values_preview_snapshot(
         )
         value_hash = hash_column_values(row_ids, raw_values)
 
-    counts: Counter[str] = Counter()
-    missing = 0
-    for row_id in inspected_rows:
-        raw = raw_values.get(row_id)
-        if raw is None:
-            missing += 1
-            continue
-        surface = str(raw)
-        if not surface.strip():
-            missing += 1
-            continue
-        counts[surface] += 1
+    counts, scoped_counts, missing = _surface_counts(
+        inspected_rows, raw_values, scope_row_ids
+    )
 
     ordered = sorted(counts.items(), key=lambda item: (-item[1], item[0]))
     if effective_search is not None and effective_search != "":
@@ -525,9 +588,13 @@ def _resolve_column_values_preview_snapshot(
         "value_hash": value_hash,
         "search": effective_search,
         "distribution": _column_distribution(
-            str(column_row["type"]), inspected_rows, raw_values
+            str(column_row["type"]), inspected_rows, raw_values, scope_row_ids
         ),
     }
+    distribution = payload["distribution"]
+    scoped_bins = (
+        distribution.pop("scoped_counts", None) if distribution is not None else None
+    )
     if column_row["type"] == "json":
         payload["list_facet"] = _list_facet(
             row_ids=inspected_rows,
@@ -542,4 +609,113 @@ def _resolve_column_values_preview_snapshot(
         payload["inventory_complete"] = omitted_rows == 0
         payload["omitted_rows"] = omitted_rows
         _bound_response(payload)
+    if scope_row_ids is not None:
+        payload["scope"] = _scope_payload(
+            row_ids, scope_row_ids, payload["values"], scoped_counts, scoped_bins
+        )
     return payload
+
+
+def _validated_ref(sheet_id: Any, input_column: Any, value_mode: Any) -> str:
+    """The trimmed column name, once the sheet, column and mode are valid."""
+    if not isinstance(sheet_id, int) or isinstance(sheet_id, bool) or sheet_id < 1:
+        raise ColumnValuesPreviewError(
+            "invalid_input_ref",
+            "column values preview requires a positive sheet_id",
+            field="sheet_id",
+        )
+    if not isinstance(input_column, str) or not input_column.strip():
+        raise ColumnValuesPreviewError(
+            "invalid_input_ref",
+            "column values preview requires a non-empty input_column",
+            field="input_column",
+        )
+    if value_mode not in ("exact", "bounded"):
+        raise ColumnValuesPreviewError(
+            "invalid_params", "value_mode must be exact or bounded", field="value_mode"
+        )
+    return input_column.strip()
+
+
+def _surface_counts(
+    row_ids: list[int],
+    raw_values: dict[int, Any],
+    scope_row_ids: frozenset[int] | None,
+) -> tuple[Counter[str], Counter[str], int]:
+    """Each non-blank cell surface's count, its in-scope count, and the number
+    of null or blank cells."""
+    counts: Counter[str] = Counter()
+    scoped_counts: Counter[str] = Counter()
+    missing = 0
+    for row_id in row_ids:
+        raw = raw_values.get(row_id)
+        surface = "" if raw is None else str(raw)
+        if not surface.strip():
+            missing += 1
+            continue
+        counts[surface] += 1
+        if scope_row_ids is not None and row_id in scope_row_ids:
+            scoped_counts[surface] += 1
+    return counts, scoped_counts, missing
+
+
+def _scope_payload(
+    row_ids: list[int],
+    scope_row_ids: frozenset[int],
+    values: list[dict[str, Any]],
+    scoped_counts: Counter[str],
+    scoped_bins: Any,
+) -> dict[str, Any]:
+    return {
+        "total_rows": sum(1 for row_id in row_ids if row_id in scope_row_ids),
+        "values": [
+            {"value": entry["value"], "count": scoped_counts[entry["value"]]}
+            for entry in values
+        ],
+        "distribution_counts": scoped_bins,
+    }
+
+
+def resolve_column_value_counts(
+    project: Project, *, sheet_id: Any, input_columns: Any
+) -> dict[str, Any]:
+    """Whole-column distinct counts for several columns in one read snapshot.
+
+    Each count is the bounded preview's: ``distinct`` non-blank values,
+    ``omitted_rows`` cells too large to inspect, and ``list_distinct`` members
+    for a list-valued JSON column.
+    """
+    if not isinstance(input_columns, list) or not all(
+        isinstance(name, str) for name in input_columns
+    ):
+        raise ColumnValuesPreviewError(
+            "invalid_params",
+            "input_columns must be a list of column names",
+            field="input_columns",
+        )
+    with project.read_snapshot() as snapshot:
+        columns = []
+        for name in input_columns:
+            preview = _resolve_column_values_preview_snapshot(
+                snapshot,
+                sheet_id=sheet_id,
+                input_column=name,
+                limit=1,
+                value_mode="bounded",
+            )
+            list_facet = preview.get("list_facet")
+            columns.append(
+                {
+                    "input_column": preview["input_column"],
+                    "distinct": preview["distinct"],
+                    "omitted_rows": preview["omitted_rows"],
+                    "list_distinct": None
+                    if list_facet is None
+                    else list_facet["distinct"],
+                }
+            )
+    return {
+        "schema_version": COLUMN_VALUE_COUNTS_SCHEMA_VERSION,
+        "sheet_id": sheet_id,
+        "columns": columns,
+    }

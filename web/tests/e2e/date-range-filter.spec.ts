@@ -5,13 +5,13 @@ import {
   createProject,
   gridReadSelection,
   importCsv,
-  openDiscoverTab,
   openFriendlyFilterSidebar,
   openProject,
-  openToolbarOverflow,
   setColumnType,
   sheetColumns,
   uniqueName,
+  openViewsTab,
+  openFilterSidebar,
 } from './helpers';
 
 const rangeCondition = {
@@ -62,7 +62,7 @@ test('date-range filters use date columns and round-trip through views', async (
   await expect(page.getByTestId('grid')).toBeVisible({ timeout: 15_000 });
 
   // Date ranges live in the friendly sidebar alongside the other facets.
-  await openFriendlyFilterSidebar(page, importedColumns, 'published');
+  await openFriendlyFilterSidebar(page, await sheetColumns(page.request, pid, sheetId), 'published');
   await page.getByTestId('facet-range-end-published').fill('2026-03-31');
 
   const filteredResponse = page.waitForResponse((res) => {
@@ -79,13 +79,10 @@ test('date-range filters use date columns and round-trip through views', async (
       row.cells[String(titleColumn.id)],
     ),
   ).toEqual(['first-day', 'middle', 'tail']);
-  await expect(page.getByTestId('active-grid-filter')).toContainText(
-    'published between 2026-01-01 and 2026-03-31',
+  await expect(page.getByTestId('row-filter-chips')).toContainText(
+    'published 2026-01-01–2026-03-31',
   );
-  await openToolbarOverflow(page);
-  await page.getByTestId('open-views-submenu').click();
-  await page.getByTestId('views-overflow-open-panel').click();
-  await expect(page.getByTestId('views-panel')).toBeVisible();
+  await openViewsTab(page);
   await page.getByTestId('create-view').click();
   await page.getByTestId('view-name-input').fill('Q1 dates');
   const viewResponse = page.waitForResponse((res) =>
@@ -104,9 +101,9 @@ test('date-range filters use date columns and round-trip through views', async (
     const selection = gridReadSelection(new URL(res.url()), pid, sheetId);
     return selection !== null && selection.filters.length === 0;
   });
-  await page.getByTestId('clear-grid-filter').click();
+  await page.getByTestId('clear-all-filters').click();
   await clearedResponse;
-  await expect(page.getByTestId('active-grid-filter')).toBeHidden();
+  await expect(page.getByTestId('row-filter-chips')).toBeHidden();
 
   const viewApplyResponse = page.waitForResponse((res) => {
     if (res.request().method() !== 'GET') return false;
@@ -116,7 +113,7 @@ test('date-range filters use date columns and round-trip through views', async (
   const restored = await (await viewApplyResponse).json();
   expect(restored.total).toBe(3);
 
-  await openDiscoverTab(page, 'Facets');
+  await openFilterSidebar(page);
   await expect(page.getByTestId('facet-range-start-published')).toHaveValue('2026-01-01');
   await expect(page.getByTestId('facet-range-end-published')).toHaveValue('2026-03-31');
 });
@@ -137,7 +134,7 @@ test('relative date filters stay relative on the wire', async ({ page }) => {
 
   await openProject(page, pid, sheetId);
   await expect(page.getByTestId('grid')).toBeVisible({ timeout: 15_000 });
-  await openFriendlyFilterSidebar(page, importedColumns, 'published');
+  await openFriendlyFilterSidebar(page, await sheetColumns(page.request, pid, sheetId), 'published');
   const filedFacet = page.getByTestId('friendly-facet-published');
   await filedFacet.getByRole('button', { name: 'More filter options' }).click();
   await page.getByTestId('facet-advanced-operator-published').selectOption('date_relative');
@@ -154,7 +151,7 @@ test('relative date filters stay relative on the wire', async ({ page }) => {
   const response = await relativeResponse;
   expect(response.status()).toBe(200);
   expect((await response.json()).total).toBe(1);
-  await expect(page.getByTestId('active-grid-filter')).toContainText(
+  await expect(page.getByTestId('row-filter-chips')).toContainText(
     'published in the last 30 days',
   );
 });

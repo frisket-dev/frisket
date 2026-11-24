@@ -23,13 +23,13 @@ import type {
   HttpOrganizationEnvList,
   HttpOrganizationKeyList,
   HttpOrganizationProviderCatalog,
+  HttpProject,
   HttpProjectAttemptsPage,
   HttpProjectInviteCreate,
   HttpProjectLineageResponse,
   HttpProjectMemberList,
   HttpProjectMemberRemove,
   HttpProjectMemberSet,
-  HttpProjectNetworkResponse,
   HttpProjectProviderKeyCatalogResponse,
   HttpProjectRetentionResponse,
   HttpProjectSecretCatalogResponse,
@@ -55,11 +55,22 @@ import type {
 } from '../generated/openHttpContracts';
 import { isRecord } from './wireValues';
 
+export type AllowedServices = HttpProject['allowed_services'];
+export type UsageDataSharing = HttpProject['usage_data_sharing'];
+
 export interface ProjectInfo {
   id: string;
   name: string;
   description?: string | null;
   sensitive?: boolean;
+  /** Which services Frisket may use with this project's data. Absent on a
+   *  payload that does not carry it reads as All services. */
+  allowed_services?: AllowedServices;
+  /** The project's usage-data override over the workspace-wide setting;
+   *  carried by the single-project payload, not the list. */
+  usage_data_sharing?: UsageDataSharing;
+  /** The card cover's seed; null or absent derives the cover from the id. */
+  cover_seed?: string | null;
   role?: ProjectRole | null;
   /** ISO timestamp of the project bundle's last write (server: project.db
    *  mtime). Nullable for older/degenerate bundles missing project.db. */
@@ -153,6 +164,10 @@ export interface RuntimeConfig {
   plugin_management_available: boolean;
   /** Whether this deployment has a configured product-telemetry destination. */
   product_telemetry_available: boolean;
+  /** The Allowed services values this edition offers; the others are hidden. */
+  allowed_services_offered: AllowedServices[];
+  /** The Allowed services a new project starts with; All services when absent. */
+  allowed_services_default?: AllowedServices;
 }
 
 /** @see RuntimeConfig.recipe_fence_posture */
@@ -180,7 +195,6 @@ export type ProjectInviteResponse = HttpProjectInviteCreate;
 export type ProjectInvite = ProjectInviteResponse['invite'];
 
 export type ProjectRetentionPolicy = HttpProjectRetentionResponse;
-export type ProjectNetworkPolicy = HttpProjectNetworkResponse;
 
 export type ProjectRetrievalSettings = HttpProjectSettingsResponse['retrieval'];
 export type ProjectSettingsPatch = HttpProjectSettingsRequest & Record<string, unknown>;
@@ -1167,6 +1181,9 @@ export interface EngineOption {
   billable?: boolean;
   available?: boolean;
   error?: string | null;
+  /** `service_not_allowed` when the project's Allowed services refuses the
+   *  engine; such engines are dropped from the catalog before any picker. */
+  error_code?: string;
   models?: string[];
   pricing?: ExternalPricingEntry;
   /** Exact preferred target when a project composition supplies the option. */
@@ -1341,6 +1358,9 @@ export interface ActionCatalogUiHints {
   /** Host-owned param-validator declarations: param name -> validator key
    *  (server/param_validation.py). Server-truthful preflight, never JS RegExp. */
   param_validators?: Record<string, string>;
+  /** Every service the action needs is refused by the project's Allowed
+   *  services setting, so it is not offered. */
+  service_not_allowed?: boolean;
   [key: string]: unknown;
 }
 
@@ -2770,6 +2790,13 @@ export interface ColumnValuesPreview {
   /** Additive member inventory for a list-valued JSON column. `values` keeps
    * its whole-cell Resolve-authoring meaning. */
   listFacet?: ColumnListFacet | null;
+  /** Counts within a requested selection: `values` follows the order of the
+   * top-level `values`, `distributionCounts` the distribution's bins. */
+  scope?: {
+    totalRows: number;
+    values: ColumnValueCount[];
+    distributionCounts: number[] | null;
+  };
 }
 
 /** Independently paged member inventory carried alongside a whole-cell

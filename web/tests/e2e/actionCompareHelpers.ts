@@ -1,11 +1,11 @@
 import { expect, type Page } from '@playwright/test';
+import { ROW_HEIGHT } from '../../src/grid/rowHeights';
 
 const ROW_MARKER_WIDTH = 40;
 const SOURCE_WIDTH = 140;
 const VARIANT_WIDTH = 170;
 const GROUP_HEADER_HEIGHT = 28;
 const HEADER_HEIGHT = 34;
-const ROW_HEIGHT = 34;
 
 async function comparisonCellPoint(page: Page, column: number, row: number) {
   const grid = page.getByTestId('action-compare-grid');

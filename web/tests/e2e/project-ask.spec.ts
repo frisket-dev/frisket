@@ -167,7 +167,7 @@ test('Ask stays docked, keeps its draft, and reconnects to saved progress', asyn
   await expect(page.getByRole('button', { name: 'Back to previous view', exact: true })).toHaveCount(0);
   await expect(page.getByLabel('Source opened from Ask', { exact: true })).toHaveCount(0);
   await dock.getByRole('button', { name: '1 row in stories', exact: true }).click();
-  await expect(page.getByTestId('sheet-stats')).toContainText('1 row');
+  await expect(page.getByTestId('sheet-stats')).toHaveText('1 of 2 rows · 1 column');
   await page.getByTestId(`workbench-mainView-tab-${otherSheetId}`).click();
   await expect(dock.getByText('Viewing council audio', { exact: true })).toBeVisible();
   await expect(dock.getByRole('button', { name: 'Remove stories', exact: true })).toBeVisible();

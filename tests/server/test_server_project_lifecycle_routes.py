@@ -66,13 +66,14 @@ def test_project_lifecycle_routes_preserve_http_contract(tmp_path) -> None:
     created = client.post("/api/projects", json={"name": "Project Routes"})
     assert created.status_code == 200, created.text
     pid = created.json()["id"]
-    # Rebaselined 2026-07-02: the settings revamp changed workspace.create() and
-    # workspace.list() to include description and sensitive in the project payload.
     assert created.json() == {
         "id": "project-routes",
         "name": "Project Routes",
         "description": "",
         "sensitive": False,
+        "usage_data_sharing": "inherit",
+        "allowed_services": "all_services",
+        "cover_seed": None,
     }
 
     listed = client.get("/api/projects")
@@ -83,6 +84,7 @@ def test_project_lifecycle_routes_preserve_http_contract(tmp_path) -> None:
     assert listed_body[0]["name"] == "Project Routes"
     assert listed_body[0]["description"] == ""
     assert listed_body[0]["sensitive"] is False
+    assert listed_body[0]["allowed_services"] == "all_services"
     # onboard2-picker-day2-badges-v1: list rows also carry a last-modified
     # (bundle project.db mtime) and a cached pending-review count so
     # ProjectPicker can render both without opening every project's bundle.

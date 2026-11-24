@@ -1317,7 +1317,7 @@ class TestRunAction:
         sheet = seed_workspace(tmp_path / "ws", ["1"])
         backend = LocalBackend(tmp_path / "ws")
         project = backend.ws.get("demo")
-        project.set_network_policy(mode="off")
+        project.set_allowed_services("approved_services", confirm_allowed_services=None)
         action = {
             "action_id": "map.api_call",
             "scope": {"kind": "sheet_rows", "sheet_id": sheet},
@@ -1331,7 +1331,7 @@ class TestRunAction:
             "idempotency_key": "mcp-api-call-network-off@sha256:stable",
         }
 
-        with pytest.raises(ValueError, match="network_disabled"):
+        with pytest.raises(ValueError, match="service_not_allowed"):
             asyncio.run(backend.run_action("demo", action, confirmed=True))
 
         assert project.db.execute("SELECT COUNT(*) FROM runs").fetchone()[0] == 0

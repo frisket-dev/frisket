@@ -11,16 +11,16 @@ import {
   editCells,
   gridReadSelection,
   importCsv,
-  openAdvancedSortPanel,
   openCellDrawer,
   openFriendlyFilterSidebar,
   openHistory,
   openProject,
-  openToolbarOverflow,
   setColumnType,
   sheetColumns,
   uniqueName,
   type WireColumn,
+  openViewsTab,
+  setSheetSort,
 } from './helpers';
 
 const MARKER_WIDTH = 40;
@@ -36,8 +36,9 @@ function visibleWire(columns: WireColumn[], hidden: string[]): WireColumn[] {
   return columns.filter((column) => !drop.has(column.name));
 }
 
-async function addViaEndButton(page: Page, name: string, type?: string): Promise<void> {
-  await page.getByTestId('grid-add-column-button').click();
+async function addViaAddMenu(page: Page, name: string, type?: string): Promise<void> {
+  await page.getByTestId('add-menu-button').click();
+  await page.getByTestId('add-column-button').click();
   await expect(page.getByTestId('grid-add-column-popover')).toBeVisible();
   await page.getByTestId('grid-add-column-name').fill(name);
   if (type) await page.getByTestId('grid-add-column-type').selectOption(type);
@@ -104,7 +105,7 @@ test('the header "+" creates a column immediately with the typed name/type via t
   await expect(page.getByTestId('grid')).toBeVisible({ timeout: 15_000 });
   expect(await visibleColumns(page)).toEqual(['city', 'status']);
 
-  await addViaEndButton(page, 'notes', 'text');
+  await addViaAddMenu(page, 'notes', 'text');
   await expect.poll(async () => visibleColumns(page)).toEqual(['city', 'status', 'notes']);
 
   expect(columnAddActions).toHaveLength(1);
@@ -175,7 +176,7 @@ test('a column added while a catalog-driven drawer is open appears in its source
   await openFriendlyFilterSidebar(page, columns, 'city');
   await expect(page.getByTestId('friendly-facet-extra')).toHaveCount(0);
 
-  await addViaEndButton(page, 'extra', 'text');
+  await addViaAddMenu(page, 'extra', 'text');
   await expect.poll(async () => visibleColumns(page)).toContain('extra');
 
   await expect(page.getByTestId('friendly-facet-extra')).toHaveCount(1);
@@ -218,7 +219,6 @@ test('hide via caret removes the column from the grid but not from Detail; the b
   await expect.poll(() => visibleColumns(page)).toEqual(['city', 'source']);
   await expect(page.getByTestId('grid-hidden-boundary')).toBeVisible();
 
-  await openToolbarOverflow(page);
   await page.getByTestId('toolbar-show-hidden-columns').click();
   await expect.poll(() => visibleColumns(page)).toEqual(['city', 'status', 'source']);
 });
@@ -305,10 +305,7 @@ test('grid column layout: drag reorder persists as default layout and saved-view
 
   await dragHeaderBefore(page, backendColumns, 'source', 'status');
 
-  await openToolbarOverflow(page);
-  await page.getByTestId('open-views-submenu').click();
-  await page.getByTestId('views-overflow-open-panel').click();
-  await expect(page.getByTestId('views-panel')).toBeVisible();
+  await openViewsTab(page);
   await page.getByTestId('create-view').click();
   await page.getByTestId('view-name-input').fill('Status first');
   const firstViewResponse = page.waitForResponse((res) =>
@@ -328,9 +325,7 @@ test('grid column layout: drag reorder persists as default layout and saved-view
 
   await page.reload();
   await expect(page.getByTestId('grid')).toBeVisible({ timeout: 15_000 });
-  await openToolbarOverflow(page);
-  await page.getByTestId('open-views-submenu').click();
-  await page.getByTestId('views-overflow-open-panel').click();
+  await openViewsTab(page);
   await page.getByTestId('create-view').click();
   await page.getByTestId('view-name-input').fill('Still source second');
   const secondViewResponse = page.waitForResponse((res) =>
@@ -359,19 +354,14 @@ test('long filter values stay intact in queries but have a bounded summary', asy
   });
   await page.getByTestId('facet-values-body').getByRole('checkbox').first().check();
   expect((await (await response).json()).total).toBe(1);
-  const summary = page.getByTestId('active-grid-filter');
-  await expect(summary).toContainText(`${value.slice(0, 79)}…`);
-  await summary.evaluate((element) => { element.style.maxWidth = '150px'; });
-  const dimensions = await summary.locator('.active-grid-filter-label').evaluate((element) => ({
-    height: element.getBoundingClientRect().height,
-    lineHeight: Number.parseFloat(getComputedStyle(element).lineHeight),
-    totalHeight: element.scrollHeight,
-  }));
-  expect(dimensions.totalHeight).toBeGreaterThan(dimensions.height);
-  expect(dimensions.height).toBeLessThanOrEqual(dimensions.lineHeight * 3 + 1);
-  await expect(page.getByTestId('clear-grid-filter')).toBeVisible();
-  await page.getByTestId('clear-grid-filter').click();
-  await expect(summary).toHaveCount(0);
+  const chip = page.getByTestId('row-filter-chip-facet:body');
+  await expect(chip).toHaveText(`body ${value.slice(0, 23)}…`);
+  const strip = await page.getByTestId('row-filter-chips').boundingBox();
+  const chipBox = await chip.boundingBox();
+  expect(chipBox!.width).toBeLessThan(strip!.width);
+  expect(chipBox!.height).toBeLessThan(40);
+  await page.getByTestId('row-filter-chip-remove-facet:body').click();
+  await expect(chip).toHaveCount(0);
 });
 
 test('grid filter: filter rows by column value through the sheet data endpoint', async ({ page }) => {
@@ -407,14 +397,15 @@ test('grid filter: filter rows by column value through the sheet data endpoint',
       row.cells[String(statusColumn.id)],
     ),
   ).toEqual(['open', 'open']);
-  await expect(page.getByTestId('active-grid-filter')).toContainText('status');
+  await expect(page.getByTestId('row-filter-chip-facet:status')).toContainText('status open');
+  await expect(page.getByTestId('filter-badge')).toHaveText('1');
 
   const clearedResponse = page.waitForResponse((res) => {
     if (res.request().method() !== 'GET') return false;
     const selection = gridReadSelection(new URL(res.url()), pid, sheetId);
     return selection !== null && selection.filters.length === 0;
   });
-  await page.getByTestId('clear-grid-filter').click();
+  await page.getByTestId('clear-all-filters').click();
   const cleared = await (await clearedResponse).json();
   expect(cleared.total).toBe(4);
 });
@@ -436,14 +427,10 @@ test('grid sort: order rows by column through the sheet data endpoint', async ({
     gridReadSelection(new URL(res.url()), pid, sheetId)?.order,
     [{ column_id: cityId, dir }],
   );
-  await openAdvancedSortPanel(page, columns, 'city');
-  await page.getByTestId('grid-sort-column').selectOption('city');
-  await page.getByTestId('grid-sort-direction').selectOption('asc');
-
   const ascResponse = page.waitForResponse((res) => (
     res.request().method() === 'GET' && orderedBy(res, 'asc')
   ));
-  await page.getByTestId('apply-grid-sort').click();
+  await setSheetSort(page, 'city', 'asc');
   const asc = await (await ascResponse).json();
   const cityColumn = asc.columns.find((column: { name: string }) => column.name === 'city');
   expect(cityColumn).toBeTruthy();
@@ -452,13 +439,12 @@ test('grid sort: order rows by column through the sheet data endpoint', async ({
       row.cells[String(cityColumn.id)],
     ),
   ).toEqual(['Albany', 'Buffalo', 'Syracuse']);
-  await expect(page.getByTestId('active-grid-sort')).toContainText('city');
+  await expect(page.getByTestId('row-filter-chip-sort')).toContainText('Sorted by city ↑');
 
-  await page.getByTestId('grid-sort-direction').selectOption('desc');
   const descResponse = page.waitForResponse((res) => (
     res.request().method() === 'GET' && orderedBy(res, 'desc')
   ));
-  await page.getByTestId('apply-grid-sort').click();
+  await page.getByTestId('sheet-filter-sort-direction').getByRole('button', { name: 'Desc' }).click();
   const desc = await (await descResponse).json();
   expect(
     desc.rows.map((row: { cells: Record<string, unknown> }) =>
@@ -471,7 +457,7 @@ test('grid sort: order rows by column through the sheet data endpoint', async ({
     const selection = gridReadSelection(new URL(res.url()), pid, sheetId);
     return selection !== null && selection.order.length === 0;
   });
-  await page.getByTestId('clear-grid-sort').click();
+  await page.getByTestId('row-filter-chip-remove-sort').click();
   const cleared = await (await clearedResponse).json();
   expect(cleared.total).toBe(3);
 });

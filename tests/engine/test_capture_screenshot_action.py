@@ -370,10 +370,10 @@ def test_screenshot_preview_is_ephemeral_and_network_off_refuses(screenshot_clie
     assert len(polled.json()["result"]["rows"]) == len(rows)
     assert len(calls) == len(rows)
     assert set(_columns(project, sheet)) == {"url"}
-    project.set_network_policy(mode="off")
+    project.set_allowed_services("approved_services", confirm_allowed_services=None)
     refused = client.post(f"/api/projects/{pid}/actions/v1/run", json=body)
     assert refused.status_code >= 400, refused.text
-    assert "network_disabled" in refused.text
+    assert "service_not_allowed" in refused.text
     assert len(calls) == len(rows)
     assert project.db.execute("SELECT COUNT(*) FROM runs").fetchone()[0] == 0
     assert (

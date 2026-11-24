@@ -7,7 +7,9 @@ import {
   readGridDifferenceTheme,
   readExpectedColumnTheme,
   readGridTheme,
+  readRowFilterTints,
   type GridCellPalette,
+  type RowFilterTints,
 } from './gridTheme';
 
 interface GridThemeSnapshot {
@@ -16,6 +18,7 @@ interface GridThemeSnapshot {
   expectedColumnTheme: Partial<Theme>;
   gridCellPalette: GridCellPalette;
   differenceTheme: Partial<Theme>;
+  rowFilterTints: RowFilterTints;
 }
 
 function readGridThemeSnapshot(): GridThemeSnapshot {
@@ -25,6 +28,7 @@ function readGridThemeSnapshot(): GridThemeSnapshot {
     expectedColumnTheme: readExpectedColumnTheme(),
     gridCellPalette: readGridCellPalette(),
     differenceTheme: readGridDifferenceTheme(),
+    rowFilterTints: readRowFilterTints(),
   };
 }
 

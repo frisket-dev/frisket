@@ -22,7 +22,7 @@ against that target. Liveness is checked ONLY for that chosen target (the
 static choice needs no probes). A chosen-but-dead target is a
 ``no_live_target`` refusal with its remedy; an option that target cannot honor
 is a ``no_capable_target`` refusal. Resolution never walks to another venue
-because a toggle was enabled. This keeps network policy, estimates,
+because a toggle was enabled. This keeps Allowed services, estimates,
 concurrency scoping, previews, and the catalog on one deterministic target;
 a venue flip remains an explicit, separately bound choice.
 
@@ -1229,7 +1229,6 @@ def preferred_resolved_engine(
     *,
     capability: str = CAPABILITY_LLM,
     options: Mapping[str, Any] | None = None,
-    allowed_egress_classes: Collection[str] | None = None,
     directly_runnable_engines: Collection[str] = (),
 ) -> str | None:
     """Choose a ready engine through the same route policy as execution.
@@ -1241,11 +1240,6 @@ def preferred_resolved_engine(
     rows: list[tuple[int, int, str]] = []
     direct_rows: list[tuple[int, str]] = []
     direct = frozenset(directly_runnable_engines)
-    allowed = (
-        frozenset(allowed_egress_classes)
-        if allowed_egress_classes is not None
-        else None
-    )
     for index, engine in enumerate(engines):
         outcome = resolve(
             ResolutionRequest(
@@ -1257,10 +1251,6 @@ def preferred_resolved_engine(
             composition,
         )
         if isinstance(outcome, Refusal):
-            if engine in direct:
-                direct_rows.append((index, engine))
-            continue
-        if allowed is not None and outcome.target.egress_class not in allowed:
             if engine in direct:
                 direct_rows.append((index, engine))
             continue

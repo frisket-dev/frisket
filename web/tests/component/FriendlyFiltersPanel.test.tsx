@@ -113,6 +113,10 @@ function mockFacets() {
   });
 }
 
+function currentBar(histogram: Element, index: number): Element | null {
+  return histogram.children[index]?.querySelector('.friendly-histogram-current') ?? null;
+}
+
 describe('FriendlyFiltersPanel', () => {
   it('shows an honest empty state when no sheet is open', () => {
     render(<FriendlyFiltersPanel sheets={[SHEET]} activeSheetId={null} />);
@@ -132,8 +136,6 @@ describe('FriendlyFiltersPanel', () => {
     expect(await screen.findByTestId('facet-check-status-open')).toBeDisabled();
     expect(screen.getAllByRole('slider')).not.toHaveLength(0);
     for (const slider of screen.getAllByRole('slider')) expect(slider).toBeDisabled();
-    expect(screen.getByRole('button', { name: 'Clear all' })).toBeDisabled();
-    expect(screen.getByTestId('facets-clear-status')).toBeDisabled();
     expect(
       within(screen.getByTestId('friendly-facet-status'))
         .getByRole('button', { name: 'Clear status filter' }),
@@ -212,7 +214,7 @@ describe('FriendlyFiltersPanel', () => {
     expect(onApply).toHaveBeenCalledWith({ status: { eq: 'small exact value' } });
   });
 
-  it('clears one column from either affordance without widening the others', async () => {
+  it('clears one column from its card without widening the others or dropping its scoped search', async () => {
     mockFacets();
     const onApply = vi.fn();
 
@@ -220,20 +222,20 @@ describe('FriendlyFiltersPanel', () => {
       <FriendlyFiltersPanel
         sheets={[SHEET]}
         activeSheetId="7"
-        gridFilter={{ status: { in: ['open', 'closed'] }, amount: { between: { start: '25', end: '75' } } }}
+        gridFilter={{
+          status: { in: ['open', 'closed'], contains: 'clo' },
+          amount: { between: { start: '25', end: '75' } },
+        }}
         onApplyFilterSpec={onApply}
       />,
     );
 
-    expect(await screen.findAllByTestId('facets-active-filter')).toHaveLength(2);
-    const facetStack = screen.getByTestId('friendly-filters-panel');
-    const activeFilters = screen.getByTestId('facets-active-filters');
-    expect(facetStack.nextElementSibling).toBe(activeFilters);
-    expect(activeFilters).toHaveTextContent('status is open or closed');
-    fireEvent.click(
-      within(activeFilters).getByRole('button', { name: 'Clear status filter' }),
-    );
-    expect(onApply).toHaveBeenCalledWith({ amount: { between: { start: '25', end: '75' } } });
+    const statusFacet = await screen.findByTestId('friendly-facet-status');
+    fireEvent.click(within(statusFacet).getByRole('button', { name: 'Clear status filter' }));
+    expect(onApply).toHaveBeenCalledWith({
+      status: { contains: 'clo' },
+      amount: { between: { start: '25', end: '75' } },
+    });
 
     onApply.mockClear();
     const amountFacet = screen.getByTestId('friendly-facet-amount');
@@ -243,7 +245,86 @@ describe('FriendlyFiltersPanel', () => {
       within(amountFacet).getByRole('button', { name: 'Clear amount filter' }),
     );
     expect(amountToggle).toHaveAttribute('aria-expanded', 'true');
-    expect(onApply).toHaveBeenCalledWith({ status: { in: ['open', 'closed'] } });
+    expect(onApply).toHaveBeenCalledWith({ status: { in: ['open', 'closed'], contains: 'clo' } });
+  });
+
+  it('counts each facet within every other condition, leaving out its own, limit and order', async () => {
+    columnValuesPreview.mockImplementation(async (input) => valuesPreview(input.inputColumn, input.inputColumn === 'status'
+      ? { scope: { totalRows: 3, values: [{ value: 'open', count: 3 }, { value: 'closed', count: 0 }], distributionCounts: null } }
+      : {}));
+    render(
+      <FriendlyFiltersPanel
+        sheets={[SHEET]}
+        activeSheetId="7"
+        gridFilter={{ status: { eq: 'open' }, region: { eq: 'north' } }}
+        currentSelection={{
+          scope: { kind: 'sheet', sheet_id: 7 },
+          filters: [
+            { column_id: 11, condition: { eq: 'open', contains: 'op' } },
+            { column_id: 12, condition: { eq: 'north' } },
+          ],
+          order: [{ column_id: 13, dir: 'desc' }],
+          limit: 3,
+          search: { text: 'budget' },
+        }}
+        onApplyFilterSpec={() => {}}
+      />,
+    );
+
+    const status = within(screen.getByTestId('friendly-facet-status'));
+    await waitFor(() => expect(status.getByTestId('facet-check-status-open').closest('.friendly-checkbox-row')).toHaveTextContent('3'));
+    expect(columnValuesPreview).toHaveBeenCalledWith(expect.objectContaining({
+      inputColumn: 'status',
+      selection: {
+        scope: { kind: 'sheet', sheet_id: 7 },
+        filters: [
+          { column_id: 11, condition: { contains: 'op' } },
+          { column_id: 12, condition: { eq: 'north' } },
+        ],
+        order: [],
+        limit: null,
+        search: { text: 'budget' },
+      },
+    }));
+    const closedRow = status.getByTestId('facet-check-status-closed').closest('.friendly-checkbox-row');
+    expect(closedRow).toHaveAttribute('data-empty', 'true');
+    expect(closedRow).toHaveTextContent('0');
+  });
+
+  it('draws the full sheet faintly behind the current results in a range histogram', async () => {
+    columnValuesPreview.mockImplementation(async (input) => valuesPreview(input.inputColumn, input.inputColumn === 'amount'
+      ? {
+          distribution: {
+            kind: 'number', min: 10, max: 100,
+            bins: [{ start: 10, end: 55, count: 40 }, { start: 55, end: 100, count: 60 }],
+          },
+          scope: { totalRows: 5, values: [], distributionCounts: [0, 5] },
+        }
+      : {}));
+    render(<FriendlyFiltersPanel sheets={[SHEET]} activeSheetId="7" onApplyFilterSpec={() => {}}
+      currentSelection={{ scope: { kind: 'sheet', sheet_id: 7 }, filters: [], order: [], limit: null }} />);
+    const amount = screen.getByTestId('friendly-facet-amount');
+    await waitFor(() => expect(amount.querySelectorAll('.friendly-histogram-bin')).toHaveLength(2));
+    const bins = amount.querySelectorAll('.friendly-histogram-bin');
+    expect(bins[0].querySelector('.friendly-histogram-ghost')).toHaveStyle({ height: `${(40 / 60) * 100}%` });
+    expect(bins[0].querySelector('.friendly-histogram-current')).toHaveStyle({ height: '0px' });
+    expect(bins[1].getAttribute('title')).toBe('55 – 100: 5 of 60');
+  });
+
+  it('opens and marks the facet a chip or column menu asked for', async () => {
+    mockFacets();
+    render(<FriendlyFiltersPanel sheets={[SHEET]} activeSheetId="7" onApplyFilterSpec={() => {}} focusFacet="mentions" />);
+    const mentions = screen.getByTestId('friendly-facet-mentions');
+    expect(mentions).toHaveAttribute('data-focused', 'true');
+    expect(within(mentions).getByTestId('facet-header-mentions')).toHaveAttribute('aria-expanded', 'true');
+  });
+
+  it('shows no card for a search-only column', async () => {
+    mockFacets();
+    render(<FriendlyFiltersPanel sheets={[SHEET]} activeSheetId="7" onApplyFilterSpec={() => {}}
+      hiddenFacetColumns={new Set(['region'])} />);
+    expect(await screen.findByTestId('friendly-facet-status')).toBeVisible();
+    expect(screen.queryByTestId('friendly-facet-region')).toBeNull();
   });
 
   it('ORs checked values within one facet and narrows again when one is unchecked', async () => {
@@ -626,23 +707,7 @@ describe('FriendlyFiltersPanel', () => {
         onApplyFilterSpec={onApply}
       />,
     );
-    expect(screen.getByTestId('facets-active-filters')).toHaveTextContent('region eq closed-late');
-
-    fireEvent.click(within(region).getByRole('button', { name: 'Add “late” filter' }));
-    expect(onApply).toHaveBeenLastCalledWith({
-      region: { contains: 'late' },
-      status: { eq: 'open' },
-    });
-
-    view.rerender(
-      <FriendlyFiltersPanel
-        sheets={[SHEET]}
-        activeSheetId="7"
-        gridFilter={{ region: { contains: 'late' }, status: { eq: 'open' } }}
-        onApplyFilterSpec={onApply}
-      />,
-    );
-    expect(screen.getByTestId('facets-active-filters')).toHaveTextContent('region contains late');
+    expect(within(region).getByTestId('facet-check-region-closed-late')).toBeChecked();
   });
 
   it('refuses oversized snapshots instead of slicing or changing semantics', async () => {
@@ -668,43 +733,6 @@ describe('FriendlyFiltersPanel', () => {
       .toBeDisabled();
     expect(within(status).getByText('Maximum of 100 selected values reached.')).toBeVisible();
     expect(onApply).not.toHaveBeenCalled();
-  });
-
-  it('offers an accepted nonblank contains query even when it has no current matches', async () => {
-    columnValuesPreview.mockImplementation(async (input) => {
-      if (input.inputColumn === 'region') {
-        return valuesPreview('region', {
-          distinct: 25,
-          values: input.search ? [] : [{ value: 'region-1', count: 25 }],
-          search: input.search ?? null,
-        });
-      }
-      return valuesPreview(input.inputColumn);
-    });
-    const onApply = vi.fn();
-    render(
-      <FriendlyFiltersPanel
-        sheets={[SHEET]}
-        activeSheetId="7"
-        gridFilter={{ status: { eq: 'open' } }}
-        onApplyFilterSpec={onApply}
-      />,
-    );
-
-    const region = screen.getByTestId('friendly-facet-region');
-    fireEvent.change(await within(region).findByRole('searchbox'), {
-      target: { value: 'future' },
-    });
-    const contains = await within(region).findByRole('button', {
-      name: 'Add “future” filter',
-    });
-    expect(within(region).getByRole('button', { name: 'Select all shown' })).toBeDisabled();
-    expect(contains).toBeEnabled();
-    fireEvent.click(contains);
-    expect(onApply).toHaveBeenLastCalledWith({
-      region: { contains: 'future' },
-      status: { eq: 'open' },
-    });
   });
 
   it('searches high-cardinality values on the server', async () => {
@@ -790,11 +818,11 @@ describe('FriendlyFiltersPanel', () => {
     expect(screen.getByTestId('facet-check-region-closed-late')).toBeVisible();
     expect(
       within(screen.getByTestId('friendly-facet-region'))
-        .getByRole('button', { name: 'Add “late” filter' }),
+        .getByRole('button', { name: 'Select all shown' }),
     ).toBeEnabled();
   });
 
-  it('disables both accepted-page actions until a replacement search resolves', async () => {
+  it('disables the accepted-page action until a replacement search resolves', async () => {
     let resolveSecond!: (preview: ColumnValuesPreview) => void;
     const pendingSecond = new Promise<ColumnValuesPreview>((resolve) => {
       resolveSecond = resolve;
@@ -826,14 +854,11 @@ describe('FriendlyFiltersPanel', () => {
     const region = screen.getByTestId('friendly-facet-region');
     const search = await within(region).findByRole('searchbox');
     fireEvent.change(search, { target: { value: 'first' } });
-    const firstContains = await within(region).findByRole('button', {
-      name: 'Add “first” filter',
-    });
-    expect(firstContains).toBeEnabled();
+    await within(region).findByTestId('facet-check-region-first-result');
+    expect(within(region).getByRole('button', { name: 'Select all shown' })).toBeEnabled();
 
     fireEvent.change(search, { target: { value: 'second' } });
     expect(within(region).getByRole('button', { name: 'Select all shown' })).toBeDisabled();
-    expect(firstContains).toBeDisabled();
     await waitFor(() => {
       expect(columnValuesPreview).toHaveBeenCalledWith({
         sheetId: '7', inputColumn: 'region', valueMode: 'bounded', limit: 50, search: 'second',
@@ -841,7 +866,6 @@ describe('FriendlyFiltersPanel', () => {
     });
     expect(within(region).getByTestId('facet-values-region')).toHaveAttribute('aria-busy', 'true');
     expect(within(region).getByRole('button', { name: 'Select all shown' })).toBeDisabled();
-    expect(firstContains).toBeDisabled();
 
     await act(async () => {
       resolveSecond(valuesPreview('region', {
@@ -851,7 +875,6 @@ describe('FriendlyFiltersPanel', () => {
       }));
       await pendingSecond;
     });
-    expect(within(region).getByRole('button', { name: 'Add “second” filter' })).toBeEnabled();
     fireEvent.click(within(region).getByRole('button', { name: 'Select all shown' }));
     expect(onApply).toHaveBeenLastCalledWith({ region: { eq: 'second-result' } });
   });
@@ -904,14 +927,14 @@ describe('FriendlyFiltersPanel', () => {
     const histogram = within(amount).getByLabelText('Value distribution');
     expect(dualHandle.querySelectorAll('.friendly-range-slider-track')).toHaveLength(1);
     expect(sliders).toHaveLength(2);
-    expect(histogram.children[0]).not.toHaveAttribute('data-excluded');
-    expect(histogram.children[1]).not.toHaveAttribute('data-excluded');
+    expect(currentBar(histogram, 0)).not.toHaveAttribute('data-excluded');
+    expect(currentBar(histogram, 1)).not.toHaveAttribute('data-excluded');
 
     fireEvent.change(sliders[0], { target: { value: '10' } });
     expect(start).toHaveValue('60');
     expect(onApply).toHaveBeenLastCalledWith({ amount: { between: { start: '60', end: '100' } } });
-    expect(histogram.children[0]).toHaveAttribute('data-excluded', 'true');
-    expect(histogram.children[1]).not.toHaveAttribute('data-excluded');
+    expect(currentBar(histogram, 0)).toHaveAttribute('data-excluded', 'true');
+    expect(currentBar(histogram, 1)).not.toHaveAttribute('data-excluded');
 
     fireEvent.change(sliders[1], { target: { value: '4' } });
     expect(end).toHaveValue('60');
@@ -1018,8 +1041,8 @@ describe('FriendlyFiltersPanel', () => {
 
     fireEvent.change(sliders[0], { target: { value: String(marchFirst) } });
     expect(start).toHaveValue('2026-03-01');
-    expect(histogram.children[0]).toHaveAttribute('data-excluded', 'true');
-    expect(histogram.children[1]).not.toHaveAttribute('data-excluded');
+    expect(currentBar(histogram, 0)).toHaveAttribute('data-excluded', 'true');
+    expect(currentBar(histogram, 1)).not.toHaveAttribute('data-excluded');
   });
 
   it('uses exact text controls for integer endpoints beyond JavaScript safe range', async () => {
@@ -1070,8 +1093,8 @@ describe('FriendlyFiltersPanel', () => {
     fireEvent.change(start, { target: { value: '0' } });
     const histogram = within(screen.getByTestId('friendly-facet-identifier'))
       .getByLabelText('Value distribution');
-    expect(histogram.children[0]).toHaveAttribute('data-excluded', 'true');
-    expect(histogram.children[1]).not.toHaveAttribute('data-excluded');
+    expect(currentBar(histogram, 0)).toHaveAttribute('data-excluded', 'true');
+    expect(currentBar(histogram, 1)).not.toHaveAttribute('data-excluded');
   });
 
   it('keeps numeric slider steps finite when the raw span overflows', async () => {

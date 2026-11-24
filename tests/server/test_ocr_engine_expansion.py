@@ -427,6 +427,9 @@ def test_remote_ocr_engines_consult_project_keys_not_just_env(monkeypatch, tmp_p
         assert engines[engine_id]["ocr_options"] == {"keep_text_position": True}
 
     class _ProjectWithKeys:
+        def remote_services_refused(self):
+            return False
+
         path = tmp_path / "proj.frisket"
 
         def provider_model_keys(self):

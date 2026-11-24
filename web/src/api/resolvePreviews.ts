@@ -9,7 +9,9 @@ import type {
   ReplaceRuleMatchCount,
   ReplaceRulesPreview,
   ResolveReplaceRuleDraft,
+  ViewSelection,
 } from './types';
+import { toWireJsonObject } from './views';
 
 interface ClusterPreviewInput {
   sheetId: string;
@@ -28,6 +30,8 @@ interface ColumnValuesPreviewInput {
   limit?: number;
   offset?: number;
   valueMode?: 'exact' | 'bounded';
+  /** Adds counts within the rows this selection keeps (`scope`). */
+  selection?: ViewSelection | null;
 }
 
 interface ReplaceRulesPreviewInput {
@@ -39,6 +43,17 @@ interface ReplaceRulesPreviewInput {
 }
 
 type ClusterPreviewWire = HttpContractSuccessResponse<'tenant.cluster_preview.post'>;
+type ColumnValueCountsWire =
+  HttpContractSuccessResponse<'tenant.column_value_counts.post'>;
+
+/** One column's whole-column counts, as facet eligibility reads them. */
+interface ColumnValueCounts {
+  inputColumn: string;
+  distinct: number;
+  omittedRows: number;
+  listDistinct: number | null;
+}
+
 type ColumnValuesPreviewWire =
   HttpContractSuccessResponse<'tenant.column_values_preview.post'>;
 type ReplaceRulesPreviewWire =
@@ -168,6 +183,13 @@ function columnValuesResult(wire: ColumnValuesPreviewWire): ColumnValuesPreview 
     ...(typeof wire.inventory_complete === 'boolean' ? { inventoryComplete: wire.inventory_complete } : {}),
     ...(typeof wire.omitted_rows === 'number' ? { omittedRows: wire.omitted_rows } : {}),
     search: wire.search,
+    ...(wire.scope ? {
+      scope: {
+        totalRows: wire.scope.total_rows,
+        values: wire.scope.values.map((value): ColumnValueCount => ({ value: value.value, count: value.count })),
+        distributionCounts: wire.scope.distribution_counts,
+      },
+    } : {}),
     // Keep the browser shape backwards-compatible with servers that predate
     // this additive wire field. A supplied but invalid facet remains explicit
     // as null, so consumers never render a partial set of choices.
@@ -279,10 +301,35 @@ export function createResolvePreviewsApi(
             ...(input.limit != null ? { limit: input.limit } : {}),
             ...(input.offset != null ? { offset: input.offset } : {}),
             ...(input.valueMode != null ? { value_mode: input.valueMode } : {}),
+            ...(input.selection ? { selection: toWireJsonObject(input.selection) } : {}),
           },
           signal: options.signal,
         },
         columnValuesResult,
+      );
+    },
+
+    /** Whole-column distinct counts for several columns in one request
+     *  (POST /column-values/v1/counts). */
+    async columnValueCounts(
+      input: { sheetId: string; inputColumns: string[] },
+      options: RequestOptions = {},
+    ): Promise<{ columns: ColumnValueCounts[] }> {
+      return httpContract(
+        'tenant.column_value_counts.post',
+        {
+          pathParams: { pid: projectId },
+          body: { sheet_id: Number(input.sheetId), input_columns: input.inputColumns },
+          signal: options.signal,
+        },
+        (wire: ColumnValueCountsWire) => ({
+          columns: wire.columns.map((column) => ({
+            inputColumn: column.input_column,
+            distinct: column.distinct,
+            omittedRows: column.omitted_rows,
+            listDistinct: column.list_distinct,
+          })),
+        }),
       );
     },
 

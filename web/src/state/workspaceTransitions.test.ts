@@ -298,8 +298,6 @@ describe('gridViewStore + selection/detail stores — cross-domain transaction p
     const sort: GridSortSpec = [{ column: 'name', dir: 'asc' }];
     // = production's applyGridSortForColumn, via applyGridSortTransition.
     applyGridSortTransition({ gridView, detail, selection }, 's1', {
-      column: 'name',
-      direction: 'asc',
       sort,
     });
 
@@ -377,8 +375,6 @@ describe('gridViewStore + selection/detail stores — cross-domain transaction p
       sheetId: 's1',
       filter: { status: { eq: 'open' } },
       sort: null,
-      draftSortColumn: '',
-      draftSortDirection: 'asc',
       columns: ['status'],
       hiddenColumns: [],
       columnGroupSpecs: [],

@@ -124,6 +124,12 @@ class TestLocalServerRuntimeConfig:
             "plugins_available": True,
             "plugin_management_available": True,
             "product_telemetry_available": True,
+            "allowed_services_default": "all_services",
+            "allowed_services_offered": [
+                "this_machine_only",
+                "approved_services",
+                "all_services",
+            ],
         }
 
     def test_reflects_an_injected_router_in_a_live_call_capable_mode(self, tmp_path):
@@ -151,6 +157,12 @@ class TestLocalServerRuntimeConfig:
             "plugins_available": True,
             "plugin_management_available": True,
             "product_telemetry_available": True,
+            "allowed_services_default": "all_services",
+            "allowed_services_offered": [
+                "this_machine_only",
+                "approved_services",
+                "all_services",
+            ],
         }
 
     def test_config_route_precedes_health_route_naming_and_is_getonly(self, tmp_path):

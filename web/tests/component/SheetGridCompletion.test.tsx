@@ -51,7 +51,7 @@ it('keeps streamed results, canvas, selection and scroll visible while completio
     targetColumnId: 'answer', status: 'running', completedRows: 1, totalRows: 1, failedRows: 0, costSoFar: 0,
   };
   const props = {
-    sheet, rowHeight: 32, wrapText: false, columnGroupsStorageScope: 'completion-grid',
+    sheet, wrapText: false, columnGroupsStorageScope: 'completion-grid',
     onRowOpen: vi.fn(), onColumnOpen: vi.fn(), onCellEdit: vi.fn(),
   };
   const view = render(<SheetGrid {...props} dataVersion={0} liveRun={liveRun} />);
@@ -96,7 +96,7 @@ it('retains visible values but blocks stale edits while a newly revealed column 
     .mockImplementation(() => projection);
   const edit = vi.fn().mockResolvedValue(undefined);
   const props = {
-    sheet: projectedSheet, dataVersion: 0, liveRun: null, rowHeight: 32, wrapText: false,
+    sheet: projectedSheet, dataVersion: 0, liveRun: null, wrapText: false,
     columnGroupsStorageScope: 'completion-grid', onRowOpen: vi.fn(), onColumnOpen: vi.fn(), onCellEdit: edit,
   };
   const view = render(<SheetGrid {...props} hiddenColumnNames={['Hidden value']} />);

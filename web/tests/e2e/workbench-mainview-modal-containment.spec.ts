@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { listSheets, openProject, openToolbarOverflow, projectIdByName } from './helpers';
+import { listSheets, openProject, projectIdByName, openReceipts } from './helpers';
 
 let pid: string;
 
@@ -28,8 +28,7 @@ test('mainView and modalOrPeek expose serializable containment metadata', async 
   await expect(modalLayout).toHaveAttribute('data-renderer', 'ResolvedWorkbenchLayoutRendererV1');
   await expect(modalLayout).toHaveAttribute('data-contribution-ids', /frisket\.core\.panel\.provenance/);
 
-  await openToolbarOverflow(page);
-  await page.getByTestId('open-provenance-manifest').click();
+  await openReceipts(page);
   const provenance = page.getByTestId('workbench-contribution-frisket-core-panel-provenance');
   await expect(provenance).toBeVisible();
   await expect(provenance).toHaveAttribute('data-host', 'modalOrPeek');

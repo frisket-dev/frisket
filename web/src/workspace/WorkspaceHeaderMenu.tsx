@@ -11,7 +11,9 @@ import { GridColumnHeaderMenu } from './gridMenus';
 import { useGridViewHandle } from '../bind/useGridViewHandle';
 import { useActionCatalogHandle } from '../bind/useActionCatalogHandle';
 import { useSelector } from '../bind/useSelector';
-import { useMainViewModel, useWorkspaceShell, useRun } from './WorkspaceContext';
+import { useCurrentViewSelection } from '../bind/useCurrentViewSelection';
+import { facetCondition, isFacetColumn, searchOf, withColumnContains, withColumnFacet } from './rowFiltering';
+import { useMainViewModel, useRun } from './WorkspaceContext';
 
 export function WorkspaceHeaderMenuSlot() {
   const {
@@ -19,7 +21,8 @@ export function WorkspaceHeaderMenuSlot() {
     activeFrozenColumnCount,
     applyGridSortForColumn,
     changeFrozenColumnCount,
-    clearGridFilter,
+    applyGridFilterSpec,
+    applyRowSearch,
     clearGridSort,
     closeHeaderMenu,
     headerMenuActiveFilter,
@@ -43,10 +46,12 @@ export function WorkspaceHeaderMenuSlot() {
     visibleOrderedColumns,
     loadActionRunEntry,
     compareActionRun,
+    facetEligibility,
   } = useMainViewModel();
-  const { openDiscover } = useWorkspaceShell();
   const run = useRun();
   const gridView = useGridViewHandle();
+  const activeFilter = useSelector(gridView.store, (state) => state.applied.filter);
+  const selection = useCurrentViewSelection(sheet);
   const actionCatalog = useActionCatalogHandle();
   const columnTablesExportEntry = useSelector(actionCatalog.store, (state) => (
     state.status === 'ready'
@@ -121,6 +126,18 @@ export function WorkspaceHeaderMenuSlot() {
     [columnTablesExportEntry, columnTablesPicker, sheet, startRun],
   );
 
+  const menuColumn = visibleHeaderMenu?.column ?? null;
+  const ensureFacetEligibility = facetEligibility.ensure;
+  const menuOpen = Boolean(visibleHeaderMenu);
+  useEffect(() => {
+    if (menuOpen) ensureFacetEligibility();
+  }, [ensureFacetEligibility, menuOpen]);
+  const facetColumn = menuColumn ? isFacetColumn(menuColumn) && !facetEligibility.searchOnly.has(menuColumn.name) : false;
+  const search = searchOf({ selection, filter: activeFilter });
+  const columnCondition = menuColumn ? activeFilter?.[menuColumn.name] : undefined;
+  const columnFiltered = facetCondition(columnCondition) !== null
+    || typeof columnCondition?.contains === 'string';
+
   return (
 <>
               {visibleHeaderMenu && (
@@ -129,7 +146,8 @@ export function WorkspaceHeaderMenuSlot() {
                   actionRunEntry={actionRunEntry}
                   onCompareActionRun={anchor => { closeHeaderMenu(); compareActionRun(anchor); }}
                   activeSort={headerMenuActiveSort}
-                  activeFilter={headerMenuActiveFilter}
+                  activeFilter={columnFiltered ? headerMenuActiveFilter : null}
+                  filterLabel={facetColumn ? 'Filter…' : `Search in ${visibleHeaderMenu.column.name}…`}
                   onSort={(direction) => {
                     applyGridSortForColumn(visibleHeaderMenu.column.name, direction);
                     closeHeaderMenu();
@@ -139,21 +157,22 @@ export function WorkspaceHeaderMenuSlot() {
                     closeHeaderMenu();
                   }}
                   onFilter={() => {
-                    if (sheet) {
-                      gridView.setInlineFilterColumn(sheet.id, visibleHeaderMenu.column.name);
+                    const name = visibleHeaderMenu.column.name;
+                    if (facetColumn) {
+                      gridView.openSidebar('filter', { facet: name });
+                    } else {
+                      gridView.openSidebar('filter', { search: true, scope: name });
+                      // The search moves here only when this column holds no other contains.
+                      const ownContains = typeof activeFilter?.[name]?.contains === 'string';
+                      if (search.text && sheet && (!ownContains || search.scope === name)) {
+                        applyRowSearch({ text: search.text, scope: name }, sheet.id);
+                      }
                     }
                     closeHeaderMenu();
                   }}
                   onClearFilter={() => {
-                    if (headerMenuActiveFilter) clearGridFilter();
-                    closeHeaderMenu();
-                  }}
-                  onOpenFilterSidebar={() => {
-                    openDiscover('Facets');
-                    closeHeaderMenu();
-                  }}
-                  onAdvancedSort={() => {
-                    gridView.setSortPanelOpen(true);
+                    const name = visibleHeaderMenu.column.name;
+                    applyGridFilterSpec(withColumnContains(withColumnFacet(activeFilter, name, null), name, null));
                     closeHeaderMenu();
                   }}
                   columnActions={columnActions}

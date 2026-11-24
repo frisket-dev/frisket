@@ -3,51 +3,36 @@
 // state/workspaceTransitions.test.ts, not this file.
 
 import { describe, expect, it } from 'vitest';
-import {
-  createGridViewStore,
-  selectInlineFilterColumn,
-  selectInlineFilterOpen,
-} from './gridViewStore';
+import { createGridViewStore } from './gridViewStore';
 import type { GridFilterSpec, GridSortSpec } from '../api/open';
 
 describe('createGridViewStore — unit', () => {
   it('starts with the same defaults createWorkspaceUiState used for the grid slice', () => {
     const { store } = createGridViewStore();
     const s = store.get();
-    expect(s.draft).toEqual({
-      sortColumn: '',
-      sortDirection: 'asc',
-    });
     expect(s.applied).toEqual({ filter: null, sort: null, filterValueLabel: null });
-    expect(s.sortPanelOpen).toBe(false);
+    expect(s.sidebar).toEqual({ open: false, tab: 'filter', focusFacet: null, focusSearch: 0, searchScope: 'all' });
     expect(s.columnOrderBySheet).toEqual({});
     expect(s.frozenColumnCountBySheet).toEqual({});
     expect(s.hiddenColumnsBySheet).toEqual({});
     expect(s.columnGroupSpecs).toEqual([]);
     expect(s.columnGroupsVersion).toBe(0);
-    expect(s.rowHeight).toBe(34);
     expect(s.wrapText).toBe(false);
     expect(s.activeViewId).toBeNull();
-    expect(s.inlineFilter).toEqual({ sheetId: '', open: false, column: '' });
   });
 
-  it('hydrates every persisted row-height choice and falls back for unsupported values', () => {
+  it('hydrates the persisted wrap preference', () => {
     try {
-      for (const rowHeight of [26, 34, 48, 68, 96]) {
-        localStorage.setItem('frisket:row-height', String(rowHeight));
-        expect(createGridViewStore().store.get().rowHeight).toBe(rowHeight);
-      }
-
-      localStorage.setItem('frisket:row-height', '42');
-      expect(createGridViewStore().store.get().rowHeight).toBe(34);
+      localStorage.setItem('frisket:wrap-text', '1');
+      expect(createGridViewStore().store.get().wrapText).toBe(true);
     } finally {
-      localStorage.removeItem('frisket:row-height');
+      localStorage.removeItem('frisket:wrap-text');
     }
   });
 
   it('applyFilter updates applied.filter, leaving sort untouched', () => {
     const { store, applySort, applyFilter } = createGridViewStore();
-    applySort({ column: 'name', direction: 'desc', sort: [{ column: 'name', dir: 'desc' }] });
+    applySort({ sort: [{ column: 'name', dir: 'desc' }] });
     const filter: GridFilterSpec = { status: { eq: 'open' } };
     applyFilter({ filter });
 
@@ -55,15 +40,14 @@ describe('createGridViewStore — unit', () => {
     expect(s.applied.filter).toEqual(filter);
     // Sort from the earlier applySort call is untouched.
     expect(s.applied.sort).toEqual([{ column: 'name', dir: 'desc' }]);
-    expect(s.draft.sortColumn).toBe('name');
   });
 
-  it('applySort updates draft sort fields and applied.sort, leaving filter untouched', () => {
+  it('applySort updates applied.sort, leaving filter untouched', () => {
     const { store, applyFilter, applySort } = createGridViewStore();
     const filter: GridFilterSpec = { status: { eq: 'open' } };
     applyFilter({ filter });
     const sort: GridSortSpec = [{ column: 'name', dir: 'asc' }];
-    applySort({ column: 'name', direction: 'asc', sort });
+    applySort({ sort });
 
     const s = store.get();
     expect(s.applied.sort).toEqual(sort);
@@ -125,8 +109,6 @@ describe('createGridViewStore — unit', () => {
       sheetId: 'sheet-1',
       filter: acmeGroupFilter,
       sort: null,
-      draftSortColumn: '',
-      draftSortDirection: 'asc',
       columns: ['entities'],
       hiddenColumns: [],
       columnGroupSpecs: [],
@@ -151,21 +133,18 @@ describe('createGridViewStore — unit', () => {
 
   it('clearSort clears only applied.sort', () => {
     const { store, applySort, clearSort } = createGridViewStore();
-    applySort({ column: 'name', direction: 'asc', sort: [{ column: 'name', dir: 'asc' }] });
+    applySort({ sort: [{ column: 'name', dir: 'asc' }] });
     clearSort();
     expect(store.get().applied.sort).toBeNull();
-    expect(store.get().draft.sortColumn).toBe('name'); // unchanged
   });
 
-  it('applyViewGrid replaces sort draft and applied state, keys columnOrderBySheet by sheetId, and bumps columnGroupsVersion', () => {
+  it('applyViewGrid replaces applied state, keys columnOrderBySheet by sheetId, and bumps columnGroupsVersion', () => {
     const { store, applyViewGrid } = createGridViewStore();
     applyViewGrid({
       viewId: 1,
       sheetId: 'sheet-1',
       filter: { status: { eq: 'open' } },
       sort: [{ column: 'name', dir: 'asc' }],
-      draftSortColumn: 'name',
-      draftSortDirection: 'asc',
       columns: ['name', 'status'],
       hiddenColumns: [],
       columnGroupSpecs: [],
@@ -181,8 +160,6 @@ describe('createGridViewStore — unit', () => {
       sheetId: 'sheet-2',
       filter: null,
       sort: null,
-      draftSortColumn: '',
-      draftSortDirection: 'asc',
       columns: ['id'],
       hiddenColumns: [],
       columnGroupSpecs: [],
@@ -207,8 +184,6 @@ describe('createGridViewStore — unit', () => {
       sheetId: 'sheet-1',
       filter: { status: { eq: 'open' } },
       sort: null,
-      draftSortColumn: '',
-      draftSortDirection: 'asc',
       columns: ['name'],
       hiddenColumns: ['later'],
       columnGroupSpecs: [],
@@ -233,73 +208,55 @@ describe('createGridViewStore — unit', () => {
     expect(store.get().hiddenColumnsBySheet['sheet-1']).toEqual([]);
   });
 
-  it('resetForSheetChange resets the sort panel, applied state, and sort direction but not sort column', () => {
-    const { store, applyFilter, applySort, setSortPanelOpen, resetForSheetChange } =
+  it('resetForSheetChange clears the applied state but keeps the sidebar open', () => {
+    const { store, applyFilter, applySort, openSidebar, resetForSheetChange } =
       createGridViewStore();
     applyFilter({ filter: { status: { between: { start: '1', end: '2' } } } });
-    applySort({ column: 'name', direction: 'desc', sort: [{ column: 'name', dir: 'desc' }] });
-    setSortPanelOpen(true);
+    applySort({ sort: [{ column: 'name', dir: 'desc' }] });
+    openSidebar('filter');
 
     resetForSheetChange();
 
     const s = store.get();
-    expect(s.sortPanelOpen).toBe(false);
     expect(s.applied).toEqual({ filter: null, sort: null, filterValueLabel: null });
-    expect(s.draft.sortDirection).toBe('asc');
-    expect(s.draft.sortColumn).toBe('name');
+    expect(s.sidebar.open).toBe(true);
   });
 
-
-  it('setSortPanelOpen bails (reference-equal) on a no-op set', () => {
-    const { store, setSortPanelOpen } = createGridViewStore();
-    const before = store.get();
-    setSortPanelOpen(false); // already false
-    expect(store.get()).toBe(before); // createStore's Object.is bail — no new reference
-    setSortPanelOpen(true);
-    expect(store.get()).not.toBe(before);
-  });
-
-  it('toggleWrap bumps rowHeight to WRAP_ROW_HEIGHT when enabling wrap on a short row, and never shrinks it back on disable', () => {
-    const { store, setRowHeight, toggleWrap } = createGridViewStore();
-    setRowHeight(26); // 'Compact' — below WRAP_ROW_HEIGHT (68)
+  it('toggleWrap flips the wrap preference', () => {
+    const { store, toggleWrap } = createGridViewStore();
     toggleWrap();
     expect(store.get().wrapText).toBe(true);
-    expect(store.get().rowHeight).toBe(68);
-
-    toggleWrap(); // disable — row height is NOT restored to 26
-    expect(store.get().wrapText).toBe(false);
-    expect(store.get().rowHeight).toBe(68);
-  });
-
-  it('toggleWrap does not change rowHeight when it is already >= WRAP_ROW_HEIGHT', () => {
-    const { store, setRowHeight, toggleWrap } = createGridViewStore();
-    setRowHeight(96);
     toggleWrap();
-    expect(store.get().rowHeight).toBe(96);
+    expect(store.get().wrapText).toBe(false);
   });
 
-  describe('inline filter row', () => {
-    it('setInlineFilterColumn opens the row for the given sheet+column', () => {
-      const { store, setInlineFilterColumn } = createGridViewStore();
-      setInlineFilterColumn('s1', 'colA');
-      expect(store.get().inlineFilter).toEqual({ sheetId: 's1', open: true, column: 'colA' });
+  describe('filter sidebar', () => {
+    it('openSidebar focuses a facet, requests search focus and carries a scope', () => {
+      const { store, openSidebar } = createGridViewStore();
+      openSidebar('filter', { facet: 'filename' });
+      expect(store.get().sidebar).toMatchObject({ open: true, tab: 'filter', focusFacet: 'filename', focusSearch: 0 });
+      openSidebar('filter', { search: true, scope: 'ocr_text' });
+      expect(store.get().sidebar).toMatchObject({ focusFacet: null, focusSearch: 1, searchScope: 'ocr_text' });
     });
 
-    it('closeInlineFilter closes the row but keeps the sheetId/column (the applied filter survives)', () => {
-      const { store, setInlineFilterColumn, closeInlineFilter } = createGridViewStore();
-      setInlineFilterColumn('s1', 'colA');
-      closeInlineFilter();
-      expect(store.get().inlineFilter).toEqual({ sheetId: 's1', open: false, column: 'colA' });
+    it('setSidebarTab clears the focused facet and bails on a no-op', () => {
+      const { store, openSidebar, setSidebarTab } = createGridViewStore();
+      openSidebar('filter', { facet: 'size' });
+      setSidebarTab('views');
+      expect(store.get().sidebar).toMatchObject({ tab: 'views', focusFacet: null });
+      const before = store.get();
+      setSidebarTab('views');
+      expect(store.get()).toBe(before);
     });
 
-    it('sheet-scoped derivation masks state retained across a sheet reset for another sheet', () => {
-      const { store, setInlineFilterColumn, resetForSheetChange } = createGridViewStore();
-      setInlineFilterColumn('s1', 'colA');
-      resetForSheetChange();
-      expect(selectInlineFilterOpen(store.get(), 's1')).toBe(true);
-      expect(selectInlineFilterColumn(store.get(), 's1')).toBe('colA');
-      expect(selectInlineFilterOpen(store.get(), 's2')).toBe(false);
-      expect(selectInlineFilterColumn(store.get(), 's2')).toBe('');
+    it('closeSidebar closes and bails when already closed', () => {
+      const { store, openSidebar, closeSidebar } = createGridViewStore();
+      const initial = store.get();
+      closeSidebar();
+      expect(store.get()).toBe(initial);
+      openSidebar('views');
+      closeSidebar();
+      expect(store.get().sidebar).toMatchObject({ open: false, tab: 'views' });
     });
   });
 

@@ -178,6 +178,12 @@ export const HTTP_CONTRACT_ARTIFACT = {
       "request": null
     },
     {
+      "id": "outer.list_organization_approved_endpoints.get",
+      "method": "GET",
+      "path": "/api/organization/approved-endpoints",
+      "request": null
+    },
+    {
       "id": "outer.list_organization_env_vars.get",
       "method": "GET",
       "path": "/api/organization/env",
@@ -256,6 +262,15 @@ export const HTTP_CONTRACT_ARTIFACT = {
       "request": null
     },
     {
+      "id": "outer.replace_organization_approved_endpoints.put",
+      "method": "PUT",
+      "path": "/api/organization/approved-endpoints",
+      "request": {
+        "mediaType": "application/json",
+        "required": true
+      }
+    },
+    {
       "id": "outer.request_link.post",
       "method": "POST",
       "path": "/auth/request-link",
@@ -331,9 +346,9 @@ export const HTTP_CONTRACT_ARTIFACT = {
       }
     },
     {
-      "id": "outer.update_project_network.patch",
+      "id": "outer.update_project_usage_data_sharing.patch",
       "method": "PATCH",
-      "path": "/api/projects/{pid}/network",
+      "path": "/api/projects/{pid}/usage-data-sharing",
       "request": {
         "mediaType": "application/json",
         "required": true
@@ -566,6 +581,15 @@ export const HTTP_CONTRACT_ARTIFACT = {
       "method": "GET",
       "path": "/api/projects/{pid}/sheets/{sheet_id}/columns/{column_id}/stats",
       "request": null
+    },
+    {
+      "id": "tenant.column_value_counts.post",
+      "method": "POST",
+      "path": "/api/projects/{pid}/column-values/v1/counts",
+      "request": {
+        "mediaType": "application/json",
+        "required": true
+      }
     },
     {
       "id": "tenant.column_values_preview.post",
@@ -1303,12 +1327,6 @@ export const HTTP_CONTRACT_ARTIFACT = {
       "request": null
     },
     {
-      "id": "tenant.get_project_network.get",
-      "method": "GET",
-      "path": "/api/projects/{pid}/network",
-      "request": null
-    },
-    {
       "id": "tenant.get_project_provider_keys.get",
       "method": "GET",
       "path": "/api/projects/{pid}/provider-keys",
@@ -1441,6 +1459,12 @@ export const HTTP_CONTRACT_ARTIFACT = {
       "id": "tenant.list_alerts.get",
       "method": "GET",
       "path": "/api/projects/{pid}/alerts",
+      "request": null
+    },
+    {
+      "id": "tenant.list_approved_endpoints.get",
+      "method": "GET",
+      "path": "/api/approved-endpoints",
       "request": null
     },
     {
@@ -1906,6 +1930,15 @@ export const HTTP_CONTRACT_ARTIFACT = {
       "request": null
     },
     {
+      "id": "tenant.replace_approved_endpoints.put",
+      "method": "PUT",
+      "path": "/api/approved-endpoints",
+      "request": {
+        "mediaType": "application/json",
+        "required": true
+      }
+    },
+    {
       "id": "tenant.replace_rules_preview.post",
       "method": "POST",
       "path": "/api/projects/{pid}/replace-rules/v1/preview",
@@ -2323,6 +2356,15 @@ export const HTTP_CONTRACT_ARTIFACT = {
       "id": "tenant.update_project.patch",
       "method": "PATCH",
       "path": "/api/projects/{pid}",
+      "request": {
+        "mediaType": "application/json",
+        "required": true
+      }
+    },
+    {
+      "id": "tenant.update_project_allowed_services.patch",
+      "method": "PATCH",
+      "path": "/api/projects/{pid}/allowed-services",
       "request": {
         "mediaType": "application/json",
         "required": true
@@ -4330,6 +4372,27 @@ export type HttpApiTokenRevokeResponse = ({
   "revoked": (boolean);
 });
 
+type HttpApprovedEndpointList_ApprovedEndpoint = ({
+  "host": (string);
+  "label"?: (string);
+  "port"?: (((number)) | ((null)));
+});
+
+export type HttpApprovedEndpointList = ({
+  "editable": (boolean);
+  "endpoints"?: (Array<(HttpApprovedEndpointList_ApprovedEndpoint)>);
+});
+
+type HttpApprovedEndpoints_ApprovedEndpoint = ({
+  "host": (string);
+  "label"?: (string);
+  "port"?: (((number)) | ((null)));
+});
+
+export type HttpApprovedEndpoints = ({
+  "endpoints"?: (Array<(HttpApprovedEndpoints_ApprovedEndpoint)>);
+});
+
 export type HttpArtifactPullRequest = ({
   "ref": (string);
   "unpinned_acknowledged"?: (boolean);
@@ -5811,11 +5874,35 @@ type HttpColumnTypeList_JsonValue = JsonValue;
 
 export type HttpColumnTypeList = (Array<(HttpColumnTypeList_ColumnTypeEntry)>);
 
+export type HttpColumnValueCountsRequest = ({
+  "input_columns"?: JsonValue;
+  "sheet_id"?: JsonValue;
+  [key: string]: JsonValue | undefined;
+});
+
+type HttpColumnValueCountsResponse_ColumnDistinctCount = ({
+  "distinct": (number);
+  "input_column": (string);
+  "list_distinct": (((number)) | ((null)));
+  "omitted_rows": (number);
+  [key: string]: (HttpColumnValueCountsResponse_JsonValue) | (number) | (string) | (((number)) | ((null)));
+});
+
+type HttpColumnValueCountsResponse_JsonValue = JsonValue;
+
+export type HttpColumnValueCountsResponse = ({
+  "columns": (Array<(HttpColumnValueCountsResponse_ColumnDistinctCount)>);
+  "schema_version": ("frisket.column_value_counts.v1") & (string);
+  "sheet_id": (number);
+  [key: string]: (HttpColumnValueCountsResponse_JsonValue) | (Array<(HttpColumnValueCountsResponse_ColumnDistinctCount)>) | ("frisket.column_value_counts.v1") & (string) | (number);
+});
+
 export type HttpColumnValuesPreviewRequest = ({
   "input_column"?: JsonValue;
   "limit"?: JsonValue;
   "offset"?: JsonValue;
   "search"?: JsonValue;
+  "selection"?: JsonValue;
   "sheet_id"?: JsonValue;
   "value_mode"?: JsonValue;
   [key: string]: JsonValue | undefined;
@@ -5825,6 +5912,13 @@ type HttpColumnValuesPreviewResponse_ColumnValueCount = ({
   "count": (number);
   "value": (string);
   [key: string]: (HttpColumnValuesPreviewResponse_JsonValue) | (number) | (string);
+});
+
+type HttpColumnValuesPreviewResponse_ColumnValuesScope = ({
+  "distribution_counts": (((Array<(number)>)) | ((null)));
+  "total_rows": (number);
+  "values": (Array<(HttpColumnValuesPreviewResponse_ColumnValueCount)>);
+  [key: string]: (HttpColumnValuesPreviewResponse_JsonValue) | (((Array<(number)>)) | ((null))) | (number) | (Array<(HttpColumnValuesPreviewResponse_ColumnValueCount)>);
 });
 
 type HttpColumnValuesPreviewResponse_DateColumnDistribution = ({
@@ -5917,13 +6011,14 @@ export type HttpColumnValuesPreviewResponse = ({
   "offset": (number);
   "omitted_rows"?: (number);
   "schema_version": ("frisket.column_values_preview.v1") & (string);
+  "scope"?: (((HttpColumnValuesPreviewResponse_ColumnValuesScope)) | ((null)));
   "search": (((string)) | ((null)));
   "sheet_id": (number);
   "total_rows": (number);
   "truncated": (boolean);
   "value_hash": (((string)) | ((null)));
   "values": (Array<(HttpColumnValuesPreviewResponse_ColumnValueCount)>);
-  [key: string]: (HttpColumnValuesPreviewResponse_JsonValue) | (number) | (((HttpColumnValuesPreviewResponse_NumberColumnDistribution)) | ((HttpColumnValuesPreviewResponse_IntegerColumnDistribution)) | ((HttpColumnValuesPreviewResponse_DateColumnDistribution)) | ((null))) | (string) | (boolean) | (((HttpColumnValuesPreviewResponse_ListFacetPreview)) | ((null))) | ("frisket.column_values_preview.v1") & (string) | (((string)) | ((null))) | (Array<(HttpColumnValuesPreviewResponse_ColumnValueCount)>) | undefined;
+  [key: string]: (HttpColumnValuesPreviewResponse_JsonValue) | (number) | (((HttpColumnValuesPreviewResponse_NumberColumnDistribution)) | ((HttpColumnValuesPreviewResponse_IntegerColumnDistribution)) | ((HttpColumnValuesPreviewResponse_DateColumnDistribution)) | ((null))) | (string) | (boolean) | (((HttpColumnValuesPreviewResponse_ListFacetPreview)) | ((null))) | ("frisket.column_values_preview.v1") & (string) | (((HttpColumnValuesPreviewResponse_ColumnValuesScope)) | ((null))) | (((string)) | ((null))) | (Array<(HttpColumnValuesPreviewResponse_ColumnValueCount)>) | undefined;
 });
 
 type HttpComparisonCaptureRequest_ActionCompareDraftSource = ({
@@ -5997,8 +6092,10 @@ export type HttpCreateProjectInviteRequest = ({
 });
 
 export type HttpCreateProjectRequest = ({
-  "name": (string);
-  "sensitive"?: (boolean);
+  "allowed_services"?: ((("this_machine_only" | "approved_services" | "all_services") & (string)) | ((null)));
+  "cover_seed"?: (((string)) | ((null)));
+  "name"?: (string);
+  "usage_data_sharing"?: ("inherit" | "on" | "off") & (string);
 });
 
 type HttpDiagnosticBundleResult_JsonValue = JsonValue;
@@ -11963,12 +12060,15 @@ export type HttpProfilePatchRequest = ({
 });
 
 export type HttpProject = ({
+  "allowed_services": ("this_machine_only" | "approved_services" | "all_services") & (string);
   "archived"?: (boolean);
+  "cover_seed"?: (((string)) | ((null)));
   "description": (string);
   "id": (string);
   "name": (string);
   "sensitive": (boolean);
   "starred"?: (boolean);
+  "usage_data_sharing": ("inherit" | "on" | "off") & (string);
 });
 
 type HttpProjectAttemptsPage_JsonValue = JsonValue;
@@ -12348,7 +12448,9 @@ export type HttpProjectLineageResponse = ({
 });
 
 type HttpProjectList_ProjectListItem = ({
+  "allowed_services": ("this_machine_only" | "approved_services" | "all_services") & (string);
   "archived": (boolean);
+  "cover_seed"?: (((string)) | ((null)));
   "description": (string);
   "id": (string);
   "name": (string);
@@ -12388,18 +12490,6 @@ export type HttpProjectModelRouteRequest = ({
 export type HttpProjectModelRouteResponse = ({
   "model_id": (string);
   "route": ("cloud" | "own") & (string);
-});
-
-export type HttpProjectNetworkRequest = ({
-  "mode": (string);
-  [key: string]: JsonValue | (string);
-});
-
-export type HttpProjectNetworkResponse = ({
-  "effective": ("on" | "off") & (string);
-  "mode": ("inherit" | "on" | "off") & (string);
-  "organization_default": ((("on" | "off") & (string)) | ((null)));
-  "schemaVersion": ("frisket.project_network_policy.v1") & (string);
 });
 
 type HttpProjectProviderKeyCatalogResponse_ProjectProviderKey = ({
@@ -13333,6 +13423,8 @@ type HttpRuntimeConfigResponse_OIDCAuthMethod = ({
 export type HttpRuntimeConfigResponse = ({
   "allowance_editable": (boolean);
   "allowance_usd": (string);
+  "allowed_services_default": ("this_machine_only" | "approved_services" | "all_services") & (string);
+  "allowed_services_offered": (Array<("this_machine_only" | "approved_services" | "all_services") & (string)>);
   "auth_methods": (HttpRuntimeConfigResponse_AuthMethods);
   "cache_mode": ("replay" | "fresh" | "replay_strict" | "off") & (string);
   "cache_mode_editable": (boolean);
@@ -14101,6 +14193,7 @@ type HttpSelectorChoicesResponse_SelectorResolvedTarget = ({
 });
 
 type HttpSelectorChoicesResponse_SelectorRouteOption = ({
+  "disabled_code"?: (((string)) | ((null)));
   "disabled_reason"?: (((string)) | ((null)));
   "id": ("cloud" | "own") & (string);
   "label": (string);
@@ -15255,11 +15348,20 @@ export type HttpTranslateComparisonResponse = ({
 })>);
 });
 
+export type HttpUpdateProjectAllowedServicesRequest = ({
+  "allowed_services": ("this_machine_only" | "approved_services" | "all_services") & (string);
+  "confirm_allowed_services"?: ((("this_machine_only" | "approved_services" | "all_services") & (string)) | ((null)));
+});
+
 export type HttpUpdateProjectRequest = ({
   "archived"?: (((boolean)) | ((null)));
   "description"?: (((string)) | ((null)));
   "name"?: (((string)) | ((null)));
   "starred"?: (((boolean)) | ((null)));
+});
+
+export type HttpUpdateProjectUsageDataSharingRequest = ({
+  "usage_data_sharing": ("inherit" | "on" | "off") & (string);
 });
 
 export type HttpUpdateSheetRequest = ({
@@ -16008,6 +16110,18 @@ export type HttpContractOperationMap = {
       readonly "500": HttpError;
     };
   };
+  readonly "outer.list_organization_approved_endpoints.get": {
+    readonly pathParams: HttpInline_d746974fa9afd5e9;
+    readonly query: HttpInline_d746974fa9afd5e9;
+    readonly request: undefined;
+    readonly responses: {
+      readonly "200": HttpApprovedEndpointList;
+      readonly "401": HttpError;
+      readonly "403": HttpError;
+      readonly "409": HttpError;
+      readonly "500": HttpError;
+    };
+  };
   readonly "outer.list_organization_env_vars.get": {
     readonly pathParams: HttpInline_d746974fa9afd5e9;
     readonly query: HttpInline_d746974fa9afd5e9;
@@ -16147,6 +16261,18 @@ export type HttpContractOperationMap = {
       readonly "500": HttpError;
     };
   };
+  readonly "outer.replace_organization_approved_endpoints.put": {
+    readonly pathParams: HttpInline_d746974fa9afd5e9;
+    readonly query: HttpInline_d746974fa9afd5e9;
+    readonly request: HttpApprovedEndpoints;
+    readonly responses: {
+      readonly "200": HttpApprovedEndpoints;
+      readonly "401": HttpError;
+      readonly "403": HttpError;
+      readonly "422": HttpError;
+      readonly "500": HttpError;
+    };
+  };
   readonly "outer.request_link.post": {
     readonly pathParams: HttpInline_d746974fa9afd5e9;
     readonly query: HttpInline_d746974fa9afd5e9;
@@ -16267,13 +16393,12 @@ export type HttpContractOperationMap = {
       readonly "503": HttpError;
     };
   };
-  readonly "outer.update_project_network.patch": {
+  readonly "outer.update_project_usage_data_sharing.patch": {
     readonly pathParams: HttpInline_87cacc773db826e7;
     readonly query: HttpInline_d746974fa9afd5e9;
-    readonly request: HttpProjectNetworkRequest;
+    readonly request: HttpUpdateProjectUsageDataSharingRequest;
     readonly responses: {
-      readonly "200": HttpProjectNetworkResponse;
-      readonly "400": HttpError;
+      readonly "200": HttpProject;
       readonly "401": HttpError;
       readonly "403": HttpError;
       readonly "404": HttpError;
@@ -16752,6 +16877,21 @@ export type HttpContractOperationMap = {
       readonly "500": HttpError;
     };
   };
+  readonly "tenant.column_value_counts.post": {
+    readonly pathParams: HttpInline_87cacc773db826e7;
+    readonly query: HttpInline_d746974fa9afd5e9;
+    readonly request: HttpColumnValueCountsRequest;
+    readonly responses: {
+      readonly "200": HttpColumnValueCountsResponse;
+      readonly "400": HttpActionError;
+      readonly "401": HttpError;
+      readonly "403": HttpError;
+      readonly "404": HttpError;
+      readonly "409": HttpError;
+      readonly "422": HttpError;
+      readonly "500": HttpError;
+    };
+  };
   readonly "tenant.column_values_preview.post": {
     readonly pathParams: HttpInline_87cacc773db826e7;
     readonly query: HttpInline_d746974fa9afd5e9;
@@ -17010,6 +17150,7 @@ export type HttpContractOperationMap = {
     readonly request: HttpCreateProjectRequest;
     readonly responses: {
       readonly "200": HttpProject;
+      readonly "400": HttpError;
       readonly "401": HttpError;
       readonly "422": HttpError;
       readonly "500": HttpError;
@@ -18166,18 +18307,6 @@ export type HttpContractOperationMap = {
       readonly "500": HttpError;
     };
   };
-  readonly "tenant.get_project_network.get": {
-    readonly pathParams: HttpInline_87cacc773db826e7;
-    readonly query: HttpInline_d746974fa9afd5e9;
-    readonly request: undefined;
-    readonly responses: {
-      readonly "200": HttpProjectNetworkResponse;
-      readonly "401": HttpError;
-      readonly "403": HttpError;
-      readonly "404": HttpError;
-      readonly "500": HttpError;
-    };
-  };
   readonly "tenant.get_project_provider_keys.get": {
     readonly pathParams: HttpInline_87cacc773db826e7;
     readonly query: HttpInline_d746974fa9afd5e9;
@@ -18442,6 +18571,18 @@ export type HttpContractOperationMap = {
       readonly "401": HttpError;
       readonly "403": HttpError;
       readonly "404": HttpError;
+      readonly "409": HttpError;
+      readonly "500": HttpError;
+    };
+  };
+  readonly "tenant.list_approved_endpoints.get": {
+    readonly pathParams: HttpInline_d746974fa9afd5e9;
+    readonly query: HttpInline_d746974fa9afd5e9;
+    readonly request: undefined;
+    readonly responses: {
+      readonly "200": HttpApprovedEndpointList;
+      readonly "401": HttpError;
+      readonly "403": HttpError;
       readonly "409": HttpError;
       readonly "500": HttpError;
     };
@@ -19321,6 +19462,18 @@ export type HttpContractOperationMap = {
       readonly "503": HttpError;
     };
   };
+  readonly "tenant.replace_approved_endpoints.put": {
+    readonly pathParams: HttpInline_d746974fa9afd5e9;
+    readonly query: HttpInline_d746974fa9afd5e9;
+    readonly request: HttpApprovedEndpoints;
+    readonly responses: {
+      readonly "200": HttpApprovedEndpoints;
+      readonly "401": HttpError;
+      readonly "403": HttpError;
+      readonly "422": HttpError;
+      readonly "500": HttpError;
+    };
+  };
   readonly "tenant.replace_rules_preview.post": {
     readonly pathParams: HttpInline_87cacc773db826e7;
     readonly query: HttpInline_d746974fa9afd5e9;
@@ -20104,6 +20257,20 @@ export type HttpContractOperationMap = {
       readonly "403": HttpError;
       readonly "404": HttpError;
       readonly "409": HttpError;
+      readonly "422": HttpError;
+      readonly "500": HttpError;
+    };
+  };
+  readonly "tenant.update_project_allowed_services.patch": {
+    readonly pathParams: HttpInline_87cacc773db826e7;
+    readonly query: HttpInline_d746974fa9afd5e9;
+    readonly request: HttpUpdateProjectAllowedServicesRequest;
+    readonly responses: {
+      readonly "200": HttpProject;
+      readonly "400": HttpError;
+      readonly "401": HttpError;
+      readonly "403": HttpError;
+      readonly "404": HttpError;
       readonly "422": HttpError;
       readonly "500": HttpError;
     };

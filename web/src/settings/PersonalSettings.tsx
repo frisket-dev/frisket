@@ -469,7 +469,7 @@ export function PersonalPrivacySettings() {
           Share pseudonymous feature use, outcomes, coarse size and timing ranges, and app, browser and operating-system versions.
           Product telemetry does not include your data, filenames, names, prompts, results,
           URLs, or error messages. The random browser identifier resets monthly, and
-          sensitive projects send no project telemetry.
+          a project set not to share usage data sends no project telemetry.
         </p>
         {config?.product_telemetry_available ? (
           <label className="control-row">

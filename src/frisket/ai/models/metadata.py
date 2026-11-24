@@ -27,11 +27,6 @@ REMOTE_PROVIDER_KINDS = frozenset(
 )
 
 
-def provider_network_blocked(provider_kind: str, *, network_off: bool) -> bool:
-    """Whether project network policy blocks calls to this provider venue."""
-    return network_off and provider_kind in REMOTE_PROVIDER_KINDS
-
-
 def is_remote_provider(provider: str) -> bool:
     """Server-side remoteness of a provider id string. Unknown providers are
     treated as remote (fail closed) — the same default the router applies

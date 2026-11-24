@@ -38,6 +38,11 @@ from frisket.server.routes.selector_choices import register_selector_choices_rou
 from frisket.server.services.project_qa import ProjectQAService
 from frisket.server.services.selector_choices import SelectorCapabilities
 from frisket.server.workspace import Workspace
+from frisket.service_access import (
+    ApprovedEndpoint,
+    ApprovedEndpoints,
+    write_approved_endpoints,
+)
 
 
 def _cloud_selector_app(
@@ -675,7 +680,9 @@ def test_cloud_first_selector_keeps_local_engine_on_this_computer(
         enable_local_model_pull=False,
     )
     project_id = workspace.create("Cloud selector", project_id="cloud-selector")["id"]
-    workspace.get(project_id).set_network_policy(mode="off")
+    workspace.get(project_id).set_allowed_services(
+        "approved_services", confirm_allowed_services=None
+    )
     with workspace.get(project_id).transaction_scope():
         write_project_settings(
             workspace.get(project_id),
@@ -728,7 +735,9 @@ def test_network_off_keeps_exact_cloud_llm_choice_and_refuses_selected_route(
     client, workspace, _store, project_id = _cloud_selector_app(
         tmp_path, routes=[_llm_route()]
     )
-    workspace.get(project_id).set_network_policy(mode="off")
+    workspace.get(project_id).set_allowed_services(
+        "approved_services", confirm_allowed_services=None
+    )
 
     with client:
         response = client.post(
@@ -750,7 +759,7 @@ def test_network_off_keeps_exact_cloud_llm_choice_and_refuses_selected_route(
     assert selected["execution_route"]["kind"] == "cloud_credits"
     assert selected["status"] == "unavailable"
     assert selected["can_run"] is False
-    assert selected["blocker"]["code"] == "project_network_off"
+    assert selected["blocker"]["code"] == "service_not_allowed"
     assert selected["setup"] is None
     assert {
         option["id"]: option["status"]
@@ -762,7 +771,9 @@ def test_network_off_disables_cloud_setup_before_connection(tmp_path) -> None:
     client, workspace, _store, project_id = _cloud_selector_app(
         tmp_path, routes=[], connected=False
     )
-    workspace.get(project_id).set_network_policy(mode="off")
+    workspace.get(project_id).set_allowed_services(
+        "approved_services", confirm_allowed_services=None
+    )
     with client:
         response = client.post(
             f"/api/projects/{project_id}/selector-choices",
@@ -781,7 +792,8 @@ def test_network_off_disables_cloud_setup_before_connection(tmp_path) -> None:
         if option["id"] == "cloud"
     )
     assert cloud["status"] == "unavailable"
-    assert cloud["disabled_reason"] == "This project's network setting is off."
+    assert cloud["disabled_code"] == "service_not_allowed"
+    assert "Allowed services" in cloud["disabled_reason"]
 
 
 def test_network_off_refuses_exact_cloud_media_but_keeps_gateway_lan(
@@ -812,7 +824,15 @@ def test_network_off_refuses_exact_cloud_media_but_keeps_gateway_lan(
         routes=[cloud_route],
         models_gateway_connection_resolver=gateway_connection,
     )
-    workspace.get(project_id).set_network_policy(mode="off")
+    # The operator's gateway is approved explicitly; Approved services does
+    # not allow an unapproved one.
+    write_approved_endpoints(
+        workspace.root,
+        ApprovedEndpoints(endpoints=(ApprovedEndpoint(host="models.example.test"),)),
+    )
+    workspace.get(project_id).set_allowed_services(
+        "approved_services", confirm_allowed_services=None
+    )
 
     with client:
         response = client.post(
@@ -836,7 +856,7 @@ def test_network_off_refuses_exact_cloud_media_but_keeps_gateway_lan(
     assert selected["execution_route"]["kind"] == "cloud_account_key"
     assert selected["status"] == "unavailable"
     assert selected["can_run"] is False
-    assert selected["blocker"]["code"] == "project_network_off"
+    assert selected["blocker"]["code"] == "service_not_allowed"
     assert {
         option["id"]: option["status"]
         for option in selected["route_selection"]["options"]
@@ -848,7 +868,13 @@ def test_network_off_refuses_exact_cloud_media_but_keeps_gateway_lan(
         preference="local_first",
         models_gateway_connection_resolver=gateway_connection,
     )
-    lan_workspace.get(lan_project_id).set_network_policy(mode="off")
+    write_approved_endpoints(
+        lan_workspace.root,
+        ApprovedEndpoints(endpoints=(ApprovedEndpoint(host="models.example.test"),)),
+    )
+    lan_workspace.get(lan_project_id).set_allowed_services(
+        "approved_services", confirm_allowed_services=None
+    )
     with lan_client:
         lan_response = lan_client.post(
             f"/api/projects/{lan_project_id}/selector-choices",
@@ -1363,7 +1389,9 @@ def test_network_off_defaults_ask_and_actions_to_reachable_local_model(
             use_env_keys=False,
         ),
     )
-    workspace.get(project_id).set_network_policy(mode="off")
+    workspace.get(project_id).set_allowed_services(
+        "approved_services", confirm_allowed_services=None
+    )
 
     async def run_turn(_project, _router, turn, _store):
         return {}
@@ -1418,7 +1446,9 @@ def test_omitted_ask_model_refuses_before_admission_when_network_off(tmp_path) -
         preference="local_first",
         router=ModelRouter(model_call_policy=LOCAL_PURCHASE_POLICY, use_env_keys=False),
     )
-    workspace.get(project_id).set_network_policy(mode="off")
+    workspace.get(project_id).set_allowed_services(
+        "approved_services", confirm_allowed_services=None
+    )
     project_qa = ProjectQAService(workspace)
     register_project_qa_routes(client.app, service=project_qa)
     client.app.router.add_event_handler("shutdown", project_qa.shutdown)

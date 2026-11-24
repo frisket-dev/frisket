@@ -52,8 +52,8 @@
               "message": "A requested column is claimed by another run."
             },
             {
-              "code": "network_disabled",
-              "message": "The action attempted an unadmitted network request."
+              "code": "service_not_allowed",
+              "message": "The project's Allowed services setting does not allow this service."
             },
             {
               "code": "map_rows_failed",

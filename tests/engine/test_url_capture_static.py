@@ -282,7 +282,7 @@ def test_media_capture_url_static_contract_and_replay(
     assert {error.code for error in entry.errors} >= {
         "invalid_input_ref",
         "invalid_params",
-        "network_disabled",
+        "service_not_allowed",
         "stale_input",
         "project_write_failed",
         "url_capture_failed",
@@ -747,7 +747,7 @@ def test_capture_page_rejects_static_warc_and_network_off_before_dispatch(
         calls.append(url)
         raise AssertionError(f"unexpected fetch for {url}")
 
-    project.set_network_policy(mode="off")
+    project.set_allowed_services("approved_services", confirm_allowed_services=None)
     before = _counts(project, ("columns", "changes", "receipts", "blobs"))
     for render_mode in ("static", "playwright"):
         action = _capture_action(
@@ -767,10 +767,12 @@ def test_capture_page_rejects_static_warc_and_network_off_before_dispatch(
             ),
         )
         assert result.status == "failed"
-        assert result.errors[0].code == "network_disabled"
+        assert result.errors[0].code == "service_not_allowed"
     assert calls == []
     assert _counts(project, ("columns", "changes", "receipts", "blobs")) == before
-    project.set_network_policy(mode="on")
+    project.set_allowed_services(
+        "all_services", confirm_allowed_services="all_services"
+    )
 
     warc = _capture_action(
         sheet_id=sheet_id,

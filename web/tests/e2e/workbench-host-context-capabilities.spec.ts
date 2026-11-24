@@ -3,6 +3,7 @@ import {
   createProject,
   importCsv,
   openDiscoverTab,
+  openFilterSidebar,
   openProject,
   uniqueName,
 } from './helpers';
@@ -16,6 +17,7 @@ test.beforeEach(async ({ page }) => {
 });
 
 test('facets proof surface receives typed host context capabilities', async ({ page }) => {
+  await openFilterSidebar(page);
   const facets = page.getByTestId('workbench-contribution-frisket-investigative-panel-friendly-filters');
   await expect(facets).toBeVisible();
   await expect(facets).toHaveAttribute('data-host-context', 'WorkbenchHostContextV1');
@@ -28,10 +30,9 @@ test('facets proof surface receives typed host context capabilities', async ({ p
 });
 
 test('panels publish the capabilities they require', async ({ page }) => {
-  // Only the ACTIVE Discover tab's body is mounted, so each panel is read
-  // while its own tab is open — Facets first (it is the default tab, and
-  // reading it from behind another tab would pass on an absent element rather
-  // than on a panel that really declares nothing), then Mentions.
+  // Each panel is read while it is mounted: the facets in the sheet's Filter
+  // sidebar, then Mentions in its Discover tab.
+  await openFilterSidebar(page);
   const facets = page.getByTestId('workbench-contribution-frisket-investigative-panel-friendly-filters');
   await expect(facets).toBeVisible();
   await expect(facets).toHaveAttribute('data-required-capabilities', /grid\.filter\.applySpec/);

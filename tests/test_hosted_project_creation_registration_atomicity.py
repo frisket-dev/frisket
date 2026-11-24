@@ -790,8 +790,8 @@ def test_completed_operation_replay_preserves_current_project_metadata(
         )
         assert renamed.status_code == 200, renamed.text
         made_sensitive = client.patch(
-            f"/api/projects/{project_id}/sensitivity",
-            json={"sensitive": True},
+            f"/api/projects/{project_id}/usage-data-sharing",
+            json={"usage_data_sharing": "off"},
         )
         assert made_sensitive.status_code == 200, made_sensitive.text
 

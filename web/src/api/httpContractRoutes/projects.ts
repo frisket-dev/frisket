@@ -4,7 +4,7 @@ import {
   type RequestOptions,
 } from '../httpContract';
 import { errorFromContract } from '../contractErrors';
-import type { ProjectInfo } from '../types';
+import type { AllowedServices, ProjectInfo, UsageDataSharing } from '../types';
 import { isRecord } from '../wireValues';
 
 type ProjectWire = HttpContractSuccessResponse<'tenant.get_project.get'>;
@@ -34,6 +34,9 @@ function mapProject(wire: ProjectWire): ProjectInfo {
     name: wire.name,
     description: wire.description,
     sensitive: wire.sensitive,
+    allowed_services: wire.allowed_services,
+    usage_data_sharing: wire.usage_data_sharing,
+    cover_seed: wire.cover_seed ?? null,
     starred: wire.starred ?? false,
     archived: wire.archived ?? false,
   };
@@ -45,6 +48,8 @@ function mapProjectList(wire: ProjectListWire): ProjectInfo[] {
     name: project.name,
     description: project.description,
     sensitive: project.sensitive,
+    allowed_services: project.allowed_services,
+    cover_seed: project.cover_seed ?? null,
     updated_at: project.updated_at,
     pending_review_count: project.pending_review_count,
     starred: project.starred,
@@ -104,12 +109,19 @@ export function getProjectContract(
   }, mapProject);
 }
 
+export interface CreateProjectInput {
+  name: string;
+  allowed_services?: AllowedServices;
+  usage_data_sharing?: UsageDataSharing;
+  cover_seed?: string;
+}
+
 export function createProject(
-  name: string,
+  input: CreateProjectInput,
   options: RequestOptions = {},
 ): Promise<ProjectInfo> {
   return httpContract('tenant.create_project.post', {
-    body: { name },
+    body: input,
     signal: options.signal,
   }, mapProject);
 }
@@ -122,6 +134,33 @@ export function updateProject(
   return httpContract('tenant.update_project.patch', {
     pathParams: { pid: projectId },
     body: input,
+    signal: options.signal,
+  }, mapProject);
+}
+
+/** A looser value takes effect only with `confirm` naming it again; a
+ *  stricter one needs no confirmation. */
+export function updateProjectAllowedServices(
+  projectId: string,
+  allowedServices: AllowedServices,
+  confirm: AllowedServices | null,
+  options: RequestOptions = {},
+): Promise<ProjectInfo> {
+  return httpContract('tenant.update_project_allowed_services.patch', {
+    pathParams: { pid: projectId },
+    body: { allowed_services: allowedServices, confirm_allowed_services: confirm },
+    signal: options.signal,
+  }, mapProject);
+}
+
+export function updateProjectUsageDataSharing(
+  projectId: string,
+  usageDataSharing: UsageDataSharing,
+  options: RequestOptions = {},
+): Promise<ProjectInfo> {
+  return httpContract('outer.update_project_usage_data_sharing.patch', {
+    pathParams: { pid: projectId },
+    body: { usage_data_sharing: usageDataSharing },
     signal: options.signal,
   }, mapProject);
 }

@@ -24,7 +24,7 @@ async def test_capability_finally_attaches_tools_and_preserves_failure_identity(
         "cancel": asyncio.CancelledError(),
         "row": RowError("search_quota", "Search quota reached"),
         "hosted": CloudExecutionRefused("cloud_refused", "Cloud refused"),
-        "halt": ActionProgramInvocationHalt("network_disabled", "Network disabled"),
+        "halt": ActionProgramInvocationHalt("service_not_allowed", "Network disabled"),
         "ordinary": RuntimeError("Ordinary failure"),
     }
     primary = errors[failure]

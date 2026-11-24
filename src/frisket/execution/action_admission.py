@@ -15,6 +15,8 @@ from frisket.authoring.action_metadata import (
     action_edition_unavailable_message,
 )
 from frisket.contracts.action import ActionError
+from frisket.project_service_access import project_service_access
+from frisket.service_access import ServiceNotAllowed
 
 if TYPE_CHECKING:
     from frisket.actions.core import RegisteredAction
@@ -37,18 +39,6 @@ def missing_action_credential_error(
             "settings_scope": "project",
             "settings_section": "secrets",
         },
-    )
-
-
-def network_disabled_error(action_kind: str, capability: str) -> ActionError:
-    return ActionError(
-        code="network_disabled",
-        message=(
-            f"this project's network setting is off; it blocks {capability}. "
-            "Turn network on in the project settings to run this."
-        ),
-        action_kind=action_kind,
-        details={"capability": capability},
     )
 
 
@@ -108,6 +98,22 @@ def action_admission_error(
         (cap for cap in action.required_capabilities if cap.startswith("external:")),
         None,
     )
-    if external is not None and project.effective_network_policy() == "off":
-        return network_disabled_error(kind, external)
+    if external is None:
+        return None
+    return external_service_error(project, kind, external)
+
+
+def external_service_error(
+    project: Project, action_kind: str, capability: str
+) -> ActionError | None:
+    """Refuse an external capability the project's settings do not allow."""
+    try:
+        project_service_access(project).check_remote_service(capability)
+    except ServiceNotAllowed as exc:
+        return ActionError(
+            code=exc.code,
+            message=str(exc),
+            action_kind=action_kind,
+            details={"capability": capability},
+        )
     return None

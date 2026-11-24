@@ -21,12 +21,6 @@ const retention = {
   supported_default_evidence: ['compactable', 'pinned', 'materialized'],
   preserved_extension: { source: 'server' },
 };
-const network = {
-  schemaVersion: 'frisket.project_network_policy.v1',
-  mode: 'inherit',
-  effective: 'on',
-  organization_default: null,
-};
 const settings = {
   media_allow_private_hosts: false,
   media_allow_private_hosts_locked: false,
@@ -50,7 +44,7 @@ afterEach(() => {
 describe('project data-management generated HTTP contracts', () => {
   it('preserves runtime method, path encoding, patch bodies, response DTOs, and options', async () => {
     const requests: Array<{ input: RequestInfo | URL; init?: RequestInit }> = [];
-    const responses = [retention, retention, network, network, settings, settings, compact];
+    const responses = [retention, retention, settings, settings, compact];
     vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       requests.push({ input, init });
       return jsonResponse(responses.shift());
@@ -64,8 +58,6 @@ describe('project data-management generated HTTP contracts', () => {
       default_evidence: 'pinned',
       no_compact: undefined,
     }, options)).resolves.toEqual(retention);
-    await expect(api.getProjectNetworkPolicy(options)).resolves.toEqual(network);
-    await expect(api.updateProjectNetworkPolicy({ mode: 'off' }, options)).resolves.toEqual(network);
     await expect(api.getProjectSettings(options)).resolves.toEqual(settings);
     await expect(api.updateProjectSettings({
       media_allow_private_hosts: true,
@@ -81,8 +73,6 @@ describe('project data-management generated HTTP contracts', () => {
       [`${switched}/retention`, 'PATCH', JSON.stringify({
         default_evidence: 'pinned',
       })],
-      [`${switched}/network`, 'GET', undefined],
-      [`${switched}/network`, 'PATCH', JSON.stringify({ mode: 'off' })],
       [`${switched}/settings`, 'GET', undefined],
       [`${switched}/settings`, 'PATCH', JSON.stringify({
         media_allow_private_hosts: true,
@@ -94,10 +84,10 @@ describe('project data-management generated HTTP contracts', () => {
     for (const request of requests) {
       expect(request.init?.signal).toBe(controller.signal);
     }
-    for (const request of [requests[1], requests[3], requests[5]]) {
+    for (const request of [requests[1], requests[3]]) {
       expect(new Headers(request.init?.headers).get('content-type')).toBe('application/json');
     }
-    for (const request of [requests[0], requests[2], requests[4], requests[6]]) {
+    for (const request of [requests[0], requests[2], requests[4]]) {
       expect(new Headers(request.init?.headers).get('content-type')).toBeNull();
     }
   });
@@ -111,9 +101,9 @@ describe('project data-management generated HTTP contracts', () => {
     } satisfies Partial<ApiError>);
 
     vi.stubGlobal('fetch', vi.fn(async () => jsonResponse([
-      { type: 'missing', loc: ['body', 'mode'], msg: 'Field required' },
+      { type: 'missing', loc: ['body', 'default_evidence'], msg: 'Field required' },
     ], 422)));
-    await expect(api.updateProjectNetworkPolicy({ mode: 'off' })).rejects.toMatchObject({
+    await expect(api.updateProjectRetention({ default_evidence: 'pinned' })).rejects.toMatchObject({
       name: 'ApiError',
       status: 422,
       message: 'Request failed (HTTP 422)',

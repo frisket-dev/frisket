@@ -10,13 +10,13 @@ import {
   gridReadSelection,
   importCsv,
   openFriendlyFilterSidebar,
-  openAdvancedSortPanel,
   openHistory,
-  openToolbarOverflow,
   runAndWait,
   sheetColumns,
   sheetData,
   uniqueName,
+  openReceipts,
+  setSheetSort,
 } from './helpers';
 import { testPython } from '../support/testPython';
 
@@ -179,10 +179,7 @@ test('large sheet product paths use bounded browser traffic', async ({ page }) =
     const selection = gridReadSelection(new URL(response.url()), pid, sheetId);
     return (selection?.order.length ?? 0) > 0;
   });
-  await openAdvancedSortPanel(page, columns, 'rank');
-  await page.getByTestId('grid-sort-column').selectOption('rank');
-  await page.getByTestId('grid-sort-direction').selectOption('desc');
-  await page.getByTestId('apply-grid-sort').click();
+  await setSheetSort(page, 'rank', 'desc');
   const sortedUrl = new URL((await sortResponse).url());
   expect(sortedUrl.searchParams.get('limit')).toBe('500');
 
@@ -196,8 +193,7 @@ test('large sheet product paths use bounded browser traffic', async ({ page }) =
     url.searchParams.get('limit') === '50'
   ))).toBe(true);
 
-  await openToolbarOverflow(page);
-  await page.getByTestId('open-provenance-manifest').click();
+  await openReceipts(page);
   await expect(page.getByTestId('provenance-manifest')).toBeVisible({ timeout: 15_000 });
   expect(provenanceRequests.some((url) => (
     url.searchParams.get('runs_offset') === '0' &&

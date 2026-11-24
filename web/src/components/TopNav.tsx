@@ -30,6 +30,7 @@ import {
   FolderOpen,
   Globe,
   Settings,
+  ShieldCheck,
   Trash2,
   Users,
 } from 'lucide-react';
@@ -51,6 +52,7 @@ import { canReviewProject } from '../api/projectRole';
 import { useEditionModule } from '../editions/module';
 import type { ExportTarget } from '../exportTargets';
 import { navigate } from '../routes';
+import { restrictedServicesLabel } from '../allowedServices';
 import { useShellIdentity } from '../shellIdentity';
 import { useNativePopover } from '../hooks/useNativePopover';
 import { anchoredPopoverStyle, useAnchoredPosition, type AnchoredPosition } from '../hooks/useAnchoredPosition';
@@ -334,6 +336,7 @@ function ProjectMenuPopover({
   projects,
   onCloseMenu,
   onOpenExportModal,
+  onOpenReceipts,
   onSelectProject,
   onToggleExportOpen,
 }: {
@@ -347,6 +350,8 @@ function ProjectMenuPopover({
   projects: ProjectInfo[] | null;
   onCloseMenu(): void;
   onOpenExportModal(modal: ExportModalKind): void;
+  /** Opens the project's receipts panel; absent outside a workspace. */
+  onOpenReceipts?(): void;
   onSelectProject(project: ProjectInfo): void;
   onToggleExportOpen(): void;
 }) {
@@ -394,6 +399,20 @@ function ProjectMenuPopover({
       </div>
       <div className="menu-sep" />
       <div className="menu-section-label">This project</div>
+      {onOpenReceipts && (
+        <button
+          type="button"
+          className="menu-item"
+          data-testid="open-provenance-manifest"
+          onClick={() => {
+            onCloseMenu();
+            onOpenReceipts();
+          }}
+        >
+          <ShieldCheck size={12} className="menu-item-icon" />
+          <span className="menu-item-name">Receipts</span>
+        </button>
+      )}
       <button
         type="button"
         className="menu-item"
@@ -562,6 +581,7 @@ export function ProjectMenu({
   sheets,
   currentSheetExportOptions,
   catalogExportTargets,
+  onOpenReceipts,
 }: {
   project: ProjectInfo;
   projectApi: ProjectApi;
@@ -569,6 +589,7 @@ export function ProjectMenu({
   sheets: SheetMeta[];
   currentSheetExportOptions?: SheetViewExportOptions | null;
   catalogExportTargets: ExportTarget[];
+  onOpenReceipts?(): void;
 }) {
   const [open, setOpen] = useState(false);
   const [projects, setProjects] = useState<ProjectInfo[] | null>(null);
@@ -608,6 +629,7 @@ export function ProjectMenu({
     gap: 4,
   });
 
+  const servicesLabel = restrictedServicesLabel(project.allowed_services);
   return (
     <div className="project-menu" ref={rootRef}>
       <button
@@ -620,6 +642,15 @@ export function ProjectMenu({
       >
         <span className="brand-project-label">{project.name}</span><DropdownIndicator />
       </button>
+      {servicesLabel && (
+        <span
+          className="project-services-state"
+          data-testid="project-services-state"
+          title={`Allowed services: ${servicesLabel}`}
+        >
+          {servicesLabel}
+        </span>
+      )}
       {open && (
         <ProjectMenuPopover
           popoverRef={menuRef}
@@ -631,6 +662,7 @@ export function ProjectMenu({
           projectApi={projectApi}
           projects={projects}
           onCloseMenu={closeMenu}
+          onOpenReceipts={onOpenReceipts}
           onOpenExportModal={(modal) => {
             closeMenu();
             setExportModal(modal);

@@ -13,7 +13,7 @@
 // auto-clear timer (a React-lifecycle-tied ref, not persistence) also stays
 // here — it cannot live in a plain state/ object.
 //
-// clusterPanelOpen/provenanceOpen/overflowMenuOpen are NOT part of this hook's
+// clusterPanelOpen/provenanceOpen are NOT part of this hook's
 // return shape (kept byte-identical) — workspace/useWorkspaceModel.tsx
 // reads/writes them directly off useChromeHandle() instead (the same "a second
 // direct entry point into the same per-project store" pattern gridView already

@@ -566,8 +566,8 @@ def _owning_write_cases(project) -> dict[str, Any]:
         "project_meta.set_retention_policy": lambda: project.set_retention_policy(
             no_compact=True
         ),
-        "project_meta.set_network_policy": lambda: project.set_network_policy(
-            mode="off"
+        "project_meta.set_allowed_services": lambda: project.set_allowed_services(
+            "approved_services", confirm_allowed_services=None
         ),
         "leases.release_lease": lambda: release_lease(
             project.db,
@@ -631,7 +631,7 @@ def _owning_write_cases(project) -> dict[str, Any]:
         "terminalize_project_run",
         "action_enqueue.attach_run_edition_run_context",
         "project_meta.set_retention_policy",
-        "project_meta.set_network_policy",
+        "project_meta.set_allowed_services",
         "leases.release_lease",
         "artifact_timeline.ensure_media_timeline",
         "artifact_timeline.ensure_transcript_timeline",

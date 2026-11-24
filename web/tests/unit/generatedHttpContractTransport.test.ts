@@ -58,7 +58,7 @@ const invokeFixtureUnmapped = httpContract as unknown as (
 const requiredBodyOptions: HttpContractInvokeOptions<'tenant.create_project.post'> = {
   pathParams: {},
   query: {},
-  body: { name: 'typed', sensitive: false },
+  body: { name: 'typed', usage_data_sharing: 'inherit' },
 };
 // @ts-expect-error create_project requires a request body
 const missingRequiredBody: HttpContractInvokeOptions<'tenant.create_project.post'> = {

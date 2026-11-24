@@ -22,6 +22,7 @@ import type {
   ViewSelection,
 } from '../../src/api/types';
 import type { GeneratedActionParams } from '../../src/generated/actionTypes';
+import { ROW_HEIGHT } from '../../src/grid/rowHeights';
 import { testPython } from '../support/testPython';
 import { requireSeededProject } from './seedProjects';
 
@@ -620,7 +621,6 @@ export async function clickRunButton(
 
 const MARKER_WIDTH = 40; // glide row-number column
 const HEADER_HEIGHT = 34;
-const ROW_HEIGHT = 34; // "Default" — fresh contexts have no persisted pref
 
 const colWidth = (c: WireColumn): number => (c.type === 'text' ? 240 : 140);
 
@@ -784,75 +784,73 @@ export async function clickHeaderMenu(
   );
 }
 
-// Toolbar diet (workbench-ia-toolbar-diet-v1) re-home helpers.
-//
-// Wrap text · row height · views · provenance moved into the toolbar ⋯
-// overflow (same testids, relocated). Open it before touching those controls.
-export async function openToolbarOverflow(page: Page): Promise<void> {
-  await page.getByTestId('toolbar-overflow-button').click();
-  await page.getByTestId('toolbar-overflow-menu').waitFor({ state: 'visible' });
+// Receipts live in the project menu.
+export async function openReceipts(page: Page): Promise<void> {
+  await page.getByTestId('switch-project').click();
+  await page.getByTestId('project-menu').waitFor({ state: 'visible' });
+  await page.getByTestId('open-provenance-manifest').click();
 }
 
-// The toolbar sort button retired into the column ▾ caret. Filtering now opens
-// the Discover/Facets sidebar; sorting retains its compact control panel.
-async function openCaretAdvanced(
-  page: Page,
-  columns: WireColumn[],
-  columnName: string,
-  itemTestId: string,
-  panelTestId: string,
-): Promise<void> {
-  const menu = page.getByTestId('grid-column-header-menu');
-  // The caret click can race with grid settling (virtualized headers shift as
-  // rows stream in), so open the menu, confirm the item, then click it.
-  for (let attempt = 0; attempt < 3; attempt += 1) {
-    await clickHeaderMenu(page, columns, columnName);
-    try {
-      await menu.waitFor({ state: 'visible', timeout: 3_000 });
-      await page.getByTestId(itemTestId).click({ timeout: 3_000 });
-      await page.getByTestId(panelTestId).waitFor({ state: 'visible' });
-      return;
-    } catch {
-      // retry: re-open the caret
-    }
+// Search, sort, limit, facets and views live in the sheet's Filter sidebar.
+export async function openFilterSidebar(page: Page, tab: 'filter' | 'views' = 'filter'): Promise<void> {
+  const sidebar = page.getByTestId('filter-sidebar');
+  if (!(await sidebar.isVisible())) {
+    await page.getByTestId('filter-sidebar-toggle').click();
+    await sidebar.waitFor({ state: 'visible' });
   }
-  await clickHeaderMenu(page, columns, columnName);
-  await page.getByTestId(itemTestId).click();
-  await page.getByTestId(panelTestId).waitFor({ state: 'visible' });
+  await page.getByTestId(`filter-sidebar-tab-${tab}`).click();
+  await page
+    .getByTestId(tab === 'views' ? 'views-panel' : 'sheet-filter-controls')
+    .waitFor({ state: 'visible' });
 }
 
+/** Opening the Views tab loads the sheet's views; re-entering reloads them. */
+export async function openViewsTab(page: Page): Promise<void> {
+  const viewsTab = page.getByTestId('filter-sidebar-tab-views');
+  if (await viewsTab.isVisible() && (await viewsTab.getAttribute('aria-selected')) === 'true') {
+    await page.getByTestId('filter-sidebar-tab-filter').click();
+  }
+  await openFilterSidebar(page, 'views');
+}
+
+/** Sorts through the sidebar's Sort control; it applies immediately. */
+export async function setSheetSort(
+  page: Page,
+  columnName: string,
+  direction: 'asc' | 'desc',
+): Promise<void> {
+  await openFilterSidebar(page);
+  await page.getByTestId('sheet-filter-sort').selectOption(`column:${columnName}`);
+  if (direction === 'desc') {
+    await page.getByTestId('sheet-filter-sort-direction').getByRole('button', { name: 'Desc' }).click();
+  }
+}
+
+// A column's Filter… opens the sidebar on that column's facet.
 export async function openFriendlyFilterSidebar(
   page: Page,
   columns: WireColumn[],
   columnName: string,
 ): Promise<void> {
   const menu = page.getByTestId('grid-column-header-menu');
-  const facetsPanel = page.getByTestId('friendly-filters-panel');
+  const facet = page.locator('[data-testid^="friendly-facet-"][data-focused="true"]');
   for (let attempt = 0; attempt < 3; attempt += 1) {
-    if (await facetsPanel.isVisible()) return;
+    if (await facet.isVisible()) return;
     await clickHeaderMenu(page, columns, columnName);
     try {
       await menu.waitFor({ state: 'visible', timeout: 3_000 });
-      await page.getByTestId('header-menu-filter-sidebar').click({ timeout: 3_000 });
+      await page.getByTestId('header-menu-filter').click({ timeout: 3_000 });
+      await facet.waitFor({ state: 'visible', timeout: 3_000 });
       return;
     } catch {
       // The menu closes synchronously when the sidebar opens, so Playwright can
       // observe a detached button even though the click completed.
-      if (await facetsPanel.isVisible()) return;
-      // retry after the virtualized header settles
+      if (await facet.isVisible()) return;
     }
   }
-  if (await facetsPanel.isVisible()) return;
   await clickHeaderMenu(page, columns, columnName);
-  await page.getByTestId('header-menu-filter-sidebar').click();
-}
-
-export async function openAdvancedSortPanel(
-  page: Page,
-  columns: WireColumn[],
-  columnName: string,
-): Promise<void> {
-  await openCaretAdvanced(page, columns, columnName, 'header-menu-advanced-sort', 'grid-sort-panel');
+  await page.getByTestId('header-menu-filter').click();
+  await facet.waitFor({ state: 'visible' });
 }
 
 export async function clickGroupHeader(
@@ -960,7 +958,7 @@ export async function openHistory(page: Page): Promise<void> {
  */
 export async function openDiscoverTab(
   page: Page,
-  tab: 'Facets' | 'Mentions' | 'Sources' | 'Alerts' | 'Embeddings' | 'Notifications',
+  tab: 'Mentions' | 'Sources' | 'Alerts' | 'Embeddings' | 'Notifications',
 ): Promise<void> {
   const panel = page.getByTestId('discover-panel');
   const rail = page.getByTestId('discover-rail');

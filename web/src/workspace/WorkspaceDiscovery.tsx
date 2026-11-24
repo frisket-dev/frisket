@@ -1,13 +1,13 @@
 import '../workbench/contributions.css';
 import { memo, useEffect, useMemo, useRef } from 'react';
-import { AtSign, Bell, BellRing, BookOpen, Boxes, Database, Images, ListFilter, MapPin, Network, Puzzle, Tags, Watch, type LucideIcon } from 'lucide-react';
+import { AtSign, Bell, BellRing, Boxes, Database, Images, ListFilter, MapPin, Network, Puzzle, Tags, Watch, type LucideIcon } from 'lucide-react';
 import { canEditProject } from '../api/projectRole';
 import { DiscoverPanel, type DiscoverTabDescriptor } from '../workbench/DiscoverPanel';
 import { DISCOVER_TABS, type DiscoverTab } from './useWorkspaceChromeState';
-import { EmbeddingsWorkbenchPanel, FriendlyFiltersWorkbenchPanel, MentionsWorkbenchPanel, NotificationsWorkbenchPanel, ResolvedWorkbenchLayoutRegion, FeedsWorkbenchPanel, ViewsWorkbenchPanel, AlertsWorkbenchPanel } from '../workbench/contributions';
+import { EmbeddingsWorkbenchPanel, MentionsWorkbenchPanel, NotificationsWorkbenchPanel, ResolvedWorkbenchLayoutRegion, FeedsWorkbenchPanel, AlertsWorkbenchPanel } from '../workbench/contributions';
 import { type WorkbenchResolvedLayoutContribution, type WorkbenchResolvedLayoutRegion } from '../workbench/layout';
 import { PluginPanelHost } from '../workbench/PluginPanelHost';
-import { EMBEDDINGS_CONTRIBUTION_ID, FRIENDLY_FILTERS_CONTRIBUTION_ID, MENTIONS_CONTRIBUTION_ID, NOTIFICATIONS_CONTRIBUTION_ID, VIEWS_CONTRIBUTION_ID, FEEDS_CONTRIBUTION_ID, ALERTS_CONTRIBUTION_ID } from './contributionIds';
+import { EMBEDDINGS_CONTRIBUTION_ID, MENTIONS_CONTRIBUTION_ID, NOTIFICATIONS_CONTRIBUTION_ID, FEEDS_CONTRIBUTION_ID, ALERTS_CONTRIBUTION_ID } from './contributionIds';
 import { useWorkspaceStores } from '../bind/useWorkspaceStores';
 import { useChromeHandle } from '../bind/useChromeHandle';
 import { useDetailHandle } from '../bind/useDetailHandle';
@@ -32,35 +32,9 @@ function SidebarContributionBody({ contribution }: { contribution: WorkbenchReso
   const resolvedWorkbenchLayout = useResolvedWorkbenchLayout();
   const { sheet, sheets } = useCurrentSheet();
   const {
-    applyView,
-    canCreateView,
-    cancelViewEditor,
-    cancelViewsConfirmation,
-    consumeViewsPublication,
-    deleteView,
-    replaceViewDefinition,
-    renameView,
-    saveCurrentView,
-    viewsConfirmation,
-    viewsConfirmationError,
-    viewsEditor,
-    viewsLastPublication,
-    viewsSaving,
-    activeViewId,
-    viewModified,
-    currentDefinition,
-    updateViewSelection,
-    clearViewSelection,
     addAlertForCurrentView,
     openCellSimilarity,
     selectedRowIdsForSheet,
-    setViewName,
-    startCreatingView,
-    startEditingView,
-    startViewDefinitionUpdate,
-    startViewDelete,
-    viewName,
-    views,
   } = useMainViewModel();
 
   switch (contribution.contributionId) {
@@ -86,51 +60,11 @@ function SidebarContributionBody({ contribution }: { contribution: WorkbenchReso
           onOpenFeedHealthMainView={openFeedHealthMainView}
         />
       );
-    case 'frisket.investigative.panel.friendly_filters':
-      return (
-        <FriendlyFiltersWorkbenchPanel
-          sheets={sheets}
-          hostContext={workbenchHostContext}
-          currentSelection={currentDefinition?.selection ?? null}
-          activeViewId={activeViewId}
-          onSelectionChange={updateViewSelection}
-          onClearSelection={clearViewSelection}
-        />
-      );
     case 'frisket.investigative.panel.mentions':
       return (
         <MentionsWorkbenchPanel
           sheets={sheets}
           hostContext={workbenchHostContext}
-        />
-      );
-    case VIEWS_CONTRIBUTION_ID:
-      return (
-        <ViewsWorkbenchPanel
-          views={views}
-          viewName={viewName}
-          editor={viewsEditor}
-          activeViewId={activeViewId}
-          viewModified={viewModified}
-          currentDefinition={currentDefinition}
-          isSaving={viewsSaving}
-          lastPublication={viewsLastPublication}
-          onPublicationConsumed={consumeViewsPublication}
-          confirmation={viewsConfirmation}
-          confirmationError={viewsConfirmationError}
-          canEdit={canCreateView}
-          onNameChange={setViewName}
-          onStartCreating={() => startCreatingView()}
-          onSave={saveCurrentView}
-          onUpdate={renameView}
-          onCancel={cancelViewEditor}
-          onEdit={startEditingView}
-          onApply={applyView}
-          onStartDefinitionUpdate={startViewDefinitionUpdate}
-          onStartDelete={startViewDelete}
-          onConfirmDefinitionUpdate={replaceViewDefinition}
-          onConfirmDelete={deleteView}
-          onCancelConfirmation={cancelViewsConfirmation}
         />
       );
     case 'frisket.core.panel.alerts':
@@ -191,26 +125,22 @@ function SidebarContributionBody({ contribution }: { contribution: WorkbenchReso
 const NON_DISCOVER_LEFT_SIDEBAR_CONTRIBUTION_IDS = new Set<string>();
 
 const DISCOVER_TAB_CONTRIBUTION_IDS: Record<DiscoverTab, readonly string[]> = {
-  Facets: [FRIENDLY_FILTERS_CONTRIBUTION_ID],
   Mentions: [MENTIONS_CONTRIBUTION_ID],
   Sources: [FEEDS_CONTRIBUTION_ID],
-  Views: [VIEWS_CONTRIBUTION_ID],
   Alerts: [ALERTS_CONTRIBUTION_ID],
   Embeddings: [EMBEDDINGS_CONTRIBUTION_ID],
   Notifications: [NOTIFICATIONS_CONTRIBUTION_ID],
 };
 
 const DISCOVER_TAB_ICON: Record<DiscoverTab, LucideIcon> = {
-  Facets: Tags,
   Mentions: AtSign,
   Sources: Database,
-  Views: BookOpen,
   Alerts: Watch,
   Embeddings: Boxes,
   Notifications: BellRing,
 };
 
-const DISCOVER_TAB_LABEL: Partial<Record<DiscoverTab, string>> = { Facets: 'Filter', Sources: 'Feeds' };
+const DISCOVER_TAB_LABEL: Partial<Record<DiscoverTab, string>> = { Sources: 'Feeds' };
 
 const PLUGIN_TAB_ICONS: Record<string, LucideIcon> = {
   AtSign,
@@ -325,7 +255,7 @@ export const WorkspaceDiscoverRegion = memo(function WorkspaceDiscoverRegion() {
 
   const activeTab = tabs.some((tab) => tab.id === discoverTab)
     ? discoverTab
-    : tabs[0]?.id ?? 'Facets';
+    : tabs[0]?.id ?? 'Mentions';
   const activeContributionId = DISCOVER_TAB_CONTRIBUTION_IDS[activeTab as DiscoverTab]?.[0] ?? activeTab;
   useWorkspaceNavigationTelemetry({ projectId: project.id, rightPanels: discoverOpen ? [telemetryPanelKind(activeContributionId)] : [] });
 

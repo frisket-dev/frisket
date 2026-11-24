@@ -11,7 +11,12 @@ import {
   getWorkbenchPluginRuntimeIndexContract,
   listActionJobsContract,
 } from './httpContractRoutes';
-import { deleteProject, updateProject } from './httpContractRoutes/projects';
+import {
+  deleteProject,
+  updateProject,
+  updateProjectAllowedServices,
+  updateProjectUsageDataSharing,
+} from './httpContractRoutes/projects';
 import { getGlobalActionCatalog, getProjectActionCatalog } from './httpContractRoutes/catalog';
 import { ActionCatalogCache } from './actionCatalog';
 import { createProjectQAApi } from './projectQA';
@@ -77,6 +82,7 @@ import type { RequestOptions } from './httpContract';
 import type {
   ActionJob,
   ActionJobsPage,
+  AllowedServices,
   ColumnRunsInfo,
   OcrCompareScratchInput,
   PreviewStartResult,
@@ -85,6 +91,7 @@ import type {
   RunRowsPage,
   RuntimeConfig,
   TranscribeCompareScratchInput,
+  UsageDataSharing,
   V1Receipt,
   WorkbenchPluginRuntimeIndex,
 } from './types';
@@ -410,6 +417,18 @@ export function createProjectApi(projectId: string) {
         description?: string | null;
       }): Promise<ProjectInfo> {
         return updateProject(projectId, input);
+      },
+
+      /** Allowed services changes which engines, models and actions the
+       *  project's catalog offers. */
+      updateCurrentProjectAllowedServices: invalidatesActionCatalog(
+        (value: AllowedServices, confirm: AllowedServices | null) => (
+          updateProjectAllowedServices(projectId, value, confirm)
+        ),
+      ),
+
+      updateCurrentProjectUsageDataSharing(value: UsageDataSharing): Promise<ProjectInfo> {
+        return updateProjectUsageDataSharing(projectId, value);
       },
 
       async deleteProject(target: string | undefined, confirmName: string): Promise<void> {

@@ -3,7 +3,6 @@
 import pytest
 from fastapi.testclient import TestClient
 
-from frisket.engine.runner.validation import NetworkDisabled
 from frisket.server.app import create_app
 from tests.engine.test_cluster_values_executor import _remote_embedding_router
 
@@ -74,7 +73,7 @@ def test_cluster_run_requires_exact_confirmation_before_queueing(cluster_client)
 @pytest.mark.parametrize("endpoint", ["estimate", "run"])
 def test_cluster_remote_network_off_is_a_named_refusal(cluster_client, endpoint):
     client, pid, project, request, adapter = cluster_client
-    project.set_network_policy(mode="off")
+    project.set_allowed_services("approved_services", confirm_allowed_services=None)
     before = project.db.total_changes
     response = client.post(
         f"/api/projects/{pid}/actions/v1/{endpoint}",
@@ -83,8 +82,8 @@ def test_cluster_remote_network_off_is_a_named_refusal(cluster_client, endpoint)
     assert response.status_code in {400, 403}, response.text
     body = response.json()
     if endpoint == "estimate":
-        assert body["detail"] == str(NetworkDisabled("model:embed")), body
+        assert "Allowed services setting" in body["detail"], body
     else:
-        assert body["errors"][0]["code"] == "network_disabled", body
+        assert body["errors"][0]["code"] == "service_not_allowed", body
     assert adapter.calls == []
     assert project.db.total_changes == before

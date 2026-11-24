@@ -43,7 +43,6 @@ export interface ActionCompareSettingChange { label: string; before: string; aft
 interface ActionCompareTabProps {
   projectId: string;
   session: ActionCompareSession;
-  rowHeight: number;
   wrapText: boolean;
   frozenColumnCount: number;
   onUseSettings(selection: ActionCompareUseSettings): void;
@@ -79,7 +78,7 @@ function statusTone(status: ActionCompareVariant['status']): StatusTone {
   return status === 'running' ? 'info' : 'neutral';
 }
 
-export function ActionCompareTab({ projectId, session, rowHeight, wrapText, frozenColumnCount,
+export function ActionCompareTab({ projectId, session, wrapText, frozenColumnCount,
   onUseSettings, renderVariantEditor,
   labelForDraft, describeVariantChanges, onOpenBoundedValue, onOpenStructuredValue,
   className, evaluationApi, onJoinExpected, initialView, onExpectedAnswersChanged, onShelved,
@@ -219,10 +218,10 @@ export function ActionCompareTab({ projectId, session, rowHeight, wrapText, froz
       onShelved={onShelved} modelField={modelField} instructionsField={instructionsField}
       rowScope={rowScope} rowScopePending={rowScopePending} rowScopeTotal={rowScopeTotal} dataRevision={dataRevision} onChangeRowScope={onChangeRowScope}
       renderVariantEditor={renderVariantEditor} onOpenVariant={setEditingId} onUseSettings={onUseSettings}
-      renderGrid={(evaluation) => <ActionCompareGrid projectId={projectId} state={state} rowHeight={rowHeight}
+      renderGrid={(evaluation) => <ActionCompareGrid projectId={projectId} state={state}
         wrapText={wrapText} frozenColumnCount={frozenColumnCount} labelForDraft={labelForDraft}
         onOpenBoundedValue={onOpenBoundedValue} onOpenStructuredValue={onOpenStructuredValue} evaluation={evaluation} />} />
-      : <ActionCompareGrid projectId={projectId} state={state} rowHeight={rowHeight}
+      : <ActionCompareGrid projectId={projectId} state={state}
       wrapText={wrapText} frozenColumnCount={frozenColumnCount} labelForDraft={labelForDraft}
       onOpenBoundedValue={onOpenBoundedValue} onOpenStructuredValue={onOpenStructuredValue} />}
   </section>;

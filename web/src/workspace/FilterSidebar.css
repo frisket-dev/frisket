@@ -1,0 +1,148 @@
+/* The sheet column and its Filter sidebar sit side by side; the sheet column
+   clips so its toolbar can never paint over the sidebar. */
+.sheet-shell {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+}
+
+.sheet-column {
+  position: relative;
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.filter-sidebar {
+  display: flex;
+  flex: 0 0 300px;
+  flex-direction: column;
+  width: 300px;
+  min-height: 0;
+  border-left: 1px solid var(--border);
+  background: var(--bg-panel);
+}
+
+.filter-sidebar-header {
+  display: flex;
+  align-items: stretch;
+  gap: 8px;
+  min-height: 42px;
+  padding: 0 12px;
+  border-bottom: 1px solid var(--border);
+}
+
+.filter-sidebar-tabs { display: flex; flex: 1 1 auto; gap: 4px; }
+
+.filter-sidebar-tab {
+  padding: 0 8px;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  background: none;
+  color: var(--text-mid);
+  font-size: var(--font-size-body);
+  cursor: pointer;
+}
+
+.filter-sidebar-tab[aria-selected='true'] {
+  border-bottom-color: var(--accent);
+  color: var(--text);
+  font-weight: 600;
+}
+
+.filter-sidebar-clear {
+  align-self: center;
+  padding: 2px 4px;
+  border: 0;
+  background: none;
+  color: var(--accent-strong);
+  font-size: var(--font-size-body);
+  cursor: pointer;
+}
+
+.filter-sidebar-close { align-self: center; }
+
+.filter-sidebar-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 12px;
+}
+
+.filter-sidebar-body .friendly-filters { display: flex; flex-direction: column; gap: 10px; }
+
+.filter-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-bottom: 14px;
+  border-bottom: 1px solid var(--border);
+}
+
+.filter-search { position: relative; display: flex; align-items: center; }
+
+.filter-search-icon {
+  position: absolute;
+  left: 10px;
+  color: var(--text-light);
+  pointer-events: none;
+}
+
+/* The icon owns its own 32px gutter, so text never starts under it. */
+.filter-search-input {
+  width: 100%;
+  min-width: 0;
+  padding: 7px 28px 7px 32px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-5);
+  background: var(--bg);
+  color: var(--text);
+  font: inherit;
+  font-size: var(--font-size-body);
+}
+
+.filter-search-input[data-active='true'] { border-color: var(--accent-focus-border); }
+
+.filter-search-input:focus-visible { outline: 2px solid var(--accent-bg); border-color: var(--accent); }
+
+.filter-search-clear {
+  position: absolute;
+  right: 6px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  border: 0;
+  border-radius: var(--radius-4);
+  background: none;
+  color: var(--text-light);
+  cursor: pointer;
+}
+
+.filter-search-clear:hover { background: var(--bg-hover); color: var(--text); }
+
+.filter-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  color: var(--text-mid);
+  font-size: var(--font-size-small);
+}
+
+.filter-row .panel-select-shell { flex: 1 1 auto; min-width: 0; }
+
+.filter-row-label { flex: 0 0 34px; }
+
+.filter-direction[data-inactive='true'] { opacity: 0.45; }
+
+.filter-row .form-input.filter-limit-input { width: 56px; }
+
+.filter-limit-input[data-active='true'] { border-color: var(--accent-focus-border); }
+
+.filter-sidebar-body .views-panel { background: transparent; }

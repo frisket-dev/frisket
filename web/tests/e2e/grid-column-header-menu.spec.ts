@@ -11,12 +11,11 @@ import {
   uniqueName,
 } from './helpers';
 
-// The column ▾ caret menu (workbench-ia-action-drawer-v1): Sort asc/desc ·
-// Filter… (opens increment 6's inline filter row) · Actions on this column
-// (applicability metadata) · settings/save-view. The old inline operator/value
-// richer filter UI moved to the caret's Facets-sidebar row; the
-// clean/fetch fast-paths became drawer-opening actions.
-test('grid column header caret menu sorts, filters via the inline row, lists column actions, and opens settings', async ({
+// The column ⋮ menu: Sort ascending/descending (and Clear sort when sorted) ·
+// Filter… (opens the Filter sidebar on this column's facet) and Clear filter
+// when filtered · Actions on this column (applicability metadata) ·
+// settings/save-view.
+test('grid column header menu sorts, filters through the sidebar facet, lists column actions, and opens settings', async ({
   page,
 }) => {
   const pid = await createProject(page.request, uniqueName('e2e-grid-header-menu'));
@@ -52,7 +51,7 @@ test('grid column header caret menu sorts, filters via the inline row, lists col
       row.cells[String(cityColumn.id)],
     ),
   ).toEqual(['Syracuse', 'Buffalo', 'Albany']);
-  await expect(page.getByTestId('active-grid-sort')).toContainText('city desc');
+  await expect(page.getByTestId('row-filter-chip-sort')).toContainText('Sorted by city ↓');
 
   // Actions-on-this-column: a text column offers type-applicable actions that
   // open the drawer pre-bound (the clean/fetch fast-paths are gone).
@@ -62,17 +61,16 @@ test('grid column header caret menu sorts, filters via the inline row, lists col
   await expect(menu.getByTestId('header-menu-clean-column')).toHaveCount(0);
   await expect(menu.getByTestId('header-menu-fetch-url')).toHaveCount(0);
 
-  // Filter… opens increment 6's inline filter row (contains) for this column.
+  // Filter… opens the sidebar on this column's facet.
   await page.getByTestId('header-menu-filter').click();
-  const filterRow = page.getByTestId('inline-filter-row');
-  await expect(filterRow).toBeVisible();
-  await expect(page.getByTestId('inline-filter-column')).toHaveValue('status');
+  const facet = page.getByTestId('friendly-facet-status');
+  await expect(facet).toHaveAttribute('data-focused', 'true');
   const filterResponse = page.waitForResponse((res) => {
     if (res.request().method() !== 'GET') return false;
     const selection = gridReadSelection(new URL(res.url()), pid, sheetId);
     return (selection?.filters.length ?? 0) > 0;
   });
-  await page.getByTestId('inline-filter-input').fill('open');
+  await facet.getByTestId('facet-check-status-open').check();
   const filtered = await (await filterResponse).json();
   const statusColumn = filtered.columns.find((column: { name: string }) => column.name === 'status');
   expect(statusColumn).toBeTruthy();
@@ -82,12 +80,13 @@ test('grid column header caret menu sorts, filters via the inline row, lists col
       row.cells[String(statusColumn.id)],
     ),
   ).toEqual(['open', 'open']);
-  await expect(page.getByTestId('active-grid-filter')).toContainText('status');
+  await expect(page.getByTestId('row-filter-chip-facet:status')).toContainText('status open');
+  await expect(page.getByTestId('sheet-stats')).toHaveText('2 of 3 rows · 2 columns');
 
-  // Clearing via the caret's Clear filter removes the filter.
+  // Clearing via the menu's Clear filter removes the filter.
   await clickHeaderMenu(page, columns, 'status');
   await page.getByTestId('header-menu-clear-filter').click();
-  await expect(page.getByTestId('active-grid-filter')).toBeHidden();
+  await expect(page.getByTestId('row-filter-chip-facet:status')).toHaveCount(0);
 
   await clickHeaderMenu(page, columns, 'city');
   await page.getByTestId('header-menu-column-settings').click();

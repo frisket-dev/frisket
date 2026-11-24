@@ -26,7 +26,7 @@ from fastapi.testclient import TestClient
 
 from frisket.ai.llm import ModelRouter
 from frisket.engine.runner import validation
-from frisket.engine.runner.map_runner import MapRunner, NetworkDisabled
+from frisket.engine.runner.map_runner import MapRunner, ServiceRefused
 from frisket.server.app import create_app
 from frisket.engine.store import Project
 from frisket.execution.attempt_authority import UnroutedOnlyAuthority
@@ -50,7 +50,12 @@ def _project_id(client: TestClient, name: str = "Egress Gate") -> str:
 
 
 def _set_network(client: TestClient, project_id: str, mode: str) -> None:
-    response = client.patch(f"/api/projects/{project_id}/network", json={"mode": mode})
+    """Off restricts the project to Approved services; on allows All services."""
+    value = "approved_services" if mode == "off" else "all_services"
+    response = client.patch(
+        f"/api/projects/{project_id}/allowed-services",
+        json={"allowed_services": value, "confirm_allowed_services": value},
+    )
     assert response.status_code == 200, response.text
 
 
@@ -90,7 +95,7 @@ def test_policy_off_rejects_always_remote_kind_without_client_capabilities(
 
     response = _run(client, pid, _geocode_action(None, "declared"))
     assert response.json()["status"] == "failed"
-    assert _error_codes(response) == ["network_disabled"]
+    assert _error_codes(response) == ["service_not_allowed"]
     project = client.app.state.workspace.get(pid)
     assert project.db.execute("SELECT COUNT(*) FROM runs").fetchone()[0] == 0
 
@@ -107,7 +112,7 @@ def test_omitting_external_capability_does_not_open_the_gate(tmp_path) -> None:
 
     response = _run(client, pid, _geocode_action(["project:write"], "stripped"))
     assert response.json()["status"] == "failed"
-    assert _error_codes(response) == ["network_disabled"]
+    assert _error_codes(response) == ["service_not_allowed"]
 
 
 def test_policy_on_never_produces_network_disabled(tmp_path) -> None:
@@ -126,11 +131,11 @@ def test_policy_on_never_produces_network_disabled(tmp_path) -> None:
         (["project:write"], "on-stripped"),
     ):
         response = _run(client, pid, _geocode_action(caps, key))
-        assert "network_disabled" not in _error_codes(response), response.text
+        assert "service_not_allowed" not in _error_codes(response), response.text
 
     _set_network(client, pid, "on")
     response = _run(client, pid, _geocode_action(None, "on-expl"))
-    assert "network_disabled" not in _error_codes(response), response.text
+    assert "service_not_allowed" not in _error_codes(response), response.text
 
 
 # --- engine-dependent class: the runner gate reads the engine TABLE ---------
@@ -170,7 +175,7 @@ def test_validate_spec_rejects_remote_engine_from_server_table(project) -> None:
     """engine="deepl" resolves remote via the server-side table; the spec
     carries no capabilities field at all, and nothing the client could add to
     the spec changes the classification."""
-    project.set_network_policy(mode="off")
+    project.set_allowed_services("approved_services", confirm_allowed_services=None)
     runner = MapRunner(
         project,
         ModelRouter(
@@ -182,7 +187,7 @@ def test_validate_spec_rejects_remote_engine_from_server_table(project) -> None:
     spec = plan.spec_dict()
     # A client-side attempt to look "local": junk keys must not matter.
     spec["capabilities"] = ["project:write"]
-    with pytest.raises(NetworkDisabled):
+    with pytest.raises(ServiceRefused):
         validation.validate_spec(
             runner.project,
             runner.router,
@@ -199,7 +204,7 @@ def test_validate_spec_rejects_remote_engine_from_server_table(project) -> None:
 def test_validate_spec_allows_local_engine_under_off(project) -> None:
     """opus_mt is local-tier: policy off must NOT block it — and a client
     declaring external capabilities cannot make a local engine gate."""
-    project.set_network_policy(mode="off")
+    project.set_allowed_services("approved_services", confirm_allowed_services=None)
     runner = MapRunner(
         project,
         ModelRouter(
@@ -222,11 +227,11 @@ def test_validate_spec_allows_local_engine_under_off(project) -> None:
             pricing_policy=runner.pricing_policy,
             composition=runner.execution_composition,
         )
-    except NetworkDisabled:  # pragma: no cover - the failure this test guards
+    except ServiceRefused:  # pragma: no cover - the failure this test guards
         pytest.fail("local engine must not be network-gated")
     except Exception:
         # Other validation outcomes (e.g. runtime not installed) are fine;
-        # only NetworkDisabled would be the gate misfiring.
+        # only ServiceRefused would be the gate misfiring.
         pass
 
 
@@ -236,7 +241,7 @@ def test_execute_row_reasserts_policy_for_direct_callers(project) -> None:
     spec. Its own re-assert is the fence that stops a remote engine egressing
     on such a path — call it directly with the policy ``off`` and it must
     raise. Deleting this test is how the bypass class comes back."""
-    project.set_network_policy(mode="off")
+    project.set_allowed_services("approved_services", confirm_allowed_services=None)
     runner = MapRunner(
         project,
         ModelRouter(
@@ -252,7 +257,7 @@ def test_execute_row_reasserts_policy_for_direct_callers(project) -> None:
     ctx = ActionContext(
         project=project, http=None, extras={"preview": True, "cancelled": lambda: False}
     )
-    with pytest.raises(NetworkDisabled):
+    with pytest.raises(ServiceRefused):
         asyncio.run(
             execute_row(
                 runner.project,

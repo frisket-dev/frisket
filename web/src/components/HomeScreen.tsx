@@ -20,7 +20,6 @@ import {
   useMemo,
   useRef,
   useState,
-  type CSSProperties,
   type RefObject,
 } from 'react';
 import {
@@ -44,9 +43,16 @@ import {
   listProjects,
   seedSampleProject,
   updateProject,
+  getRuntimeConfig,
   type ProjectInfo,
   type MeInfo,
 } from '../api/open';
+import type { CreateProjectInput } from '../api/httpContractRoutes/projects';
+import { useLoader } from '../hooks/useLoader';
+import { restrictedServicesLabel } from '../allowedServices';
+import { NewProjectDialog } from './NewProjectDialog';
+import { ProjectCardFace } from './ProjectCard';
+import { projectCover } from './projectCover';
 import { remediateServerUnreachable } from '../errors/remediation';
 import { formatRelativeTime } from '../format';
 import { navigate } from '../routes';
@@ -65,6 +71,7 @@ import {
   durationBucket,
   failureCategory,
   sendProductTelemetry,
+  workspaceSharesUsageData,
 } from '../telemetry/productTelemetry';
 
 interface HomeOpenOptions {
@@ -79,30 +86,33 @@ type NavScope = 'home' | 'recent' | 'starred' | 'archive';
 type HomeView = 'grid' | 'list';
 
 const SAMPLE_PROJECT_NAME = 'Sample project';
+const HOME_COUNT_CONCURRENCY = 4;
 
-// Cover art keyed off a project-type hash: a deterministic hue + a faded glyph,
-// so a project's card is recognizable at a glance without any stored art.
-const COVER_GLYPHS = ['◈', '⛃', '§', '◉', '¶', '▦', '◔', '⧉'];
+interface CountPump {
+  queue: string[];
+  inFlight: number;
+  signal: AbortSignal | null;
+}
 
-function hashString(value: string): number {
-  let h = 0;
-  for (let i = 0; i < value.length; i += 1) {
-    h = (h << 5) - h + value.charCodeAt(i);
-    h |= 0;
+/** Starts queued count requests until HOME_COUNT_CONCURRENCY are in flight;
+ *  each answer starts the next. Nothing starts once the signal aborts. */
+function pumpCounts(
+  pump: CountPump,
+  onCount: (projectId: string, entry: CardCounts) => void,
+): void {
+  const { signal } = pump;
+  while (signal && !signal.aborted && pump.inFlight < HOME_COUNT_CONCURRENCY) {
+    const projectId = pump.queue.shift();
+    if (projectId === undefined) return;
+    pump.inFlight += 1;
+    void fetchProjectSheetCounts(projectId, { signal })
+      .then((entry) => onCount(projectId, entry))
+      .catch(() => undefined)
+      .finally(() => {
+        pump.inFlight -= 1;
+        pumpCounts(pump, onCount);
+      });
   }
-  return Math.abs(h);
-}
-
-function coverStyle(project: ProjectInfo): CSSProperties {
-  const hue = hashString(project.id) % 360;
-  const hue2 = (hue + 40) % 360;
-  return {
-    background: `linear-gradient(135deg, hsl(${hue} 42% 88%), hsl(${hue2} 46% 80%))`,
-  };
-}
-
-function coverGlyph(project: ProjectInfo): string {
-  return COVER_GLYPHS[hashString(project.id) % COVER_GLYPHS.length];
 }
 
 /** Per-project sheet/row counts for a home card. Hoisted to module scope so the
@@ -128,7 +138,7 @@ interface HomeProjectsController {
   reload(): void;
   setError(message: string | null): void;
   dismissWelcome(): void;
-  createAndOpen(name: string): void;
+  createAndOpen(input: CreateProjectInput): void;
   trySampleAndOpen(): void;
   setFlag(project: ProjectInfo, patch: { starred?: boolean; archived?: boolean }): void;
   renameProject(project: ProjectInfo, nextName: string): void;
@@ -182,20 +192,27 @@ function useHomeProjects(
     ? { message: welcomeMessage, key: welcomeKey }
     : null;
 
-  // Lazily fetch real per-project sheet/row counts for the meta line. Local
-  // workspaces hold a handful of projects, so one cheap /sheets call per card
-  // (real data, never fabricated) is fine; results are memoized per id.
+  // Real per-project sheet/row counts for the meta line, one /sheets call per
+  // card, memoized per id. A few run at a time and the rest wait in order, so
+  // a workspace with many projects never fills the browser's connections;
+  // leaving Home cancels whatever has not answered, so the next page's
+  // requests are not queued behind counts nobody will see.
+  const countPump = useRef<CountPump>({ queue: [], inFlight: 0, signal: null });
+  useEffect(() => {
+    const controller = new AbortController();
+    countPump.current.signal = controller.signal;
+    return () => controller.abort();
+  }, []);
   useEffect(() => {
     if (!projects) return;
     for (const p of projects) {
       if (countsRequested.current!.has(p.id)) continue;
       countsRequested.current!.add(p.id);
-      void fetchProjectSheetCounts(p.id)
-        .then((entry) => {
-          setCounts((prev) => ({ ...prev, [p.id]: entry }));
-        })
-        .catch(() => undefined);
+      countPump.current.queue.push(p.id);
     }
+    pumpCounts(countPump.current, (projectId, entry) => {
+      setCounts((prev) => ({ ...prev, [projectId]: entry }));
+    });
   }, [projects]);
 
   const dismissWelcome = () => {
@@ -203,14 +220,13 @@ function useHomeProjects(
     setDismissedWelcomeKey(welcome?.key ?? null);
   };
 
-  const createAndOpen = (name: string) => {
-    const trimmed = name.trim();
-    if (!trimmed || busy) return;
+  const createAndOpen = (input: CreateProjectInput) => {
+    if (busy) return;
     setBusy(true);
     setError(null);
     setRemediation(null);
     const startedAt = performance.now();
-    createProject(trimmed)
+    createProject(input)
       .then((project) => {
         sendProductTelemetry({
           type: 'Project.created',
@@ -247,7 +263,7 @@ function useHomeProjects(
       .then((existing) =>
         existing
           ? { project: existing, reused: true }
-          : createProject(SAMPLE_PROJECT_NAME)
+          : createProject({ name: SAMPLE_PROJECT_NAME })
               .then((project) => ({ project, reused: false }))
               .catch((e: Error) => {
                 throw new Error(`Could not create the sample project: ${e.message}`);
@@ -348,6 +364,7 @@ export function HomeScreen({ onOpen }: HomeScreenProps) {
     remediation,
     busy,
     sampleBusy,
+    setError,
     dismissWelcome,
     createAndOpen,
     trySampleAndOpen,
@@ -359,7 +376,6 @@ export function HomeScreen({ onOpen }: HomeScreenProps) {
   const [view, setView] = useState<HomeView>('grid');
   const [filter, setFilter] = useState('');
   const [creating, setCreating] = useState(false);
-  const [name, setName] = useState('');
   const [menuFor, setMenuFor] = useState<string | null>(null);
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState('');
@@ -379,10 +395,6 @@ export function HomeScreen({ onOpen }: HomeScreenProps) {
       : byScope;
     return filtered;
   }, [projects, scope, filter]);
-
-  const doCreate = () => {
-    createAndOpen(name);
-  };
 
   const startRename = (project: ProjectInfo) => {
     setMenuFor(null);
@@ -430,13 +442,10 @@ export function HomeScreen({ onOpen }: HomeScreenProps) {
     scope === 'archive' ? 'Archived' : scope === 'starred' ? 'Starred' : 'Your projects';
 
   const startCreate = () => {
+    setError(null);
     setCreating(true);
-    setTimeout(() => {
-      (document.querySelector(
-        '[data-testid="new-project-name"]',
-      ) as HTMLInputElement | null)?.focus();
-    }, 0);
   };
+  const runtime = useLoader(() => getRuntimeConfig(), []);
 
   return (
     <div className="home-screen" data-testid="home-screen">
@@ -479,16 +488,25 @@ export function HomeScreen({ onOpen }: HomeScreenProps) {
             onTrySample={trySampleAndOpen}
             sampleBusy={sampleBusy}
             busy={busy}
-            creating={creating}
-            name={name}
-            onNameChange={setName}
-            onCreateSubmit={doCreate}
-            onCreateCancel={() => {
-              setCreating(false);
-              setName('');
-            }}
             showSampleHero={showSampleHero}
           />
+
+          {creating && (
+            <NewProjectDialog
+              offered={runtime.data?.allowed_services_offered ?? ['all_services']}
+              defaultAllowedServices={runtime.data?.allowed_services_default}
+              workspaceSharesUsage={workspaceSharesUsageData()}
+              busy={busy}
+              error={error}
+              onCreate={createAndOpen}
+              onClose={() => setCreating(false)}
+              onManageEndpoints={() => navigate({
+                kind: 'settings',
+                scope: identityMode ? 'organization' : 'personal',
+                section: 'approved-endpoints',
+              })}
+            />
+          )}
 
           {showSampleHero && (
             <HomeSampleHero
@@ -498,7 +516,7 @@ export function HomeScreen({ onOpen }: HomeScreenProps) {
             />
           )}
 
-          {error && (
+          {error && !creating && (
             <div className="picker-error" data-testid="picker-error">
               {error}
               {remediation && (
@@ -643,8 +661,8 @@ function HomeNav({
 }
 
 // The header controls above the project grid: scope title + count, the
-// grid/list view switcher, New project + Try-the-sample buttons, the filter
-// input, and the inline create-project form. Extracted from HomeScreen.
+// grid/list view switcher, New project + Try-the-sample buttons and the filter
+// input. Extracted from HomeScreen.
 function HomeToolbar({
   scopeLabel,
   count,
@@ -657,11 +675,6 @@ function HomeToolbar({
   onTrySample,
   sampleBusy,
   busy,
-  creating,
-  name,
-  onNameChange,
-  onCreateSubmit,
-  onCreateCancel,
   showSampleHero,
 }: {
   scopeLabel: string;
@@ -675,11 +688,6 @@ function HomeToolbar({
   onTrySample(): void;
   sampleBusy: boolean;
   busy: boolean;
-  creating: boolean;
-  name: string;
-  onNameChange(value: string): void;
-  onCreateSubmit(): void;
-  onCreateCancel(): void;
   showSampleHero: boolean;
 }) {
   return (
@@ -743,39 +751,6 @@ function HomeToolbar({
         </Button>
       </div>}
 
-      {creating && (
-        <form
-          className="home-create-row"
-          onSubmit={(e) => {
-            e.preventDefault();
-            onCreateSubmit();
-          }}
-        >
-          <TextInput
-            aria-label="New project name"
-
-            value={name}
-            placeholder="new project name"
-            data-testid="new-project-name"
-            onChange={(e) => onNameChange(e.target.value)}
-          />
-          <Button
-            type="submit"
-            className="btn-primary"
-            data-testid="create-project"
-            disabled={!name.trim() || busy}
-          >
-            <Plus size={13} /> Create
-          </Button>
-          <Button
-            type="button"
-
-            onClick={onCreateCancel}
-          >
-            Cancel
-          </Button>
-        </form>
-      )}
     </>
   );
 }
@@ -812,6 +787,7 @@ function HomeProjectCard({
   onRenameCancel(): void;
 }) {
   const opened = formatRelativeTime(project.updated_at);
+  const cover = projectCover(project);
   // The card ⋯ menu: onToggleMenu toggles, so firing it while open
   // closes; the trigger testid is the popover's ignoreSelector so its own click
   // is not an "outside" dismiss.
@@ -845,8 +821,8 @@ function HomeProjectCard({
     <div className="home-card" data-testid={`project-${project.id}`}>
       {renaming ? (
         <div className="home-card-open home-card-open-renaming">
-          <span className="home-card-cover" style={coverStyle(project)}>
-            <span className="home-card-glyph">{coverGlyph(project)}</span>
+          <span className="home-card-cover" style={cover.style}>
+            <span className="home-card-glyph">{cover.glyph}</span>
           </span>
           <form
             className="home-card-body home-card-rename-form"
@@ -890,43 +866,43 @@ function HomeProjectCard({
         </div>
       ) : (
         <button type="button" className="home-card-open" onClick={onOpen}>
-          <span className="home-card-cover" style={coverStyle(project)}>
-            <span className="home-card-glyph">{coverGlyph(project)}</span>
-            {project.archived && <span className="home-card-chip">archived</span>}
-          </span>
-          <span className="home-card-body">
-            <span className="home-card-titlerow">
-              {project.starred && <Star size={12} className="home-card-star" />}
-              <span className="home-card-title">{project.name}</span>
-              {!!project.pending_review_count && (
-                <span
-                  className="badge home-card-pending"
-                  data-testid={`project-${project.id}-pending`}
-                >
-                  {project.pending_review_count}
-                </span>
-              )}
-            </span>
-            <span
-              className="home-card-meta"
-              data-testid={`project-${project.id}-meta`}
-            >
-              {counts && (
-                <span className="home-card-counts">{`${counts.sheets} ${
-                  counts.sheets === 1 ? 'sheet' : 'sheets'
-                } · ${counts.rows} ${counts.rows === 1 ? 'row' : 'rows'}`}</span>
-              )}
-              {opened && (
-                <span data-testid={`project-${project.id}-updated`}>
-                  {counts ? ` · opened ${opened}` : `opened ${opened}`}
-                </span>
-              )}
-              {/* Allowlisted, not migrated to PanelLoading —
-                  an inline "…" ellipsis inside a running text line, not a block
-                  "Loading…" message. */}
-              {!counts && !opened && <span className="home-card-meta-loading">…</span>}
-            </span>
-          </span>
+          <ProjectCardFace
+            cover={cover}
+            title={project.name}
+            chip={project.archived && <span className="home-card-chip">archived</span>}
+            servicesLabel={restrictedServicesLabel(project.allowed_services)}
+            servicesTestId={`project-${project.id}-services`}
+            titlePrefix={project.starred && <Star size={12} className="home-card-star" />}
+            titleSuffix={!!project.pending_review_count && (
+              <span
+                className="badge home-card-pending"
+                data-testid={`project-${project.id}-pending`}
+              >
+                {project.pending_review_count}
+              </span>
+            )}
+            meta={(
+              <span
+                className="home-card-meta"
+                data-testid={`project-${project.id}-meta`}
+              >
+                {counts && (
+                  <span className="home-card-counts">{`${counts.sheets} ${
+                    counts.sheets === 1 ? 'sheet' : 'sheets'
+                  } · ${counts.rows} ${counts.rows === 1 ? 'row' : 'rows'}`}</span>
+                )}
+                {opened && (
+                  <span data-testid={`project-${project.id}-updated`}>
+                    {counts ? ` · opened ${opened}` : `opened ${opened}`}
+                  </span>
+                )}
+                {/* Allowlisted, not migrated to PanelLoading —
+                    an inline "…" ellipsis inside a running text line, not a block
+                    "Loading…" message. */}
+                {!counts && !opened && <span className="home-card-meta-loading">…</span>}
+              </span>
+            )}
+          />
         </button>
       )}
       <div className="home-card-overflow">

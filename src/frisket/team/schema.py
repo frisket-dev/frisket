@@ -89,11 +89,9 @@ organizations = sa.Table(
     sa.Column("display_name", sa.String),
     sa.Column("welcome_message", sa.Text),
     sa.Column("support_contact", sa.String),
-    # Organization-wide network default for projects whose network mode is "inherit":
-    # "on" | "off"; NULL means "on". Materialized into each project bundle
-    # (Project.set_network_policy organization_default) the same way `sensitive`
-    # syncs, because the gate reads bundle-side.
-    sa.Column("network_default", sa.String),
+    # The Allowed services new projects in this organization start from; NULL
+    # means All services. A project's own value overrides it.
+    sa.Column("allowed_services_default", sa.String),
 )
 
 memberships = sa.Table(
@@ -126,9 +124,6 @@ projects = sa.Table(
     sa.Column("name", sa.String, nullable=False),
     sa.Column("description", sa.String),
     sa.Column("sensitive", sa.Boolean, nullable=False, default=False),
-    # Per-project network mode: "inherit" | "on" | "off". Control-plane
-    # copy of the bundle's network_policy mode.
-    sa.Column("network", sa.String, nullable=False, default="inherit"),
     sa.Column(
         "created_at", sa.DateTime(timezone=True), default=lambda: datetime.now(UTC)
     ),
@@ -277,6 +272,13 @@ project_creation_intents = sa.Table(
         default=False,
         server_default=sa.false(),
     ),
+    # The creator's Allowed services and usage-data choices. NULL in intents
+    # written before these columns existed: All services, and the usage-data
+    # override derived from ``sensitive``.
+    sa.Column("allowed_services", sa.String),
+    sa.Column("usage_data_sharing", sa.String),
+    # The card cover's seed; NULL derives the cover from the project id.
+    sa.Column("cover_seed", sa.String),
     sa.Column(
         "created_at", sa.DateTime(timezone=True), default=lambda: datetime.now(UTC)
     ),

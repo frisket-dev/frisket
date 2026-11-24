@@ -190,7 +190,7 @@ function ActionCompareContents() {
       }}
       onExpectedAnswersChanged={() => { model.expectedAnswers.refresh(); model.invalidateProjectData(); void model.refreshSheets(); }}
       onShelved={model.closeActionCompare}
-      rowHeight={model.rowHeight} wrapText={model.wrapText} frozenColumnCount={frozenColumnCount}
+      wrapText={model.wrapText} frozenColumnCount={frozenColumnCount}
       onUseSettings={model.useActionCompareSettings}
       labelForDraft={presentation?.labelForDraft}
       describeVariantChanges={presentation?.describeVariantChanges}

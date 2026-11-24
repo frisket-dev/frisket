@@ -19,7 +19,7 @@ test('the home screen lists the seeded projects', async ({ page }) => {
 test('creating a project lands in its empty workspace', async ({ page }) => {
   const name = uniqueName('e2e-picker');
   await page.goto('/');
-  // + New project reveals the inline create form (§5A).
+  // + New project opens the New project dialog.
   await page.getByTestId('home-new-project').click();
   await page.getByTestId('new-project-name').fill(name);
   await page.getByTestId('create-project').click();

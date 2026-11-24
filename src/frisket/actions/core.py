@@ -387,7 +387,10 @@ _MAP_ROWS_ERRORS = (
     ("invalid_input_ref", "A source sheet, row, or column reference is invalid."),
     ("generated_column_exists", "A requested column already exists."),
     ("generated_column_busy", "A requested column is claimed by another run."),
-    ("network_disabled", "The action attempted an unadmitted network request."),
+    (
+        "service_not_allowed",
+        "The project's Allowed services setting does not allow this service.",
+    ),
     ("map_rows_failed", "The row program failed to produce usable output."),
     ("project_write_failed", "The project write or receipt update failed."),
     _error("idempotency_conflict"),
@@ -532,7 +535,10 @@ _PROJECT_CAPABILITY_SPECS = _project_capability_registry(
         _project_errors(
             ("invalid_input_ref", "The cluster source column is invalid."),
             ("stale_input", "The reviewed source values changed."),
-            ("network_disabled", "Project policy does not allow remote embeddings."),
+            (
+                "service_not_allowed",
+                "The project's Allowed services do not allow remote embeddings.",
+            ),
             ("embedding_backend_unavailable", "No embedding backend is configured."),
             ("model_cost_requires_confirmation", "Confirm the embedding cost."),
             ("cluster_failed", "Value clustering could not complete."),
@@ -555,7 +561,10 @@ _PROJECT_CAPABILITY_SPECS = _project_capability_registry(
         _project_errors(
             ("invalid_input_ref", "The source sheet, rows or URL column are invalid."),
             ("invalid_params", "The capture options or output names are invalid."),
-            ("network_disabled", "Project policy does not allow page capture."),
+            (
+                "service_not_allowed",
+                "The project's Allowed services do not allow page capture.",
+            ),
             ("duplicate_sheet_name", "The links output sheet already exists."),
             ("url_capture_failed", "Every selected URL failed to produce a capture."),
             ("stale_input", "The source URLs changed before publication."),
@@ -628,7 +637,10 @@ _PROJECT_CAPABILITY_SPECS = _project_capability_registry(
                     "The source modality cannot be embedded.",
                 ),
                 ("embedding_provider_error", "The embedding provider failed."),
-                ("network_disabled", "Project network policy blocks remote embedding."),
+                (
+                    "service_not_allowed",
+                    "The project's Allowed services do not allow remote embedding.",
+                ),
                 (
                     "embedding_remote_confirmation_required",
                     "Remote use requires provider policy consent.",

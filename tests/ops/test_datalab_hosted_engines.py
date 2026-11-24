@@ -1081,6 +1081,9 @@ def test_datalab_ocr_engine_consults_project_keys_not_just_env(monkeypatch, tmp_
     assert engines["datalab"]["pricing"]["provider"] == "Datalab"
 
     class _ProjectWithSecret:
+        def remote_services_refused(self):
+            return False
+
         path = tmp_path / "proj.frisket"
 
         def secret_plaintext(self, name: str):
@@ -1113,6 +1116,9 @@ def test_datalab_to_markdown_engine_consults_project_keys_not_just_env(
     assert engines["datalab"]["pricing"]["provider"] == "Datalab"
 
     class _ProjectWithSecret:
+        def remote_services_refused(self):
+            return False
+
         path = tmp_path / "proj.frisket"
 
         def secret_plaintext(self, name: str):
@@ -1241,6 +1247,9 @@ def test_classify_catalog_honors_only_the_explicit_providerless_opt_in(
     )
 
     class _StubProject:
+        def remote_services_refused(self):
+            return False
+
         def secret_plaintext(self, name: str):
             return None
 
@@ -1321,6 +1330,9 @@ def test_project_action_catalog_payload_threads_organization_provider_keys(monke
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
 
     class _StubProject:
+        def remote_services_refused(self):
+            return False
+
         def secret_plaintext(self, name: str):
             return None
 

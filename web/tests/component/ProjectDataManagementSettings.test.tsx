@@ -15,8 +15,8 @@ const projectApi = createProjectApi('alpha');
 const getProjectRetention = vi.spyOn(projectApi, 'getProjectRetention');
 const updateProjectRetention = vi.spyOn(projectApi, 'updateProjectRetention');
 const getProjectSettings = vi.spyOn(projectApi, 'getProjectSettings');
-const getProjectNetworkPolicy = vi.spyOn(projectApi, 'getProjectNetworkPolicy');
 const compactProject = vi.spyOn(projectApi, 'compactProject');
+const getProject = vi.spyOn(projectApi, 'getProject');
 
 const { render } = createWorkspaceTestHarness({
   projectId: 'alpha',
@@ -28,6 +28,8 @@ const PROJECT: ProjectInfo = {
   name: 'Alpha Project',
   description: 'Field reporting workspace',
   sensitive: true,
+  allowed_services: 'all_services',
+  usage_data_sharing: 'off',
   role: 'owner',
 };
 
@@ -49,6 +51,7 @@ afterEach(() => {
 });
 
 function stubLoaders() {
+  getProject.mockResolvedValue(PROJECT);
   getProjectRetention.mockResolvedValue(RETENTION);
   getProjectSettings.mockResolvedValue({
     media_allow_private_hosts: false,
@@ -69,12 +72,6 @@ function stubLoaders() {
         stride_seconds: null,
       },
     },
-  });
-  getProjectNetworkPolicy.mockResolvedValue({
-    schemaVersion: 'frisket.project_network_policy.v1',
-    mode: 'inherit',
-    organization_default: null,
-    effective: 'on',
   });
 }
 

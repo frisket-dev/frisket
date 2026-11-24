@@ -111,9 +111,9 @@ def test_a_concurrent_reader_never_sees_a_half_written_initial_manifest(
             Project._write_initial_manifest(
                 bundle,
                 "Created",
-                None,
                 storage_id="frisket.bundle.v1:test",
-                sensitive=False,
+                allowed_services="all_services",
+                usage_data_sharing="inherit",
             )
     finally:
         stop.set()
