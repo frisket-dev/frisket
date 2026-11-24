@@ -2876,7 +2876,6 @@ type HttpActionCompareEstimateResponse_ActionEstimate = ({
   "requires_confirmation"?: (((boolean)) | ((null)));
   "rows": (number);
   "venue_label"?: (((string)) | ((null)));
-  "warning"?: (((string)) | ((null)));
 });
 
 type HttpActionCompareEstimateResponse_ActionEstimateClaim = ({
@@ -2963,7 +2962,6 @@ type HttpActionEstimateResult_ActionEstimate = ({
   "requires_confirmation"?: (((boolean)) | ((null)));
   "rows": (number);
   "venue_label"?: (((string)) | ((null)));
-  "warning"?: (((string)) | ((null)));
 });
 
 type HttpActionEstimateResult_ActionEstimateClaim = ({
@@ -7887,7 +7885,6 @@ type HttpImportPreparationRetryEstimate_ActionEstimate = ({
   "requires_confirmation"?: (((boolean)) | ((null)));
   "rows": (number);
   "venue_label"?: (((string)) | ((null)));
-  "warning"?: (((string)) | ((null)));
 });
 
 type HttpImportPreparationRetryEstimate_ActionEstimateClaim = ({
@@ -8909,7 +8906,6 @@ type HttpInline_a10062e5b1ce4f0e_ActionEstimate = ({
   "requires_confirmation"?: (((boolean)) | ((null)));
   "rows": (number);
   "venue_label"?: (((string)) | ((null)));
-  "warning"?: (((string)) | ((null)));
 });
 
 type HttpInline_a10062e5b1ce4f0e_ActionEstimateClaim = ({
@@ -10494,7 +10490,6 @@ type HttpOcrCompareScratchEstimateResponse_ActionEstimate = ({
   "requires_confirmation"?: (((boolean)) | ((null)));
   "rows": (number);
   "venue_label"?: (((string)) | ((null)));
-  "warning"?: (((string)) | ((null)));
 });
 
 type HttpOcrCompareScratchEstimateResponse_ActionEstimateClaim = ({
@@ -10632,7 +10627,6 @@ type HttpPdfImportBatchOcrState_ActionEstimate = ({
   "requires_confirmation"?: (((boolean)) | ((null)));
   "rows": (number);
   "venue_label"?: (((string)) | ((null)));
-  "warning"?: (((string)) | ((null)));
 });
 
 type HttpPdfImportBatchOcrState_ActionEstimateClaim = ({
@@ -10753,7 +10747,6 @@ type HttpPdfImportListResponse_ActionEstimate = ({
   "requires_confirmation"?: (((boolean)) | ((null)));
   "rows": (number);
   "venue_label"?: (((string)) | ((null)));
-  "warning"?: (((string)) | ((null)));
 });
 
 type HttpPdfImportListResponse_ActionEstimateClaim = ({
@@ -10979,7 +10972,6 @@ type HttpPdfImportOcrPreviewEstimate_ActionEstimate = ({
   "requires_confirmation"?: (((boolean)) | ((null)));
   "rows": (number);
   "venue_label"?: (((string)) | ((null)));
-  "warning"?: (((string)) | ((null)));
 });
 
 type HttpPdfImportOcrPreviewEstimate_ActionEstimateClaim = ({
@@ -11033,7 +11025,6 @@ type HttpPdfImportOcrPreviewStart_ActionEstimate = ({
   "requires_confirmation"?: (((boolean)) | ((null)));
   "rows": (number);
   "venue_label"?: (((string)) | ((null)));
-  "warning"?: (((string)) | ((null)));
 });
 
 type HttpPdfImportOcrPreviewStart_ActionEstimateClaim = ({
@@ -11144,7 +11135,6 @@ type HttpPdfImportStatus_ActionEstimate = ({
   "requires_confirmation"?: (((boolean)) | ((null)));
   "rows": (number);
   "venue_label"?: (((string)) | ((null)));
-  "warning"?: (((string)) | ((null)));
 });
 
 type HttpPdfImportStatus_ActionEstimateClaim = ({
@@ -11365,7 +11355,6 @@ type HttpPdfPacketBatchOcrEstimateResponse_ActionEstimate = ({
   "requires_confirmation"?: (((boolean)) | ((null)));
   "rows": (number);
   "venue_label"?: (((string)) | ((null)));
-  "warning"?: (((string)) | ((null)));
 });
 
 type HttpPdfPacketBatchOcrEstimateResponse_ActionEstimateClaim = ({
@@ -11510,7 +11499,6 @@ type HttpPdfPacketOcrEstimateResponse_ActionEstimate = ({
   "requires_confirmation"?: (((boolean)) | ((null)));
   "rows": (number);
   "venue_label"?: (((string)) | ((null)));
-  "warning"?: (((string)) | ((null)));
 });
 
 type HttpPdfPacketOcrEstimateResponse_ActionEstimateClaim = ({
@@ -11843,7 +11831,6 @@ type HttpPrepareImportUrlsResponse_ActionEstimate = ({
   "requires_confirmation"?: (((boolean)) | ((null)));
   "rows": (number);
   "venue_label"?: (((string)) | ((null)));
-  "warning"?: (((string)) | ((null)));
 });
 
 type HttpPrepareImportUrlsResponse_ActionEstimateClaim = ({
@@ -15295,7 +15282,6 @@ type HttpTranscribeCompareScratchEstimateResponse_ActionEstimate = ({
   "requires_confirmation"?: (((boolean)) | ((null)));
   "rows": (number);
   "venue_label"?: (((string)) | ((null)));
-  "warning"?: (((string)) | ((null)));
 });
 
 type HttpTranscribeCompareScratchEstimateResponse_ActionEstimateClaim = ({

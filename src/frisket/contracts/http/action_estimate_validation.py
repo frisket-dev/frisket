@@ -55,7 +55,6 @@ class ActionEstimate(WireModel):
     live_rows: int | None = None
     billing_label: str | None = None
     venue_label: str | None = None
-    warning: str | None = None
     claims: list["ActionEstimateClaim"] | None = None
     promise_set_hash: str | None = None
     requires_confirmation: bool | None = None
