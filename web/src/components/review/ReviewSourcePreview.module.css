@@ -37,3 +37,6 @@
 .inputNotice { margin: 12px 20px; color: var(--text-light); font-size: var(--font-size-small); }
 .inputValue { padding: 8px 20px 24px; overflow-wrap: anywhere; }
 .inputValue :global(.row-field-media) { max-width: 100%; }
+/* A PDF input scrolls inside its own viewer, so the pane hands it the full height. */
+.viewerDocument { display: flex; flex-direction: column; overflow: hidden; }
+.inputPdf { display: flex; flex: 1 1 auto; flex-direction: column; min-height: 0; }
