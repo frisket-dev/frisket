@@ -406,3 +406,18 @@ it('opens a retained source at its requested original page without fetching its 
   expect(await screen.findByTestId('native-pdf-viewer')).toHaveAttribute('data-current-page', '3');
   expect(getEvidenceViewer).not.toHaveBeenCalled();
 });
+
+it.each([
+  ['no_word_stream', 'could not be checked'],
+  ['below_threshold', 'did not match'],
+  ['citation_page_out_of_range', 'outside this input'],
+])('explains unverified PDF claims: %s', async (warning, message) => {
+  getEvidenceViewer.mockResolvedValue({
+    ...jsonLeafPayload,
+    artifacts: [jsonLeafPayload.artifacts[0]],
+    warnings: [warning],
+  });
+  render(<CitationViewer evidenceLinkId="evidence-link:1" mode="pane" onClose={() => {}} defaultShowDetails />);
+  expect(await screen.findByTestId('evidence-grounding-degraded')).toHaveTextContent(message);
+  expect(screen.queryByText(warning)).not.toBeInTheDocument();
+});

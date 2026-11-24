@@ -311,7 +311,8 @@ class ExtractResultCitations:
             source["model_visible"] = True
             if inherited_name is not None:
                 source["alias_of"] = inherited_name
-            source["value"] = deepcopy(value)
+            if name not in capture:
+                source["value"] = deepcopy(value)
             if isinstance(value, str):
                 source["captured_text"] = value
             elif looks_like_segment_list(value):
@@ -445,8 +446,9 @@ class ExtractResultCitations:
                             source_label=source_label,
                             transcript_stream=transcript,
                         )
-                        if not resolved or not any(
-                            _span_is_usable(span) for span in resolved
+                        if not resolved or (
+                            self.citation_required
+                            and not any(_span_is_usable(span) for span in resolved)
                         ):
                             warnings.append("evidence_span_unsupported")
                             unsupported.append(
@@ -460,6 +462,13 @@ class ExtractResultCitations:
                                 }
                             )
                             continue
+                        warnings.extend(
+                            str(warning)
+                            for span in resolved
+                            for warning in (span.get("metadata") or {}).get(
+                                "warnings", []
+                            )
+                        )
                         warnings.extend(
                             str(span["metadata"]["alignment"])
                             for span in resolved

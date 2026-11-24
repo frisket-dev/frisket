@@ -206,7 +206,7 @@ describe('generated Extract grounding controls', () => {
 });
 
 
-it('shows effective PDF citations Off without rewriting a saved draft, restoring text citations on source change', () => {
+it('keeps optional PDF citations enabled without rewriting a saved draft', () => {
   const setParams = vi.fn();
   const params = { source: ['packet'], model: 'anthropic/test', fields: [{ name: 'fact', type: 'text' as const }],
     grounding: { enabled: true, citation_required: false, allowed_methods: ['exact_quote' as const] } };
@@ -216,10 +216,10 @@ it('shows effective PDF citations Off without rewriting a saved draft, restoring
     params={params} pdfInput={pdfInput} setParams={setParams} errors={{}}
     Field={({ name }) => <div data-testid={`field-${name}`} />} />;
   const view = render(body(true));
-  expect(screen.getByTestId('field-citation_mode')).toHaveValue('none');
-  expect(screen.getByTestId('field-citation_mode')).toBeDisabled();
-  expect(screen.getByTestId('pdf-citation-policy')).toHaveTextContent('PDF inputs do not support citations.');
-  expect(screen.queryByTestId('field-source_document_columns')).not.toBeInTheDocument();
+  expect(screen.getByTestId('field-citation_mode')).toHaveValue('cite');
+  expect(screen.getByTestId('field-citation_mode')).toBeEnabled();
+  expect(screen.queryByTestId('pdf-citation-policy')).not.toBeInTheDocument();
+  expect(screen.getByTestId('field-source_document_columns')).toBeInTheDocument();
   expect(setParams).not.toHaveBeenCalled();
   view.rerender(body(false));
   expect(screen.getByTestId('field-citation_mode')).toHaveValue('cite');
@@ -227,7 +227,7 @@ it('shows effective PDF citations Off without rewriting a saved draft, restoring
   expect(setParams).not.toHaveBeenCalled();
 });
 
-it('preserves an explicit citation-required PDF policy until the user turns it off', () => {
+it('preserves a required PDF policy until the user chooses optional citations', () => {
   const setParams = vi.fn();
   render(<ExtractParamsBody sheet={sheetMeta([], { id: '7' })}
     request={{ scope: { kind: 'sheet_rows', sheet_id: 7 }, output_names: {} }}
@@ -236,11 +236,11 @@ it('preserves an explicit citation-required PDF policy until the user turns it o
       evidence_policy: { citation_required: true } }} pdfInput setParams={setParams} errors={{}}
     Field={({ name }) => <div data-testid={`field-${name}`} />} />);
   expect(screen.getByTestId('field-citation_mode')).toHaveValue('require');
-  expect(screen.getByTestId('pdf-citation-policy')).toHaveTextContent('Turn citations off to continue.');
+  expect(screen.getByTestId('pdf-citation-policy')).toHaveTextContent('Choose Cite sources or Off to continue with PDF inputs.');
   expect(setParams).not.toHaveBeenCalled();
-  fireEvent.change(screen.getByTestId('field-citation_mode'), { target: { value: 'none' } });
+  fireEvent.change(screen.getByTestId('field-citation_mode'), { target: { value: 'cite' } });
   expect(setParams).toHaveBeenCalledWith(expect.objectContaining({
-    grounding: { enabled: false, citation_required: false, allowed_methods: ['exact_quote'] },
+    grounding: { enabled: true, citation_required: false, allowed_methods: ['exact_quote'] },
     evidence_policy: { citation_required: false },
   }));
 });

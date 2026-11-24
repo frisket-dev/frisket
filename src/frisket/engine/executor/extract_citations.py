@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import hashlib
+from collections.abc import Sequence
 from typing import Any
 
 from frisket.engine.store.value_codec import repair_unicode_text
+from frisket.engine.store.grounding_contract import WordToken
 
 
 _UNRESOLVED_TRANSCRIPT = object()
@@ -384,7 +386,7 @@ def _region_spans_from_matches(
     artifact: dict[str, Any],
     matches: list[Any],
     page_images: dict[str, Any],
-    snippet: str | None,
+    tokens: Sequence[WordToken],
     base_meta: dict[str, Any],
     alignment_meta: dict[str, Any],
     prepared: Any | None = None,
@@ -406,6 +408,9 @@ def _region_spans_from_matches(
         for spec in match.spans:
             if spec.span_kind != "region":
                 continue
+            quote = " ".join(
+                tokens[index].text for index in spec.metadata["covered_token_indices"]
+            )
             meta = {**base_meta, **alignment_meta, "align_score": match.score}
             if spec.metadata:
                 meta = {**meta, **spec.metadata}
@@ -417,8 +422,8 @@ def _region_spans_from_matches(
                     page_start=spec.page_start,
                     page_end=spec.page_end or spec.page_start,
                     bbox=spec.bbox,
-                    quote=spec.quote,
-                    snippet=snippet,
+                    quote=quote,
+                    snippet=quote,
                     selector=(
                         _prepared_selector(prepared, page=spec.page_start)
                         if prepared is not None
@@ -436,7 +441,6 @@ def _prepared_aligned_passage_spans(
     artifact: dict[str, Any],
     source: dict[str, Any],
     quote: str,
-    snippet: str | None,
     base_meta: dict[str, Any],
     page: int | None = None,
     page_end: int | None = None,
@@ -476,7 +480,7 @@ def _prepared_aligned_passage_spans(
             artifact=artifact,
             matches=matches,
             page_images={},
-            snippet=snippet,
+            tokens=tokens,
             base_meta=base_meta,
             alignment_meta={"alignment": "aligned"},
             prepared=prepared,
@@ -535,7 +539,7 @@ def _model_bbox_spans(
                     artifact=artifact,
                     matches=matches,
                     page_images=resolved.page_images,
-                    snippet=snippet,
+                    tokens=overlapping,
                     base_meta=base_meta,
                     alignment_meta={"alignment": "model_bbox_verified"},
                 )
@@ -583,7 +587,6 @@ def _aligned_passage_spans(
     *,
     artifact: dict[str, Any],
     quote: str,
-    snippet: str | None,
     blob_hash: str | None,
     base_meta: dict[str, Any],
     page: int | None = None,
@@ -642,7 +645,7 @@ def _aligned_passage_spans(
         artifact=artifact,
         matches=matches[:1],
         page_images=resolved.page_images,
-        snippet=snippet,
+        tokens=tokens,
         base_meta=base_meta,
         alignment_meta={"alignment": "aligned"},
     )
@@ -893,6 +896,14 @@ def _resolve_citation_entry_spans(
             transcript_stream=transcript_stream,
         )
     prepared_source = captured_source or {}
+    if entry_spans is None and prepared_source.get("pdf_input"):
+        return _source_spans(
+            project,
+            artifact=artifact,
+            item=entry,
+            rank=rank,
+            captured_source=prepared_source,
+        )
     prepared_ref_id = _prepared_ref_id(prepared_source)
     passage = _optional_string(entry.get("quote"))
     if entry_spans is None and prepared_ref_id is not None:
@@ -934,7 +945,6 @@ def _resolve_citation_entry_spans(
                         artifact=pdf_artifact,
                         source=prepared_source,
                         quote=passage,
-                        snippet=_optional_string(entry.get("snippet")),
                         base_meta=metadata,
                         page=_int_or_none(entry.get("page") or entry.get("page_start")),
                         page_end=_int_or_none(entry.get("page_end")),
@@ -961,7 +971,12 @@ def _resolve_citation_entry_spans(
 
 
 def _source_spans(
-    project: Any, *, artifact: dict[str, Any], item: dict[str, Any], rank: int
+    project: Any,
+    *,
+    artifact: dict[str, Any],
+    item: dict[str, Any],
+    rank: int,
+    captured_source: dict[str, Any] | None = None,
 ) -> list[dict[str, Any]]:
     """Resolve an evidence item into 1..N source spans (W2.1). A positionless
     ``quote`` aligns to the OCR word stream -> per-line ``region`` spans; a
@@ -971,8 +986,12 @@ def _source_spans(
     from frisket.engine.store.citations import record_source_span
 
     bbox = _normalized_bbox(item.get("bbox"))
-    page = _int_or_none(item.get("page") or item.get("page_start"))
-    page_end = _int_or_none(item.get("page_end")) or page
+    page = _int_or_none(
+        item.get("page") if item.get("page") is not None else item.get("page_start")
+    )
+    page_end = _int_or_none(item.get("page_end"))
+    if page_end is None:
+        page_end = page
     passage = _optional_string(item.get("quote"))
     snippet = _optional_string(item.get("snippet"))
     grounding_method = _optional_string(item.get("grounding_method"))
@@ -983,6 +1002,28 @@ def _source_spans(
         "rank": rank,
         "warnings": [],
     }
+    pdf_input = (captured_source or {}).get("pdf_input")
+    page_count = (
+        _int_or_none(pdf_input.get("page_count"))
+        if pdf_input
+        else _int_or_none(artifact.get("page_count"))
+    )
+    invalid_page = any(
+        number < 1 or (page_count is not None and number > page_count)
+        for number in (page, page_end)
+        if number is not None
+    ) or (page is not None and page_end is not None and page_end < page)
+    if invalid_page:
+        page = page_end = None
+        metadata["warnings"].append("citation_page_out_of_range")
+    if pdf_input:
+        selected_page = ((captured_source or {}).get("value") or {}).get("page")
+        if not invalid_page and selected_page is not None:
+            page = page_end = selected_page
+        # Direct-PDF schemas do not request boxes; unsolicited boxes cannot add precision.
+        if bbox is not None:
+            metadata["warnings"].append("model_bbox_unverified")
+        bbox = None
     if bbox is not None:
         return _model_bbox_spans(
             project,
@@ -996,16 +1037,36 @@ def _source_spans(
             base_meta={**metadata, "grounding_method": "model_bbox"},
         )
     if passage is not None:
-        spans, reason = _aligned_passage_spans(
-            project,
-            artifact=artifact,
-            quote=passage,
-            snippet=snippet,
-            blob_hash=blob_hash,
-            base_meta=metadata,
-            page=page,
-            page_end=page_end,
-        )
+        if pdf_input:
+            ref_id = pdf_input.get("prepared_ref_id")
+            spans = (
+                _prepared_aligned_passage_spans(
+                    project,
+                    artifact=artifact,
+                    source={"value_ref": {"prepared_ref_id": ref_id}},
+                    quote=passage,
+                    base_meta=metadata,
+                    page=page,
+                    page_end=page_end,
+                )
+                if ref_id is not None and not invalid_page
+                else None
+            )
+            reason = (
+                "below_threshold"
+                if ref_id is not None and not invalid_page
+                else "no_word_stream"
+            )
+        else:
+            spans, reason = _aligned_passage_spans(
+                project,
+                artifact=artifact,
+                quote=passage,
+                blob_hash=blob_hash,
+                base_meta=metadata,
+                page=page,
+                page_end=page_end,
+            )
         if spans is not None:
             return spans
         # Degradation Law: keep the positionless text span, but record WHY the
@@ -1017,7 +1078,7 @@ def _source_spans(
             record_source_span(
                 project,
                 artifact_id=int(artifact["id"]),
-                span_kind="text",
+                span_kind="page_range" if pdf_input and page is not None else "text",
                 page_start=page,
                 page_end=page_end,
                 quote=passage,

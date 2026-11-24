@@ -725,10 +725,15 @@ def test_two_prepared_outputs_keep_distinct_text_contexts_for_one_pdf(project):
     "claim,kind",
     [
         ({"page": 1, "snippet": "Prepared page"}, "page_range"),
-        ({"page": 1, "bbox": {"x0": 0.1, "y0": 0.2, "x1": 0.8, "y1": 0.3}}, "region"),
+        (
+            {"page": 1, "bbox": {"x0": 0.1, "y0": 0.2, "x1": 0.8, "y1": 0.3}},
+            "page_range",
+        ),
     ],
 )
-def test_prepared_page_and_region_claims_do_not_require_a_quote(project, claim, kind):
+def test_prepared_page_claims_survive_but_unverified_boxes_do_not_add_precision(
+    project, claim, kind
+):
     from frisket.actions.grounding_types import EvidenceClaim
 
     seeded = _seed_pdf_project(project)

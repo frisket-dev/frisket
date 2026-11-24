@@ -214,7 +214,6 @@ def _grounded_reply() -> dict[str, Any]:
                     },
                     "quote": "$1,250,000",
                     "snippet": "total contract amount is $1,250,000",
-                    "grounding_method": "model_bbox",
                 }
             ],
         },
@@ -244,7 +243,6 @@ def _grounded_bbox_spaces_reply() -> dict[str, Any]:
                     },
                     "quote": "$1,250,000",
                     "snippet": "total contract amount is $1,250,000",
-                    "grounding_method": "model_bbox",
                 }
             ],
         },
@@ -263,7 +261,6 @@ def _grounded_bbox_spaces_reply() -> dict[str, Any]:
                     },
                     "quote": "Acme Civic Works",
                     "snippet": "Vendor: Acme Civic Works",
-                    "grounding_method": "model_bbox",
                 }
             ],
         },
@@ -382,7 +379,7 @@ def test_grounded_map_extract_writes_canonical_evidence_and_replays(
         project_id=PROJECT_ID,
         router=router,
     )
-    assert result.status == "completed"
+    assert result.status == "completed", result.errors
     assert result.receipt_id is not None
     assert len(adapter.requests) == 1
 
@@ -544,7 +541,7 @@ def test_grounded_extract_normalizes_provider_bbox_coordinate_spaces(
         project_id=PROJECT_ID,
         router=router,
     )
-    assert result.status == "completed"
+    assert result.status == "completed", result.errors
     columns = {
         row["name"]: row
         for row in project.db.execute(
@@ -609,7 +606,7 @@ def test_grounded_map_extract_citation_required_withholds_unsupported_fields(
         project_id=PROJECT_ID,
         router=router,
     )
-    assert result.status == "completed"
+    assert result.status == "completed", result.errors
     assert result.receipt_id is not None
     assert len(adapter.requests) == 1
     assert {error.code for error in result.errors} == {"evidence_required"}

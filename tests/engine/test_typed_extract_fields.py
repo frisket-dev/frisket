@@ -95,7 +95,6 @@ def test_extraction_preserves_explicit_citation_opt_out(grounding):
                 "page_end",
                 "bbox",
                 "snippet",
-                "grounding_method",
             },
         ),
         (
@@ -109,7 +108,6 @@ def test_extraction_preserves_explicit_citation_opt_out(grounding):
                 "page_end",
                 "bbox",
                 "snippet",
-                "grounding_method",
             },
         ),
         (
@@ -126,7 +124,6 @@ def test_extraction_preserves_explicit_citation_opt_out(grounding):
                 "page_end",
                 "bbox",
                 "snippet",
-                "grounding_method",
                 "segment_indices",
             },
         ),
@@ -284,7 +281,8 @@ def test_grounded_schema_preserves_citations_and_nullable_absence():
         "anyOf"
     ][0]["items"]
     assert set(citations_schema["properties"]) == set(EvidenceClaim.model_fields) - {
-        "item_index"
+        "item_index",
+        "grounding_method",
     }
     assert citations_schema["additionalProperties"] is False
     claim = {
@@ -294,7 +292,6 @@ def test_grounded_schema_preserves_citations_and_nullable_absence():
         "page_end": 3,
         "quote": "Ada",
         "snippet": "Ada filed",
-        "grounding_method": "model_bbox",
         "segment_indices": None,
         "bbox": {"x0": 0.1, "y0": 0.2, "x1": 0.5, "y1": 0.6, "space": None},
     }
