@@ -28,42 +28,33 @@ from frisket.engine.executor.temporal_extract_action import (
 ExecutorDepsFactory = Callable[[str, Any], ExecutorDeps | None]
 
 
+def _with_executor_deps(
+    execute: ActionJobExecutor,
+    factory: ExecutorDepsFactory | None,
+) -> ActionJobExecutor:
+    def run(
+        project: Any,
+        envelope: ActionJobEnvelope,
+        *,
+        execution,
+        deps: ExecutorDeps | None = None,
+    ):
+        if deps is None and factory is not None:
+            deps = factory(envelope.project_id, None)
+        return execute(
+            project,
+            envelope,
+            execution=execution,
+            deps=deps if deps is not None else ExecutorDeps(),
+        )
+
+    return run
+
+
 def _contributed_action_job_executors(
     *,
     executor_deps_factory: ExecutorDepsFactory | None = None,
 ) -> dict[str, ActionJobExecutor]:
-    def run_google_sheets_action_job(
-        project: Any,
-        envelope: ActionJobEnvelope,
-        *,
-        execution,
-        deps: ExecutorDeps | None = None,
-    ):
-        if deps is None and executor_deps_factory is not None:
-            deps = executor_deps_factory(envelope.project_id, None)
-        return execute_google_sheets_job(
-            project,
-            envelope,
-            execution=execution,
-            deps=deps if deps is not None else ExecutorDeps(),
-        )
-
-    def run_map_find_action_job(
-        project: Any,
-        envelope: ActionJobEnvelope,
-        *,
-        execution,
-        deps: ExecutorDeps | None = None,
-    ):
-        if deps is None and executor_deps_factory is not None:
-            deps = executor_deps_factory(envelope.project_id, None)
-        return run_typed_find_action_job(
-            project,
-            envelope,
-            execution=execution,
-            deps=deps if deps is not None else ExecutorDeps(),
-        )
-
     return {
         **{
             registered.action_id: run_typed_table_action_job
@@ -84,12 +75,16 @@ def _contributed_action_job_executors(
             if supports_typed_temporal_extract_action(registered.definition.run)
         },
         **{
-            registered.action_id: run_google_sheets_action_job
+            registered.action_id: _with_executor_deps(
+                execute_google_sheets_job, executor_deps_factory
+            )
             for registered in ACTION_REGISTRY.actions
             if isinstance(registered.definition.run, GoogleSheetsExport)
         },
         **{
-            registered.action_id: run_map_find_action_job
+            registered.action_id: _with_executor_deps(
+                run_typed_find_action_job, executor_deps_factory
+            )
             for registered in ACTION_REGISTRY.actions
             if getattr(registered.definition.run, "capabilities", ()) == (FindScanner,)
         },

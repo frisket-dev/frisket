@@ -119,15 +119,13 @@ def test_find_scan_model_is_decided_before_any_request(
             adapter.complete,
         )
 
-    def execute(project, envelope, *, execution):
-        return run_typed_find_action_job(
-            project, envelope, execution=execution, deps=deps
-        )
-
     result = run_action_run_job(
         project,
         {"action_job": envelope.to_json(), "job_id": 12},
-        executor_lookup=lambda kind: execute if kind == "custom.find" else None,
+        executor_lookup=lambda kind: (
+            run_typed_find_action_job if kind == "custom.find" else None
+        ),
+        executor_deps=deps,
         should_cancel=lambda: False,
     )
     if allowed:
