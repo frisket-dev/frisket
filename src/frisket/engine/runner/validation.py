@@ -23,11 +23,7 @@ from frisket.ai.llm import (
     request_key,
 )
 from frisket.ai.llm.pricing import ModelServers
-from frisket.ai.llm.pdf_estimates import (
-    PDF_ESTIMATE_WARNING,
-    estimate_input_tokens,
-    has_pdf_input,
-)
+from frisket.ai.llm.pdf_estimates import estimate_input_tokens
 from frisket.ai.llm.execution import ExecutionModelRouter
 from frisket.ops.base import ActionProgram
 from frisket.project_service_access import (
@@ -1034,17 +1030,6 @@ def _estimate_run(
                 cost_source="cloud_route_estimate" if bound is not None else "unknown",
             ),
         }
-        # The route already rendered inputs to quote them. Disclose PDF token
-        # approximation from selected file columns without rereading blob bytes.
-        from frisket.ai.llm.document_input import PDF_ACTION_IDS
-
-        if spec.get("action_kind") in PDF_ACTION_IDS:
-            sources = set(action_program.source_columns(spec))
-            if any(
-                column["type"] == "file" and column["name"] in sources
-                for column in project.columns(spec["sheet_id"])
-            ):
-                out["warning"] = PDF_ESTIMATE_WARNING
         if pricing_policy is None:
             raise TypeError("estimate_run requires a pricing_policy for routed work")
         rated = confirmation_estimate(action_program, spec, out, policy=pricing_policy)
@@ -1159,15 +1144,12 @@ def _estimate_run(
     col_map = {c["name"]: c["id"] for c in columns}
     sample = rows[: min(20, len(rows))]
     sample_tokens = []
-    pdf_inputs = False
     for row_id in sample:
         values = row_values(project, action_program, spec, col_map, row_id)
         call = action_program.render(values, spec)
-        pdf_inputs |= has_pdf_input(call.messages)
         sample_tokens.append(estimate_input_tokens(call.messages))
     estimate_known = all(tokens is not None for tokens in sample_tokens)
     avg_in = sum(tokens or 0 for tokens in sample_tokens) / max(1, len(sample_tokens))
-    pdf_disclosure = {"warning": PDF_ESTIMATE_WARNING} if pdf_inputs else {}
     est_out = 150 + 50 * len(spec.get("fields", []) or [1])
     pricing = model_pricing(spec.get("model", ""), model_servers)
     if pricing.price is None or not estimate_known:
@@ -1176,7 +1158,6 @@ def _estimate_run(
             "cost_source": "unknown",
             "rows": len(rows),
             "avg_input_tokens": int(avg_in),
-            **pdf_disclosure,
         }
         return _EstimateRunResult(
             out,
@@ -1196,7 +1177,6 @@ def _estimate_run(
         ),
         "rows": len(rows),
         "avg_input_tokens": int(avg_in),
-        **pdf_disclosure,
     }
     return _EstimateRunResult(
         out,

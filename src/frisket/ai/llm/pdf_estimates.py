@@ -8,22 +8,6 @@ from typing import Any
 
 from frisket.ai.llm.pricing import estimate_tokens
 
-PDF_ESTIMATE_WARNING = (
-    "PDF input cost is approximate: 3,000 tokens per page plus available native "
-    "text at about four characters per token. Actual provider usage may differ."
-)
-
-
-def has_pdf_input(value: Any) -> bool:
-    if isinstance(value, Mapping):
-        return (
-            value.get("type") == "document"
-            and value.get("media_type") == "application/pdf"
-        ) or any(has_pdf_input(child) for child in value.values())
-    if isinstance(value, (list, tuple)):
-        return any(has_pdf_input(child) for child in value)
-    return False
-
 
 def estimate_input_tokens(value: Any, **json_options: Any) -> int | None:
     """Preserve ordinary estimates; PDF page/native-text metadata owns its estimate.
