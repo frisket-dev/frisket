@@ -35,6 +35,7 @@ from frisket.engine.executor.action_jobs import (
     launch_queued_action_job,
     reserve_typed_action_job,
 )
+from frisket.engine.executor.action_inventory import ExecutorDeps
 from frisket.project_identity import ProjectStorageKey
 from frisket.engine.store import Project
 
@@ -443,8 +444,13 @@ def register_embedding_refresh_handler(
         return len(alert_jobs)
 
     def _action_job_executor(
-        project: Project, envelope: ActionJobEnvelope, *, execution: Any = None
+        project: Project,
+        envelope: ActionJobEnvelope,
+        *,
+        execution: Any = None,
+        deps: ExecutorDeps | None = None,
     ) -> ActionResult:
+        del deps
         from frisket.engine.executor.action_families.embeddings import (
             run_index_refresh_action_job,
         )

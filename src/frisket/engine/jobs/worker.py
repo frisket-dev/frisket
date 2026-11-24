@@ -267,7 +267,7 @@ class HandlerRegistry:
 
     def register_action_executor(self, kind: str, fn: ActionJobExecutor) -> None:
         # Refuse incomplete worker composition before a queued job can be claimed.
-        inspect.signature(fn).bind(None, None, execution=None)
+        inspect.signature(fn).bind(None, None, execution=None, deps=None)
         self._action_executors[kind] = fn
 
     def register_recovery_hook(self, fn: Callable[[JobQueue], None]) -> None:
@@ -490,6 +490,9 @@ def register_production_handlers(
         require_storage_identity=strict_cloud_storage,
         workspace_root_storage_organization_id=workspace_root_storage_organization_id,
         project_opener=project_opener,
+        executor_deps_factory=executor_deps_factory,
+        execution_router_factory=execution_router_factory,
+        response_cache_factory=response_cache_factory,
     )
     register_action_job_binding_handlers(
         registry,

@@ -56,7 +56,7 @@ def _reserve_action(
 
 
 def _completed_child_result(
-    project: Project, envelope: ActionJobEnvelope, *, execution
+    project: Project, envelope: ActionJobEnvelope, *, execution, deps=None
 ) -> ActionResult:
     from frisket.execution.dispatch_control import QueuedDispatch
 
@@ -211,7 +211,7 @@ def test_cancelled_claim_does_not_enqueue_search_after_effect(
     )
 
     def publish_then_cancel(
-        project: Project, claimed: ActionJobEnvelope, *, execution
+        project: Project, claimed: ActionJobEnvelope, *, execution, deps=None
     ) -> ActionResult:
         result = _completed_child_result(project, claimed, execution=execution)
         assert queue.cancel(launched.job_id) is True

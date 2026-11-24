@@ -281,11 +281,8 @@ def _assert_google_request_confirmation_reaches_its_host_gate(tmp_path, register
         result = run_action_run_job(
             project,
             {"action_job": envelope.to_json()},
-            executor_lookup=lambda _kind: (
-                lambda project_, envelope_, *, execution: run_google_sheets_action_job(
-                    project_, envelope_, execution=execution, deps=deps
-                )
-            ),
+            executor_lookup=lambda _kind: run_google_sheets_action_job,
+            executor_deps=deps,
         )
         assert result.status == "completed", result.errors
         assert len(calls) == 1
