@@ -332,3 +332,22 @@ def test_team_project_owner_cannot_install_a_plugin_from_a_server_path(
     payload = response.json()
     assert payload["installFailure"]["code"] == "plugin_install_server_path_unavailable"
     assert payload["receiptId"] is None
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        {"kind": "local_file", "path": "/etc/hostname"},
+        [{"kind": "local_dir", "path": "/etc"}],
+        {"kind": ["local_file"]},
+    ],
+)
+def test_data_that_looks_like_a_path_reference_is_not_refused(value) -> None:
+    from frisket.execution.action_admission import server_path_admission_error
+
+    params = {"rows": [{"cells": {"note": value}}], "values": value}
+    assert server_path_admission_error("append_rows", params) is None
+    refused = server_path_admission_error(
+        "export_csv", {**params, "destination": {"kind": "local_file", "path": "x"}}
+    )
+    assert refused is not None and refused.field == "params.destination.path"

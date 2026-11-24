@@ -44,21 +44,22 @@ def missing_action_credential_error(
 
 
 _SERVER_PATH_KINDS = frozenset({"local_file", "local_dir"})
+# The parameters in which an action names a file reference. Anything else in
+# the params, row data included, is the caller's own data and is never read
+# as a path.
+_SERVER_PATH_PARAMS = ("destination", "source", "manifest")
 
 
-def _server_path_field(value: object, field: str) -> str | None:
-    if isinstance(value, Mapping):
-        if value.get("kind") in _SERVER_PATH_KINDS:
-            return f"{field}.path"
-        for key, item in value.items():
-            found = _server_path_field(item, f"{field}.{key}")
-            if found is not None:
-                return found
-    elif isinstance(value, list):
-        for index, item in enumerate(value):
-            found = _server_path_field(item, f"{field}[{index}]")
-            if found is not None:
-                return found
+def _server_path_field(params: object) -> str | None:
+    if not isinstance(params, Mapping):
+        return None
+    for name in _SERVER_PATH_PARAMS:
+        reference = params.get(name)
+        if not isinstance(reference, Mapping):
+            continue
+        kind = reference.get("kind")
+        if isinstance(kind, str) and kind in _SERVER_PATH_KINDS:
+            return f"params.{name}.path"
     return None
 
 
@@ -69,7 +70,7 @@ def server_path_admission_error(action_kind: str, params: object) -> ActionError
     ``local_dir`` source or destination names a path on the server, whatever
     the action; downloads and project-file destinations stay available.
     """
-    field = _server_path_field(params, "params")
+    field = _server_path_field(params)
     if field is None:
         return None
     return ActionError(
