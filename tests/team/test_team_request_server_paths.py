@@ -9,6 +9,7 @@ import pytest
 from fastapi import FastAPI, Request
 from fastapi.testclient import TestClient
 
+from frisket.execution.action_admission import server_path_admission_error
 from frisket.server.app import create_app
 from frisket.server.routes.skills import register_skill_routes
 from frisket.server.services.skills import SkillLibrary
@@ -343,8 +344,6 @@ def test_team_project_owner_cannot_install_a_plugin_from_a_server_path(
     ],
 )
 def test_data_that_looks_like_a_path_reference_is_not_refused(value) -> None:
-    from frisket.execution.action_admission import server_path_admission_error
-
     params = {"rows": [{"cells": {"note": value}}], "values": value}
     assert server_path_admission_error("append_rows", params) is None
     refused = server_path_admission_error(
