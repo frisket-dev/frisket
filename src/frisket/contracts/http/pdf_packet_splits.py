@@ -391,7 +391,6 @@ class PdfPacketCommitRequest(WireModel):
     name_pattern: str = Field(
         default="{packet}-{index}.pdf", min_length=1, max_length=256
     )
-    keep_ocr_text: bool = False
     carried_column_ids: list[int] = Field(default_factory=list)
     analysis_revision: int | None = Field(default=None, ge=0)
     ocr_policy: PdfOcrPolicy = "none"

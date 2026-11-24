@@ -99,7 +99,6 @@ def test_existing_sheet_destination_contract_defaults_legacy_controls():
     assert request.destination.sheet_id == 12
     assert request.carried_column_ids == [23]
     assert request.name_pattern
-    assert request.keep_ocr_text is False
 
 
 def test_durable_apply_materializes_three_plus_five_pages_and_replaces_once(

@@ -11448,7 +11448,6 @@ export type HttpPdfPacketCommitRequest = ({
   "confirmed_starts"?: (Array<(number)>);
   "destination": (HttpPdfPacketCommitRequest_PdfPacketDestination);
   "idempotency_key": (string);
-  "keep_ocr_text"?: (boolean);
   "name_pattern"?: (string);
   "ocr_confirmation"?: (((string)) | ((null)));
   "ocr_policy"?: ("missing" | "missing_or_suspicious" | "all" | "none") & (string);

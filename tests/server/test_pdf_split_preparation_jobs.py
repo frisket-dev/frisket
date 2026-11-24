@@ -21,7 +21,19 @@ from tests.deterministic_time import controlled_time
 from tests.server.test_pdf_split_preparation import _runtime
 
 
-@pytest.mark.parametrize("outcome", ["success", "existing", "provider_failure", "stop"])
+@pytest.mark.parametrize(
+    "outcome",
+    [
+        "success",
+        "existing",
+        "provider_failure",
+        "stop",
+        "hidden_media",
+        "hidden_text",
+        "removed_media",
+        "removed_text",
+    ],
+)
 def test_actual_queue_worker_prepares_original_page_and_publishes_child_under_split(
     tmp_path, monkeypatch, outcome
 ):
@@ -111,23 +123,44 @@ def test_actual_queue_worker_prepares_original_page_and_publishes_child_under_sp
             idempotency_key="prepared-split",
             pdf_preparation=facts,
         )
+
+        def after_import(project_id, receipt_id, sheet_id):
+            if outcome.startswith(("hidden_", "removed_")):
+                role = outcome.split("_", 1)[1]
+                with project.db:
+                    project.db.execute(
+                        "UPDATE columns SET "
+                        + (
+                            "hidden=1"
+                            if outcome.startswith("hidden_")
+                            else "active=0, hidden=1"
+                        )
+                        + " WHERE sheet_id=? AND name=?",
+                        (sheet_id, role),
+                    )
+            preparation.create_after_import(
+                project_id, receipt_id=receipt_id, sheet_id=sheet_id
+            )
+
         registry = HandlerRegistry()
         register_pdf_split_handler(
             registry,
             workspace_root=workspace.root,
             queue=workspace.queue,
-            on_terminal_import=lambda project_id, receipt_id, sheet_id: (
-                preparation.create_after_import(
-                    project_id, receipt_id=receipt_id, sheet_id=sheet_id
-                )
-            ),
+            on_terminal_import=after_import,
         )
         worker = Worker(workspace.queue, registry)
         assert worker.run_once()
         job = workspace.queue.get(started["job_id"])
         assert job.status == "done", job
         import_ref = started["import_ref"]
-        if outcome not in {"success", "existing"}:
+        if outcome.startswith("removed_"):
+            summary = preparation.pdf_import_summary("pages", import_ref)
+            assert summary.stopped is True
+            assert provider.calls == 0
+            assert preparation.progress_pdf_import("pages", import_ref) >= 0
+            return
+        if outcome not in {"success", "existing", "hidden_media", "hidden_text"}:
             if outcome == "stop":
                 assert entered.wait(5)
                 stopped = preparation.stop_pdf_import("pages", import_ref)
@@ -205,7 +238,7 @@ def test_actual_queue_worker_prepares_original_page_and_publishes_child_under_sp
             (session["sheet_id"],),
         ).fetchone()[0]
         selected = resolve_document_text_selection(
-            project, (session["sheet_id"], row, role)
+            project, (session["sheet_id"], row, role), allow_hidden=True
         )
         content = PreparedContentStore(project).resolve(selected.prepared_ref_id)
         assert content.text == "Read page"
@@ -237,7 +270,7 @@ def test_actual_queue_worker_prepares_original_page_and_publishes_child_under_sp
             PreparedContentStore(project)
             .resolve(
                 resolve_document_text_selection(
-                    project, (session["sheet_id"], row, role)
+                    project, (session["sheet_id"], row, role), allow_hidden=True
                 ).prepared_ref_id
             )
             .text
