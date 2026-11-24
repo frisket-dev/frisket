@@ -69,10 +69,7 @@ from frisket.engine.executor.action_lifecycle import (
 from frisket.engine.executor.action_support import ActionCtx
 from frisket.engine.executor.action_receipts import _receipt_ops_are_applied
 from frisket.engine.executor.action_families.imports import _compact_import_rowset_ref
-from frisket.engine.executor.import_sources import (
-    BoundLocalFile,
-    open_local_file_reader,
-)
+from frisket.engine.executor.import_sources import open_local_file_reader
 from frisket.engine.executor.map_rows_action import typed_request_hash
 from frisket.engine.executor.project_mutation_runtime import (
     CallOnce as _CallOnce,
@@ -449,7 +446,8 @@ class _RowsAppender(_CallOnce):
     ) -> None:
         super().__init__(project, cur, action, params_hash)
         self._max_rows = max_rows
-        self._file_sources: Mapping[str, BoundLocalFile] | None = None
+        # Replaced by the capability factory; the default admits no file.
+        self._file_deps = ExecutorDeps()
 
     def append(
         self,
@@ -463,7 +461,7 @@ class _RowsAppender(_CallOnce):
     def append_csv(self, params: Any) -> AppendedRows:
         from frisket.actions.imports import import_csv
 
-        with open_local_file_reader(self._file_sources) as reader:
+        with open_local_file_reader(self._file_deps) as reader:
             produced = import_csv(params, reader)
             if not isinstance(produced.rows, Iterable):
                 raise TypeError("import_csv must produce synchronous rows")
@@ -476,7 +474,7 @@ class _RowsAppender(_CallOnce):
     def append_xlsx(self, params: Any) -> AppendedRows:
         from frisket.actions.import_xlsx import import_xlsx
 
-        with open_local_file_reader(self._file_sources) as reader:
+        with open_local_file_reader(self._file_deps) as reader:
             produced = import_xlsx(params, reader)
             if not isinstance(produced.rows, Iterable):
                 raise TypeError("import_xlsx must produce synchronous rows")
@@ -1743,7 +1741,7 @@ def _capability_factory(
             params_hash,
             max_rows=limits.max_rows if limits is not None else None,
         )
-        capability._file_sources = deps.local_file_sources
+        capability._file_deps = deps
         return capability
     return capability_type(project, cur, action, params_hash)
 

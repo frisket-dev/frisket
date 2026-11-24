@@ -79,6 +79,7 @@ class _PreviewPlan:
 
 class _PreviewWorkspace:
     edition = "solo"
+    admits_server_paths = True
     executor_deps_factory = None
 
     def get(self, _: str) -> object:

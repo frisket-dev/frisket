@@ -25,6 +25,7 @@ from frisket.authoring.workbench.plugin_runtime_settings import (
     set_workbench_plugin_env_var,
 )
 from frisket.authoring.workbench.plugin_runtime_status import (
+    _install_plan_execution_response,
     workbench_plugin_frontend_component_module,
     workbench_plugin_runtime_index,
 )
@@ -107,6 +108,26 @@ class WorkbenchService:
         source: dict[str, Any],
         arbitrary_package_load_allowed: bool,
     ) -> tuple[int, dict[str, Any]]:
+        if source.get("kind") != "bundled" and not self._workspace.admits_server_paths:
+            return 403, _install_plan_execution_response(
+                project_id=project_id,
+                plugin_id=plugin_id,
+                source=source,
+                install_state="failed",
+                activation="failed",
+                receipt_id=None,
+                manifest_sha256="",
+                package_sha256="",
+                arbitrary_package_load_allowed=False,
+                install_failure={
+                    "code": "plugin_install_server_path_unavailable",
+                    "message": (
+                        "installing a plugin from a server path is not "
+                        "available on this deployment"
+                    ),
+                    "retryable": False,
+                },
+            )
         with self._workspace.plugin_package_lifecycle():
             return execute_workbench_plugin_local_install_plan(
                 self._workspace.get(project_id),

@@ -178,7 +178,11 @@ class ExecutorDeps:
     # provider=, model=, modality=) -> EmbeddingBatchResult); tests inject a fake,
     # production defaults to EmbeddingGateway(router=...) at the family edge.
     embedding_gateway: Any | None = None
+    # File readers open only the admitted sources named here. Opening any other
+    # request-supplied server path needs ``operator_local_files``, which only
+    # the local single-user edition grants: its user operates the machine.
     local_file_sources: Mapping[str, BoundLocalFile] | None = None
+    operator_local_files: bool = False
     packet_split_reader: Any | None = None
     # Request-local trusted ingress resolves opaque email refs to borrowed
     # streams. Missing/unknown refs never fall back to opening a client path.

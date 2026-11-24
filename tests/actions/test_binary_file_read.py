@@ -180,7 +180,7 @@ def test_binary_owned_source_closes_before_recording_facts(
                 raise OSError("late close failure")
 
     monkeypatch.setattr(Path, "open", lambda *args, **kwargs: OwnedSource())
-    reader = AdmittedLocalFileReader()
+    reader = AdmittedLocalFileReader(operator_paths=True)
 
     def consume():
         with reader.open_binary(str(path)) as source:
@@ -212,7 +212,7 @@ def test_binary_closed_admission_map_never_falls_back_to_existing_path(tmp_path)
 
 
 def test_binary_direct_source_must_be_regular_file(tmp_path):
-    reader = AdmittedLocalFileReader()
+    reader = AdmittedLocalFileReader(operator_paths=True)
     with pytest.raises(TableError, match="readable local file"):
         with reader.open_binary(str(tmp_path)):
             pytest.fail("A directory was opened")

@@ -7,6 +7,7 @@ handles only the capabilities and secrets declared by the resolved action.
 from __future__ import annotations
 
 import os
+from collections.abc import Mapping
 from typing import TYPE_CHECKING
 
 from frisket.authoring.action_metadata import (
@@ -39,6 +40,47 @@ def missing_action_credential_error(
             "settings_scope": "project",
             "settings_section": "secrets",
         },
+    )
+
+
+_SERVER_PATH_KINDS = frozenset({"local_file", "local_dir"})
+# The parameters in which an action names a file reference. Anything else in
+# the params, row data included, is the caller's own data and is never read
+# as a path.
+_SERVER_PATH_PARAMS = ("destination", "source", "manifest")
+
+
+def _server_path_field(params: object) -> str | None:
+    if not isinstance(params, Mapping):
+        return None
+    for name in _SERVER_PATH_PARAMS:
+        reference = params.get(name)
+        if not isinstance(reference, Mapping):
+            continue
+        kind = reference.get("kind")
+        if isinstance(kind, str) and kind in _SERVER_PATH_KINDS:
+            return f"params.{name}.path"
+    return None
+
+
+def server_path_admission_error(action_kind: str, params: object) -> ActionError | None:
+    """Refuse a request whose params name a server path source or destination.
+
+    Callers apply this outside the local edition. Any ``local_file`` or
+    ``local_dir`` source or destination names a path on the server, whatever
+    the action; downloads and project-file destinations stay available.
+    """
+    field = _server_path_field(params)
+    if field is None:
+        return None
+    return ActionError(
+        code="server_path_unavailable",
+        message=(
+            f"'{action_kind}' names a file path on the server, which is not "
+            "available on this deployment; download or upload the file instead"
+        ),
+        action_kind=action_kind,
+        field=field,
     )
 
 

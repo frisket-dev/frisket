@@ -19,6 +19,9 @@ from executor_harness import (
 from frisket.ai.llm import LLMError, LLMRequest, LLMResponse, ModelRouter
 from frisket.engine.store import Project
 from tests.engine.extract_typed_chain_helpers import typed_extract_request
+from frisket.engine.executor.action_inventory import ExecutorDeps
+
+OPERATOR_FILES = ExecutorDeps(operator_local_files=True)
 
 REPLY = {
     "people": ["Ada Lovelace"],
@@ -142,6 +145,7 @@ def _seed(project: Project, tmp_path: Path) -> dict[str, Any]:
             "idempotency_key": "vision/import_files@sha256:card",
         },
         project_id="project-map-extract",
+        deps=OPERATOR_FILES,
     )
     assert import_result.status == "completed", import_result.errors
     sheet_id = import_result.outputs[0].sheet_id

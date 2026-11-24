@@ -101,6 +101,7 @@ from frisket.team.control_plane import (
     organization_provider_keys,
 )
 from frisket.team.db import atomic_upsert, locked_transaction
+from frisket.project_identity import validate_project_slug
 from frisket.team.admin_routes import register_admin_api_routes
 from frisket.team.enforcement import protect_core_app
 from frisket.team.identity_service import IdentityAuthService
@@ -528,14 +529,15 @@ def _local_auth_page(
 
 
 def _project_intent_slug(name: str) -> str:
+    """A fresh slug that ``validate_project_slug`` accepts for any name."""
     base = (
         "".join(
-            char if char.isalnum() or char in "-_" else "-"
+            char if (char.isascii() and char.isalnum()) or char in "-_" else "-"
             for char in name.lower().strip()
         )[:48].strip("-")
         or "project"
     )
-    return f"{base}-{secrets.token_hex(6)}"
+    return validate_project_slug(f"{base}-{secrets.token_hex(6)}")
 
 
 def _valid_project_bundle(bundle, *, slug: str) -> bool:
@@ -1127,6 +1129,19 @@ def create_team_app(
             ).scalars()
         )
     for pending_slug in pending_slugs:
+        try:
+            validate_project_slug(pending_slug)
+        except ValueError:
+            # No bundle can exist under an invalid slug, so the intent can
+            # never complete; dropping it keeps startup from failing on it.
+            _LOG.warning("dropping unrecoverable project creation intent")
+            with engine.begin() as cx:
+                cx.execute(
+                    project_creation_intents.delete().where(
+                        project_creation_intents.c.slug == pending_slug
+                    )
+                )
+            continue
         _complete_project_intent(engine, core.state.workspace, slug=pending_slug)
 
     # This Team server is single-organization today, but skill material remains below

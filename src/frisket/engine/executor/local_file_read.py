@@ -111,10 +111,32 @@ def _descriptor_state(stream: BinaryIO) -> tuple[int, int, int, int, int] | None
     )
 
 
+def _open_operator_path(opened: ExitStack, path: str) -> tuple[BinaryIO, str, None]:
+    source = Path(path).resolve()
+    if not source.is_file():
+        raise OSError("source is not a regular file")
+    stream = opened.enter_context(source.open("rb"))
+    if not stat.S_ISREG(os.fstat(stream.fileno()).st_mode):
+        raise OSError("source is not a regular file")
+    return stream, str(source), None
+
+
 class AdmittedLocalFileReader:
-    def __init__(self, sources: Mapping[str, BoundLocalFile] | None = None) -> None:
+    """Read admitted sources; arbitrary paths only under the operator grant.
+
+    Without admitted ``sources`` and without ``operator_paths`` every path is
+    refused, so a caller that forgets to bind sources fails closed.
+    """
+
+    def __init__(
+        self,
+        sources: Mapping[str, BoundLocalFile] | None = None,
+        *,
+        operator_paths: bool = False,
+    ) -> None:
         self.facts: list[dict[str, Any]] = []
         self.sources = sources
+        self.operator_paths = operator_paths
         self._active: set[Any] = set()
         self._closed = False
 
@@ -124,6 +146,23 @@ class AdmittedLocalFileReader:
             resource.close()
         self._active.clear()
 
+    @staticmethod
+    def _open_admitted(
+        opened: ExitStack, path: str, sources: Mapping[str, BoundLocalFile]
+    ) -> tuple[BinaryIO, str, str | None]:
+        admitted = sources.get(path)
+        if admitted is None:
+            raise ValueError("Source path was not admitted")
+        stream = (
+            opened.enter_context(admitted.open_source())
+            if admitted.open_source is not None
+            else admitted.stream
+        )
+        if stream is None:
+            raise ValueError("Source path was not admitted")
+        stream.seek(0)
+        return stream, path, admitted.sha256
+
     @contextmanager
     def _source(self, path: str) -> Iterator[tuple[BinaryIO, str, str | None]]:
         if self._closed:
@@ -132,32 +171,22 @@ class AdmittedLocalFileReader:
             raise TableError(
                 "invalid_file_source", "Source must be a readable local file"
             )
+        if self.sources is None and not self.operator_paths:
+            raise TableError(
+                "invalid_file_source",
+                "Server file paths are not available on this deployment; "
+                "upload the file instead",
+            )
         opened = ExitStack()
         self._active.add(opened)
         try:
             with opened:
                 try:
-                    if self.sources is not None:
-                        admitted = self.sources.get(path)
-                        if admitted is None:
-                            raise ValueError("Source path was not admitted")
-                        stream = (
-                            opened.enter_context(admitted.open_source())
-                            if admitted.open_source is not None
-                            else admitted.stream
-                        )
-                        if stream is None:
-                            raise ValueError("Source path was not admitted")
-                        actual_path, expected = path, admitted.sha256
-                        stream.seek(0)
-                    else:
-                        source = Path(path).resolve()
-                        if not source.is_file():
-                            raise OSError("source is not a regular file")
-                        stream = opened.enter_context(source.open("rb"))
-                        if not stat.S_ISREG(os.fstat(stream.fileno()).st_mode):
-                            raise OSError("source is not a regular file")
-                        actual_path, expected = str(source), None
+                    stream, actual_path, expected = (
+                        self._open_admitted(opened, path, self.sources)
+                        if self.sources is not None
+                        else _open_operator_path(opened, path)
+                    )
                 except (OSError, ValueError, RuntimeError) as exc:
                     if isinstance(exc, TableError):
                         raise

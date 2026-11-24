@@ -18,9 +18,13 @@ from frisket.actions.entity_package_types import (
 )
 from frisket.actions.system import BoundTypedActionRequest
 from frisket.actions.types import ActionRequest
+from frisket.engine.executor.action_inventory import ExecutorDeps
 from frisket.engine.executor.callable_action import run_typed_callable_action
 from frisket.engine.store.receipts import ReceiptStore
 from frisket.plugins.action_loader import load_action_module as _load_module
+
+OPERATOR_FILES = ExecutorDeps(operator_local_files=True)
+
 
 ROOT = Path(__file__).resolve().parents[2]
 PLUGIN_ROOT = ROOT / "src/frisket/authoring/bundled_plugins/frisket.ftm"
@@ -70,12 +74,13 @@ def test_native_import_and_export_return_real_dataset_and_golden_package(
     native, make_project, validate
 ):
     pytest.importorskip("followthemoney")
-    from frisket.followthemoney.import_planner import (
-        plan_followthemoney_import,
-    )
     from ftm_migration_harness import (
         FTM_HARNESS_PROJECT_ID,
         _canonical_export_inputs,
+    )
+
+    from frisket.followthemoney.import_planner import (
+        plan_followthemoney_import,
     )
 
     source = GOLDENS / "case.ftm.json"
@@ -86,7 +91,7 @@ def test_native_import_and_export_return_real_dataset_and_golden_package(
         "import",
     )
     imported = run_typed_callable_action(
-        project, FTM_HARNESS_PROJECT_ID, import_request
+        project, FTM_HARNESS_PROJECT_ID, import_request, deps=OPERATOR_FILES
     )
     assert imported.status == "completed", imported.errors
     dataset = ImportedEntityDataset.model_validate(imported.value)
@@ -110,7 +115,7 @@ def test_native_import_and_export_return_real_dataset_and_golden_package(
         "export",
     )
     exported = run_typed_callable_action(
-        project, FTM_HARNESS_PROJECT_ID, export_request
+        project, FTM_HARNESS_PROJECT_ID, export_request, deps=OPERATOR_FILES
     )
     assert exported.status == "completed", exported.errors
     package = ExportedEntityPackage.model_validate(exported.value)
@@ -125,11 +130,15 @@ def test_native_import_and_export_return_real_dataset_and_golden_package(
         assert json.loads(archive.read("manifest.json"))["validate"] is validate
         assert json.loads(archive.read("source_refs.json"))["entry_count"] > 0
     assert (
-        run_typed_callable_action(project, FTM_HARNESS_PROJECT_ID, import_request)
+        run_typed_callable_action(
+            project, FTM_HARNESS_PROJECT_ID, import_request, deps=OPERATOR_FILES
+        )
         == imported
     )
     assert (
-        run_typed_callable_action(project, FTM_HARNESS_PROJECT_ID, export_request)
+        run_typed_callable_action(
+            project, FTM_HARNESS_PROJECT_ID, export_request, deps=OPERATOR_FILES
+        )
         == exported
     )
 
@@ -152,7 +161,9 @@ def test_native_handlers_surface_real_missing_extra_refusal(
         else {"rowsets": [{"sheet_id": 1}], "mappings": [{"schema": "Person"}]}
     )
     project = make_project("project")
-    result = run_typed_callable_action(project, "p", _bind(definition, params, name))
+    result = run_typed_callable_action(
+        project, "p", _bind(definition, params, name), deps=OPERATOR_FILES
+    )
     assert result.status == "failed"
     assert result.errors[0].code == "followthemoney_unavailable"
     assert not result.outputs

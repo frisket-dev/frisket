@@ -32,6 +32,9 @@ from frisket.sdk import (
     create_sheet,
 )
 from frisket.engine.store.transactions import write_transaction
+from frisket.engine.executor.action_inventory import ExecutorDeps
+
+OPERATOR_FILES = ExecutorDeps(operator_local_files=True)
 
 
 class FeedParams(ActionParams):
@@ -79,7 +82,7 @@ def test_renamed_source_static_producer_reuses_streaming_reader_and_actual_hash(
             idempotency_key="feed-once",
         ),
     )
-    result = run_typed_create_sheet_action(project, "p", bound)
+    result = run_typed_create_sheet_action(project, "p", bound, deps=OPERATOR_FILES)
     assert result.status == "completed", result.errors
     sheet = result.outputs[0].ref
     assert list(
@@ -97,7 +100,7 @@ def test_renamed_source_static_producer_reuses_streaming_reader_and_actual_hash(
         }
     ]
     source.unlink()
-    replay = run_typed_create_sheet_action(project, "p", bound)
+    replay = run_typed_create_sheet_action(project, "p", bound, deps=OPERATOR_FILES)
     assert replay.status == "completed", replay.errors
     assert replay.receipt_id == result.receipt_id
 
@@ -229,6 +232,7 @@ def test_csv_receipt_preserves_only_unambiguous_source_label(
             idempotency_key="source-label",
         ).model_dump(mode="json"),
         project_id="p",
+        deps=OPERATOR_FILES,
     )
     assert result.status == "completed", result.errors
     receipt = ReceiptStore(project).parsed_by_id(result.receipt_id)
@@ -412,7 +416,7 @@ def test_retired_csv_wire_cannot_replay_a_stored_receipt(tmp_path, make_project)
                 ],
             )
         )
-    result = run_action_spec(project, retired, project_id="p")
+    result = run_action_spec(project, retired, project_id="p", deps=OPERATOR_FILES)
     assert result.status == "failed"
     assert result.errors[0].code == "invalid_action_request"
     assert result.receipt_id is None

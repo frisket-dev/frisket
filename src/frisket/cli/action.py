@@ -105,7 +105,8 @@ def action(argv: list[str]) -> int:
                 deps=ExecutorDeps(
                     search_service_factory=lambda: local_search_service(
                         project_path.parent
-                    )
+                    ),
+                    operator_local_files=True,
                 ),
             )
         finally:

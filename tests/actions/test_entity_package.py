@@ -1,7 +1,7 @@
 """Real FtM primitives preserve complete datasets and deliver retained ZIPs."""
 
-import io
 import hashlib
+import io
 import json
 import sqlite3
 import zipfile
@@ -29,6 +29,8 @@ from frisket.engine.executor.callable_action import run_typed_callable_action
 from frisket.engine.store import Project
 from frisket.engine.store.receipts import ReceiptStore
 from frisket.engine.store.value_codec import decode_stored_value
+
+OPERATOR_FILES = ExecutorDeps(operator_local_files=True)
 
 
 class Params(ActionParams):
@@ -152,7 +154,10 @@ def test_real_callable_import_preserves_schema_relationships_raw_and_undo(
     bound, registry = _bound(import_entities, {"document": str(path)})
     monkeypatch.setattr(system, "ACTION_REGISTRY", registry)
     result = run_action_spec(
-        project, bound.request.model_dump(mode="json"), project_id="p"
+        project,
+        bound.request.model_dump(mode="json"),
+        project_id="p",
+        deps=OPERATOR_FILES,
     )
     assert result.status == "completed", result.errors
     dataset = ImportedEntityDataset.model_validate(result.value)
@@ -199,12 +204,12 @@ def test_real_callable_import_preserves_schema_relationships_raw_and_undo(
         item.ref for item in receipt.inputs if item.ref["kind"] == "local_file_read"
     )["sha256"]
     path.unlink()
-    assert run_typed_callable_action(project, "p", bound) == result
+    assert run_typed_callable_action(project, "p", bound, deps=OPERATOR_FILES) == result
     assert project.undo() == dataset.change_id
-    replay = run_typed_callable_action(project, "p", bound)
+    replay = run_typed_callable_action(project, "p", bound, deps=OPERATOR_FILES)
     assert replay.status == "failed" and replay.errors[0].code == "stale_replay"
     assert project.redo() == dataset.change_id
-    assert run_typed_callable_action(project, "p", bound) == result
+    assert run_typed_callable_action(project, "p", bound, deps=OPERATOR_FILES) == result
 
 
 def test_package_download_uses_existing_project_blob_route(client, entities):
@@ -213,7 +218,7 @@ def test_package_download_uses_existing_project_blob_route(client, entities):
     other = client.post("/api/projects", json={"name": "Other"}).json()["id"]
     project = client.app.state.workspace.get(pid)
     bound, _ = _bound(roundtrip, {"document": str(path)})
-    result = run_typed_callable_action(project, pid, bound)
+    result = run_typed_callable_action(project, pid, bound, deps=OPERATOR_FILES)
     assert result.status == "completed", result.errors
     report = Report.model_validate(result.value)
     ref = ReceiptStore(project).parsed_by_id(result.receipt_id).exports[0]
@@ -234,7 +239,7 @@ def test_package_download_uses_existing_project_blob_route(client, entities):
         }
         assert len(archive.read("entities.ftm.jsonl").splitlines()) == 4
         assert json.loads(archive.read("source_refs.json"))["entry_count"] > 0
-    assert run_typed_callable_action(project, pid, bound) == result
+    assert run_typed_callable_action(project, pid, bound, deps=OPERATOR_FILES) == result
 
 
 @pytest.mark.parametrize("fail", [False, True])
@@ -265,12 +270,12 @@ def test_committed_packages_survive_gc_and_later_handler_failure(
         return Report(dataset=dataset, package=second)
 
     bound, _ = _bound(run, {"document": str(path), "fail": fail})
-    result = run_typed_callable_action(project, "p", bound)
+    result = run_typed_callable_action(project, "p", bound, deps=OPERATOR_FILES)
     assert result.status == ("failed" if fail else "completed"), result.errors
     assert len(ReceiptStore(project).parsed_by_id(result.receipt_id).exports) == 2
     project.gc_blobs()
     assert all(project.read_blob(digest) for digest in observed)
-    assert run_typed_callable_action(project, "p", bound) == result
+    assert run_typed_callable_action(project, "p", bound, deps=OPERATOR_FILES) == result
 
 
 @pytest.mark.parametrize("failure", ["apply", "receipt", "commit"])
@@ -339,7 +344,7 @@ def test_late_import_failure_preserves_previous_effect_and_receipt(
         return prior
 
     bound, _ = _bound(run, {"document": str(path)})
-    result = run_typed_callable_action(project, "p", bound)
+    result = run_typed_callable_action(project, "p", bound, deps=OPERATOR_FILES)
     assert result.status == "completed", result.errors
     assert len(result.change_ids) == 1
     assert len([output for output in result.outputs if output.kind == "sheet"]) == 1
@@ -357,7 +362,7 @@ def test_unavailable_extra_refuses_before_source_read(make_project, monkeypatch)
     )
     project = make_project("project")
     bound, _ = _bound(import_entities, {"document": "not-readable"})
-    result = run_typed_callable_action(project, "p", bound)
+    result = run_typed_callable_action(project, "p", bound, deps=OPERATOR_FILES)
     assert result.status == "failed"
     assert result.errors[0].code == "followthemoney_unavailable"
     assert not result.outputs
@@ -371,7 +376,7 @@ def test_empty_or_all_invalid_import_refuses_before_write(
     path.write_bytes(content)
     project = make_project("project")
     bound, _ = _bound(import_entities, {"document": str(path)})
-    result = run_typed_callable_action(project, "p", bound)
+    result = run_typed_callable_action(project, "p", bound, deps=OPERATOR_FILES)
     assert result.status == "failed"
     assert result.errors[0].code == "invalid_ftm_import"
     assert project.db.execute("SELECT COUNT(*) FROM sheets").fetchone()[0] == 0
@@ -386,7 +391,10 @@ def test_import_row_budget_counts_every_sheet_kind_before_write(make_project, en
         project,
         "p",
         bound,
-        deps=ExecutorDeps(import_workload_limits=ImportWorkloadLimits(max_rows=3)),
+        deps=ExecutorDeps(
+            operator_local_files=True,
+            import_workload_limits=ImportWorkloadLimits(max_rows=3),
+        ),
     )
     assert result.status == "failed"
     assert result.errors[0].code == "import_workload_limit_exceeded"
@@ -447,7 +455,7 @@ def test_import_retains_bounded_diagnostics_with_explicit_summary(
     path.write_text("\n".join([valid, invalid, *(["{bad"] * 5)]))
     project = make_project("project")
     bound, _ = _bound(import_entities, {"document": str(path)})
-    result = run_typed_callable_action(project, "p", bound)
+    result = run_typed_callable_action(project, "p", bound, deps=OPERATOR_FILES)
     assert result.status == "completed", result.errors
     dataset = ImportedEntityDataset.model_validate(result.value)
     assert len(dataset.diagnostics) == 3
@@ -476,7 +484,7 @@ def test_apply_failure_is_not_classified_as_invalid_input(
     monkeypatch.setattr(entity_package, "apply_additive_tables", fail_apply)
     project = make_project("project")
     bound, _ = _bound(import_entities, {"document": str(path)})
-    result = run_typed_callable_action(project, "p", bound)
+    result = run_typed_callable_action(project, "p", bound, deps=OPERATOR_FILES)
     assert result.status == "failed"
     assert result.errors[0].code == "action_failed"
     assert "internal database detail" not in result.errors[0].message
@@ -554,7 +562,9 @@ def test_failed_package_publication_preserves_shared_blob_and_prior_receipt(
     path, _ = entities
     project = make_project("project")
     original_bound, _ = _bound(roundtrip, {"document": str(path)})
-    original = run_typed_callable_action(project, "p", original_bound)
+    original = run_typed_callable_action(
+        project, "p", original_bound, deps=OPERATOR_FILES
+    )
     assert original.status == "completed", original.errors
     report = Report.model_validate(original.value)
     content = project.read_blob(report.package.blob_hash)
@@ -584,12 +594,15 @@ def test_failed_package_publication_preserves_shared_blob_and_prior_receipt(
         return {"retained": True}
 
     bound, _ = _bound(run, {"document": "unused"}, key="second")
-    result = run_typed_callable_action(project, "p", bound)
+    result = run_typed_callable_action(project, "p", bound, deps=OPERATOR_FILES)
     assert result.status == "completed", result.errors
     assert not ReceiptStore(project).parsed_by_id(result.receipt_id).exports
     project.gc_blobs()
     assert project.read_blob(report.package.blob_hash) == content
-    assert run_typed_callable_action(project, "p", original_bound) == original
+    assert (
+        run_typed_callable_action(project, "p", original_bound, deps=OPERATOR_FILES)
+        == original
+    )
 
 
 @pytest.mark.parametrize("missing", [False, True])
@@ -601,7 +614,7 @@ def test_export_replay_validates_retained_bytes_without_rerunning_handler(
     path, _ = entities
     project = make_project("project")
     bound, _ = _bound(roundtrip, {"document": str(path)})
-    original = run_typed_callable_action(project, "p", bound)
+    original = run_typed_callable_action(project, "p", bound, deps=OPERATOR_FILES)
     assert original.status == "completed", original.errors
     before = tuple(project.db.iterdump())
 
@@ -611,7 +624,7 @@ def test_export_replay_validates_retained_bytes_without_rerunning_handler(
         return b"corrupt"
 
     monkeypatch.setattr(Project, "read_blob", read_blob)
-    result = run_typed_callable_action(project, "p", bound)
+    result = run_typed_callable_action(project, "p", bound, deps=OPERATOR_FILES)
     assert result.status == "failed"
     assert result.errors[0].code == (
         "export_artifact_missing" if missing else "export_artifact_mismatch"

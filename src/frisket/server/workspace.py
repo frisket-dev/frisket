@@ -770,6 +770,17 @@ class Workspace:
             effective_router,
         )
 
+    @property
+    def admits_server_paths(self) -> bool:
+        """Whether requests may name server filesystem paths to read or write.
+
+        Only the local single-user edition admits them, because its user
+        operates the machine. Multi-user editions refuse request-supplied
+        server paths; uploads and HTTP downloads carry files instead.
+        """
+
+        return self.edition == "solo"
+
     def supports_cloud_connection(self) -> bool:
         return (
             self.edition == "solo"

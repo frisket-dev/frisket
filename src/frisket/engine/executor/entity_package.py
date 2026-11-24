@@ -76,7 +76,7 @@ class FollowTheMoneyImportCapability:
             import_plan_to_write_plan,
         )
 
-        with open_local_file_reader(invocation.deps.local_file_sources) as files:
+        with open_local_file_reader(invocation.deps) as files:
             try:
                 host_max_rows = (
                     invocation.deps.import_workload_limits.max_rows

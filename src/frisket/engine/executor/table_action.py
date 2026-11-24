@@ -608,9 +608,7 @@ def prepare_table_producer(
             if capability is EmbeddingIndexReader:
                 reader = AdmittedEmbeddingIndexReader(project, bound.action.action_id)
             elif capability is LocalFileReader:
-                reader = resources.enter_context(
-                    open_local_file_reader(deps.local_file_sources)
-                )
+                reader = resources.enter_context(open_local_file_reader(deps))
             elif capability is FileInventoryReader:
                 reader = AdmittedFileInventoryReader(inventory_admission, blob_stager)
             elif capability is PacketSplitReader:

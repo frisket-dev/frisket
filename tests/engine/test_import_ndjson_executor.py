@@ -7,7 +7,13 @@ from typing import Any
 
 import pytest
 
-from executor_harness import CatalogEntry, ExecutorCase, Gate, case_env
+from executor_harness import (
+    CatalogEntry,
+    ExecutorCase,
+    Gate,
+    case_env,
+    operator_files_patch,
+)
 from frisket.engine.store import Project
 
 ROWS = [
@@ -201,6 +207,7 @@ def _check_state(project: Project, seeded: dict[str, Any], result: Any) -> None:
 CASES = [
     ExecutorCase(
         kind="import.ndjson",
+        patch=operator_files_patch,
         catalog=CatalogEntry(
             execution_mode="whole_project",
             async_mode="sync",

@@ -28,6 +28,9 @@ from frisket.sdk import (
     create_sheet,
 )
 from frisket.engine.store.transactions import write_transaction
+from frisket.engine.executor.action_inventory import ExecutorDeps
+
+OPERATOR_FILES = ExecutorDeps(operator_local_files=True)
 
 
 class TabSeparatedParams(ActionParams):
@@ -106,7 +109,7 @@ def test_second_format_derived_path_and_observed_facts(
     source.write_bytes(data)
     project = make_project("project")
     bound = _bound(tab_separated, {"directory": str(tmp_path), "stem": "people"})
-    result = run_typed_create_sheet_action(project, "p", bound)
+    result = run_typed_create_sheet_action(project, "p", bound, deps=OPERATOR_FILES)
     assert result.status == "completed", result.errors
     sheet = result.outputs[0].ref
     assert list(
@@ -134,7 +137,9 @@ def test_second_format_derived_path_and_observed_facts(
     assert summary["request_hash"] != "invented"
     source.unlink()
     assert (
-        run_typed_create_sheet_action(project, "p", bound).receipt_id
+        run_typed_create_sheet_action(
+            project, "p", bound, deps=OPERATOR_FILES
+        ).receipt_id
         == result.receipt_id
     )
 
@@ -145,7 +150,7 @@ def test_unused_file_capability_does_not_claim_a_read(tmp_path, make_project):
         tab_separated,
         {"directory": str(tmp_path), "stem": "missing", "skip_read": True},
     )
-    result = run_typed_create_sheet_action(project, "p", bound)
+    result = run_typed_create_sheet_action(project, "p", bound, deps=OPERATOR_FILES)
     assert result.status == "completed", result.errors
     receipt = ReceiptStore(project).parsed_by_id(result.receipt_id)
     assert not any(
@@ -160,7 +165,7 @@ def test_file_reader_refuses_symlink_loop_without_writes(tmp_path, make_project)
     source.symlink_to(source.name)
     project = make_project("project")
     bound = _bound(tab_separated, {"directory": str(tmp_path), "stem": "loop"})
-    result = run_typed_create_sheet_action(project, "p", bound)
+    result = run_typed_create_sheet_action(project, "p", bound, deps=OPERATOR_FILES)
     assert result.status == "failed"
     assert result.errors[0].code == "invalid_file_source"
     assert result.errors[0].field == "params"
@@ -201,7 +206,7 @@ def test_retired_ndjson_wire_cannot_replay_a_stored_receipt(tmp_path, make_proje
                 ],
             )
         )
-    result = run_action_spec(project, retired, project_id="p")
+    result = run_action_spec(project, retired, project_id="p", deps=OPERATOR_FILES)
     assert result.status == "failed"
     assert result.errors[0].code == "invalid_action_request"
     assert result.receipt_id is None
@@ -228,7 +233,7 @@ def test_ndjson_retry_replays_original_read_and_new_key_imports_changed_bytes(
         },
         "idempotency_key": "original-read",
     }
-    first = run_action_spec(project, request, project_id="p")
+    first = run_action_spec(project, request, project_id="p", deps=OPERATOR_FILES)
     assert first.status == "completed", first.errors
     source.write_bytes(changed)
 
@@ -237,11 +242,14 @@ def test_ndjson_retry_replays_original_read_and_new_key_imports_changed_bytes(
 
     with monkeypatch.context() as retry_patch:
         retry_patch.setattr(AdmittedLocalFileReader, "read_bytes", unexpected_read)
-        replay = run_action_spec(project, request, project_id="p")
+        replay = run_action_spec(project, request, project_id="p", deps=OPERATOR_FILES)
         assert replay.status == "completed", replay.errors
         assert replay.receipt_id == first.receipt_id
         conflict = run_action_spec(
-            project, {**request, "sheet_name": "Different"}, project_id="p"
+            project,
+            {**request, "sheet_name": "Different"},
+            project_id="p",
+            deps=OPERATOR_FILES,
         )
         assert conflict.status == "failed"
         assert conflict.errors[0].code == "idempotency_conflict"
@@ -250,6 +258,7 @@ def test_ndjson_retry_replays_original_read_and_new_key_imports_changed_bytes(
         project,
         {**request, "sheet_name": "Updated", "idempotency_key": "updated-read"},
         project_id="p",
+        deps=OPERATOR_FILES,
     )
     assert second.status == "completed", second.errors
     assert second.receipt_id != first.receipt_id
@@ -306,6 +315,7 @@ def test_registered_nonidempotent_parser_runs_once(tmp_path, project, kind):
                 "idempotency_key": "parse-once",
             },
             project_id="p",
+            deps=OPERATOR_FILES,
         )
         assert result.status == "completed", result.errors
         assert calls == ["raw"]
@@ -338,7 +348,7 @@ def test_host_rejects_unnormalized_values_instead_of_parsing_them(project):
             {},
             columns_from=lambda _params: (TableColumn("value", "one_parse"),),
         )
-        result = run_typed_create_sheet_action(project, "p", bound)
+        result = run_typed_create_sheet_action(project, "p", bound, deps=OPERATOR_FILES)
         assert result.status == "failed"
         assert result.errors[0].code == "invalid_params"
         assert calls == []

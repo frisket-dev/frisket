@@ -590,6 +590,7 @@ class ActionPreviewRunService:
                 router,
                 execution_context,
             ),
+            operator_local_files=self._workspace.admits_server_paths,
         )
         try:
             from frisket.engine.executor.table_action import builtin_table_source

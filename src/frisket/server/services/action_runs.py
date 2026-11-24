@@ -567,6 +567,8 @@ class ActionRunService:
                     request_deps = replace(
                         request_deps, local_file_sources=admitted_sources
                     )
+                elif self._workspace.admits_server_paths:
+                    request_deps = replace(request_deps, operator_local_files=True)
             return request_deps
 
         queued_result = queue_v1_action_run(
@@ -694,16 +696,27 @@ class ActionRunService:
         self, project: Project | None, project_id: str, body: dict[str, Any]
     ) -> V1ActionResult | None:
         from frisket.actions.registry import ACTION_REGISTRY
-        from frisket.execution.action_admission import action_admission_error
+        from frisket.execution.action_admission import (
+            action_admission_error,
+            server_path_admission_error,
+        )
 
         kind = action_id_from_request(body) if isinstance(body, dict) else None
         if not isinstance(kind, str):
             return None
-        try:
-            action = ACTION_REGISTRY.get(kind)
-        except KeyError:
-            return None
-        error = action_admission_error(project, action, edition=self._workspace.edition)
+        error = (
+            None
+            if self._workspace.admits_server_paths
+            else server_path_admission_error(kind, body.get("params"))
+        )
+        if error is None:
+            try:
+                action = ACTION_REGISTRY.get(kind)
+            except KeyError:
+                return None
+            error = action_admission_error(
+                project, action, edition=self._workspace.edition
+            )
         if error is None:
             return None
         return V1ActionResult(

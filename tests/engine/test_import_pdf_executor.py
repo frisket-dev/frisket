@@ -13,6 +13,9 @@ from frisket.engine.executor import run_action_spec
 from frisket.engine.executor.pdf_page_read import AdmittedPdfPageRenderer
 from frisket.engine.store import Project
 from frisket.engine.store.prepared_content import PreparedContentStore
+from frisket.engine.executor.action_inventory import ExecutorDeps
+
+OPERATOR_FILES = ExecutorDeps(operator_local_files=True)
 
 pypdf = pytest.importorskip("pypdf")
 
@@ -109,7 +112,7 @@ def test_pdf_publication_retains_pages_original_and_replays_without_source(
     monkeypatch.setattr(AdmittedPdfPageRenderer, "render", render_pages)
     project = make_project("PDF")
     action = _action(source, render_pages=render != "disabled", dpi=200)
-    result = run_action_spec(project, action, project_id="pdf")
+    result = run_action_spec(project, action, project_id="pdf", deps=OPERATOR_FILES)
     assert result.status == "completed", result.errors
     sheet_id = result.outputs[0].sheet_id
     columns = result.outputs[0].ref["columns"]
@@ -251,7 +254,7 @@ def test_pdf_publication_retains_pages_original_and_replays_without_source(
         raise AssertionError("receipt replay must not render or reread its source")
 
     monkeypatch.setattr(AdmittedPdfPageRenderer, "render", forbidden)
-    replay = run_action_spec(project, action, project_id="pdf")
+    replay = run_action_spec(project, action, project_id="pdf", deps=OPERATOR_FILES)
     assert replay.status == "completed", replay.errors
     assert replay.receipt_id == result.receipt_id
     assert replay.change_ids == result.change_ids
@@ -280,7 +283,7 @@ def test_pdf_prepared_text_uses_renamed_generated_column(
     action = _action(source, render_pages=False)
     action["output_names"] = {"text": "body"}
 
-    result = run_action_spec(project, action, project_id="pdf")
+    result = run_action_spec(project, action, project_id="pdf", deps=OPERATOR_FILES)
 
     assert result.status == "completed", result.errors
     sheet_id = result.outputs[0].sheet_id
@@ -305,7 +308,10 @@ def test_pdf_invalid_dpi_refuses_before_source_or_publication(
 ) -> None:
     project = make_project("PDF")
     result = run_action_spec(
-        project, _action(tmp_path / "missing.pdf", dpi=dpi), project_id="pdf"
+        project,
+        _action(tmp_path / "missing.pdf", dpi=dpi),
+        project_id="pdf",
+        deps=OPERATOR_FILES,
     )
     assert result.status == "failed"
     assert result.errors[0].code == "invalid_action_request"
@@ -319,7 +325,9 @@ def test_pdf_parse_failure_leaves_no_published_blob_or_hidden_sheet(
     source = tmp_path / "invalid.pdf"
     source.write_bytes(b"not a PDF")
     project = make_project("PDF")
-    result = run_action_spec(project, _action(source), project_id="pdf")
+    result = run_action_spec(
+        project, _action(source), project_id="pdf", deps=OPERATOR_FILES
+    )
     assert result.status == "failed"
     assert result.errors[0].code == "pdf_parse_failed"
     assert not any(_counts(project).values())
@@ -346,6 +354,7 @@ def test_pdf_page_text_failure_keeps_empty_cell_without_prepared_version(
         project,
         _action(source, render_pages=False),
         project_id="pdf",
+        deps=OPERATOR_FILES,
     )
     assert result.status == "completed", result.errors
     sheet_id = result.outputs[0].sheet_id
@@ -401,7 +410,7 @@ def test_pdf_replay_refuses_damaged_document_or_page_blob(
     monkeypatch.setattr(AdmittedPdfPageRenderer, "render", render_pages)
     project = make_project("PDF")
     action = _action(source)
-    first = run_action_spec(project, action, project_id="pdf")
+    first = run_action_spec(project, action, project_id="pdf", deps=OPERATOR_FILES)
     assert first.status == "completed", first.errors
     digest = hashlib.sha256(raw if target == "document" else PNG).hexdigest()
     if damage == "metadata":
@@ -415,7 +424,7 @@ def test_pdf_replay_refuses_damaged_document_or_page_blob(
                 stored.write_bytes(b"corrupt published bytes")
     before = _counts(project)
     source.unlink()
-    replay = run_action_spec(project, action, project_id="pdf")
+    replay = run_action_spec(project, action, project_id="pdf", deps=OPERATOR_FILES)
     assert replay.status == "failed"
     assert replay.errors[0].code == "stale_replay"
     assert _counts(project) == before
