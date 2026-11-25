@@ -1839,8 +1839,10 @@ def test_coverage_counts_an_imported_pdf_page_instead_of_its_rendered_image(
     assert (prepared_gap.eligible_count, prepared_gap.prepared_count) == (2, 1)
 
 
+@pytest.mark.parametrize("source_selection", ["document", "text", "both"])
 def test_material_coverage_counts_exact_current_prepared_binding_appearances(
     make_project,
+    source_selection,
 ):
     from frisket.search import drain_index
 
@@ -1901,16 +1903,28 @@ def test_material_coverage_counts_exact_current_prepared_binding_appearances(
         [{"row_id": rows[0], "column_id": prepared_text, "value": prepared}]
     )
 
+    selected_columns = {
+        "document": (document,),
+        "text": (prepared_text,),
+        "both": (document, prepared_text),
+    }[source_selection]
     response = search(
         project,
         SearchRequest(
-            scope=RetrievalScope(sheets=(SheetScope(sheet, column_ids=(document,)),)),
+            scope=RetrievalScope(
+                sheets=(SheetScope(sheet, column_ids=selected_columns),)
+            ),
             query=TextQuery("needle"),
             mode="lexical",
             ranking=RankingPolicy(rerank="off"),
         ),
     )
 
+    if source_selection == "text":
+        assert all(
+            item.channel != "search_preparation" for item in response.coverage.channels
+        )
+        return
     gap = next(
         item
         for item in response.coverage.channels

@@ -967,6 +967,8 @@ def _material_preparation_coverage(
     if request.named_index_id is not None:
         return None
 
+    # Readiness uses authorized rows directly. Expanding the view-heavy media
+    # CTE again inside readiness exceeds SQLite's CTE cursor budget.
     row = reader.db.execute(
         f"""WITH {scope.cte_sql}, eligible_media AS MATERIALIZED (
           SELECT scoped.sheet_id,source_current.row_id,source_current.column_id,
@@ -1036,7 +1038,7 @@ def _material_preparation_coverage(
             ))
           GROUP BY scoped.sheet_id,source_current.row_id,
                    source_current.column_id,blob_hash,page_number
-        ), {prepared_source_readiness_ctes(scope_relation="eligible_media", schema="main")},
+        ), {prepared_source_readiness_ctes(scope_relation="scoped_bindings", schema="main")},
         preparation_inventory AS MATERIALIZED (
           SELECT eligible.sheet_id,
                  CASE WHEN
