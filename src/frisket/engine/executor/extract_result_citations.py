@@ -460,16 +460,19 @@ class ExtractResultCitations:
                             sheet_id=sheet_id,
                             row_id=row_id,
                         )
-                        resolved = _resolve_citation_entry_spans(
-                            project,
-                            artifact=artifact,
-                            sheet_id=sheet_id,
-                            row_id=row_id,
-                            entry=entry,
-                            rank=rank,
-                            captured_source=source,
-                            source_label=source_label,
-                            transcript_stream=transcript,
+                        resolved = (
+                            _resolve_citation_entry_spans(
+                                project,
+                                artifact=artifact,
+                                sheet_id=sheet_id,
+                                row_id=row_id,
+                                entry=entry,
+                                rank=rank,
+                                captured_source=source,
+                                source_label=source_label,
+                                transcript_stream=transcript,
+                            )
+                            or []
                         )
                         if not _supports_citation(
                             resolved, required=self.citation_required
