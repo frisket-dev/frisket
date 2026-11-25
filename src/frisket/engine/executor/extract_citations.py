@@ -408,7 +408,7 @@ def _region_spans_from_matches(
         for spec in match.spans:
             if spec.span_kind != "region":
                 continue
-            quote = " ".join(
+            matched_text = " ".join(
                 tokens[index].text for index in spec.metadata["covered_token_indices"]
             )
             meta = {**base_meta, **alignment_meta, "align_score": match.score}
@@ -422,8 +422,8 @@ def _region_spans_from_matches(
                     page_start=spec.page_start,
                     page_end=spec.page_end or spec.page_start,
                     bbox=spec.bbox,
-                    quote=quote,
-                    snippet=quote,
+                    quote=matched_text,
+                    snippet=matched_text,
                     selector=(
                         _prepared_selector(prepared, page=spec.page_start)
                         if prepared is not None

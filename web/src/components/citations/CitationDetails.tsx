@@ -12,7 +12,7 @@ const GROUNDING_DEGRADED_COPY: Record<string, string> = {
     'The model’s quote could not be checked against positioned source text. No verified highlight is available. Run OCR to enable page highlights.',
   below_threshold:
     "The model’s quote did not match the positioned source text. No verified highlight is available.",
-  repeated_quote_ambiguous:
+  'repeated_quote_ambiguous':
     "The model’s quote matches multiple passages. No single verified highlight is available.",
   citation_page_out_of_range:
     'The model cited a page outside this input; no page location is shown.',
