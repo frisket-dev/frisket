@@ -52,6 +52,14 @@ def test_typed_pdf_action_delivers_whole_and_selected_page_and_publishes_only_ou
         body = json.loads(request.content)
         seen.append(body)
         result = {output: "Ada"}
+        if action == "map.extract":
+            result = {
+                output: {
+                    "value": "Ada",
+                    "warnings": None,
+                    "evidence": [{"source": "document", "page": 1, "quote": "Ada"}],
+                }
+            }
         if provider == "openai":
             return httpx.Response(
                 200,
@@ -105,8 +113,7 @@ def test_typed_pdf_action_delivers_whole_and_selected_page_and_publishes_only_ou
         params["question"] = "Who is named?"
     if action == "map.extract":
         params["fields"] = [{"name": "person", "type": "text"}]
-        # API-authored optional citations must be effectively off for PDF.
-        params["grounding"] = {"enabled": True}
+        # Omitted grounding uses the same optional-citation default as text.
     request = ActionRequest.model_validate(
         {
             "action_id": action,
@@ -164,8 +171,19 @@ def test_typed_pdf_action_delivers_whole_and_selected_page_and_publishes_only_ou
                 or body["tools"][0]["input_schema"]
             )
             field = Draft202012Validator(schema["properties"]["person"])
-            assert field.is_valid("Ada")
-            assert not field.is_valid({"value": "Ada", "evidence": []})
+            assert not field.is_valid("Ada")
+            assert field.is_valid({"value": "Ada", "evidence": [], "warnings": None})
+            assert set(
+                field.schema["properties"]["evidence"]["anyOf"][0]["items"][
+                    "properties"
+                ]
+            ) == {"source", "quote", "page"}
+        else:
+            assert "evidence" not in json.dumps(
+                body.get("response_format")
+                or body.get("output_config")
+                or body.get("tools")
+            )
     assert delivered["whole"] == original
     selected = PdfReader(BytesIO(delivered["selected"]))
     assert len(selected.pages) == 1
@@ -181,3 +199,12 @@ def test_typed_pdf_action_delivers_whole_and_selected_page_and_publishes_only_ou
         rows, "Ada"
     )
     assert len(project.visible_row_ids(sheet)) == 2
+
+    citation_pages = project.db.execute(
+        "SELECT link.row_id,span.page_start FROM citations link "
+        "JOIN citation_spans member ON member.citation_id=link.id "
+        "JOIN source_spans span ON span.id=member.span_id"
+    ).fetchall()
+    assert dict(citation_pages) == (
+        dict(zip(rows, [1, 2])) if action == "map.extract" else {}
+    )

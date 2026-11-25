@@ -444,10 +444,10 @@ def _prepared_aligned_passage_spans(
     base_meta: dict[str, Any],
     page: int | None = None,
     page_end: int | None = None,
-) -> list[dict[str, Any]] | None:
+) -> tuple[list[dict[str, Any]] | None, str]:
     resolved = _prepared_word_stream(project, source)
     if resolved is None:
-        return None
+        return None, "no_word_stream"
     prepared, stream = resolved
     tokens = stream.tokens
     if page is not None:
@@ -459,7 +459,7 @@ def _prepared_aligned_passage_spans(
             if token.page is not None and lo <= token.page <= hi
         ]
     if not tokens:
-        return None
+        return None, "no_word_stream"
 
     from frisket.engine.store.grounding_contract import TextTarget, WordStream, ground
     from frisket.engine.store.passage_align import exact_matches
@@ -470,23 +470,21 @@ def _prepared_aligned_passage_spans(
     if not matches:
         fuzzy = ground(target, scoped_stream, threshold=0.8)
         if not fuzzy:
-            return None
+            return None, "below_threshold"
         if len(fuzzy) > 1 and abs(fuzzy[0].score - fuzzy[1].score) <= 1e-6:
-            return None
+            return None, "repeated_quote_ambiguous"
         matches = fuzzy[:1]
-    return (
-        _region_spans_from_matches(
-            project,
-            artifact=artifact,
-            matches=matches,
-            page_images={},
-            tokens=tokens,
-            base_meta=base_meta,
-            alignment_meta={"alignment": "aligned"},
-            prepared=prepared,
-        )
-        or None
+    spans = _region_spans_from_matches(
+        project,
+        artifact=artifact,
+        matches=matches,
+        page_images={},
+        tokens=tokens,
+        base_meta=base_meta,
+        alignment_meta={"alignment": "aligned"},
+        prepared=prepared,
     )
+    return (spans, "aligned") if spans else (None, "no_word_stream")
 
 
 def _model_bbox_spans(
@@ -503,7 +501,7 @@ def _model_bbox_spans(
 ) -> list[dict[str, Any]]:
     """Fail-closed model-bbox verification (extract-model-bbox-verification-v1).
 
-    A ``grounding_method=model_bbox`` rect is an UNVERIFIED model guess. Keep it
+    Every model-supplied rectangle is an unverified guess. Keep it
     as an authoritative ``region`` only if a resolvable OCR word stream
     corroborates it: the model box must overlap >=1 OCR block AND the quote must
     align within the overlapped blocks. Missing any of those (no word stream, no
@@ -939,18 +937,16 @@ def _resolve_citation_entry_spans(
                     return _source_spans(
                         project, artifact=pdf_artifact, item=entry, rank=rank
                     )
-                entry_spans.extend(
-                    _prepared_aligned_passage_spans(
-                        project,
-                        artifact=pdf_artifact,
-                        source=prepared_source,
-                        quote=passage,
-                        base_meta=metadata,
-                        page=_int_or_none(entry.get("page") or entry.get("page_start")),
-                        page_end=_int_or_none(entry.get("page_end")),
-                    )
-                    or []
+                aligned, _reason = _prepared_aligned_passage_spans(
+                    project,
+                    artifact=pdf_artifact,
+                    source=prepared_source,
+                    quote=passage,
+                    base_meta=metadata,
+                    page=_int_or_none(entry.get("page") or entry.get("page_start")),
+                    page_end=_int_or_none(entry.get("page_end")),
                 )
+                entry_spans.extend(aligned or [])
         return entry_spans
     if entry_spans is None and artifact.get("blob_hash"):
         entry_spans = _source_spans(project, artifact=artifact, item=entry, rank=rank)
@@ -1039,7 +1035,7 @@ def _source_spans(
     if passage is not None:
         if pdf_input:
             ref_id = pdf_input.get("prepared_ref_id")
-            spans = (
+            spans, reason = (
                 _prepared_aligned_passage_spans(
                     project,
                     artifact=artifact,
@@ -1050,12 +1046,10 @@ def _source_spans(
                     page_end=page_end,
                 )
                 if ref_id is not None and not invalid_page
-                else None
-            )
-            reason = (
-                "below_threshold"
-                if ref_id is not None and not invalid_page
-                else "no_word_stream"
+                else (
+                    None,
+                    "citation_page_out_of_range" if invalid_page else "no_word_stream",
+                )
             )
         else:
             spans, reason = _aligned_passage_spans(

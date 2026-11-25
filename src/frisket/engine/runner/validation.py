@@ -22,7 +22,7 @@ from frisket.ai.llm import (
     model_pricing,
     request_key,
 )
-from frisket.ai.llm.pricing import ModelServers
+from frisket.ai.llm.pricing import ModelServers, estimate_output_tokens
 from frisket.ai.llm.pdf_estimates import estimate_input_tokens
 from frisket.ai.llm.execution import ExecutionModelRouter
 from frisket.ops.base import ActionProgram
@@ -1144,13 +1144,20 @@ def _estimate_run(
     col_map = {c["name"]: c["id"] for c in columns}
     sample = rows[: min(20, len(rows))]
     sample_tokens = []
+    sample_output_tokens = []
     for row_id in sample:
         values = row_values(project, action_program, spec, col_map, row_id)
         call = action_program.render(values, spec)
-        sample_tokens.append(estimate_input_tokens(call.messages))
+        schema = getattr(call, "schema", None)
+        sample_tokens.append(
+            estimate_input_tokens({"messages": call.messages, "schema": schema})
+            if schema is not None
+            else estimate_input_tokens(call.messages)
+        )
+        sample_output_tokens.append(estimate_output_tokens(call, spec=spec))
     estimate_known = all(tokens is not None for tokens in sample_tokens)
     avg_in = sum(tokens or 0 for tokens in sample_tokens) / max(1, len(sample_tokens))
-    est_out = 150 + 50 * len(spec.get("fields", []) or [1])
+    est_out = sum(sample_output_tokens) / max(1, len(sample_output_tokens))
     pricing = model_pricing(spec.get("model", ""), model_servers)
     if pricing.price is None or not estimate_known:
         out = {

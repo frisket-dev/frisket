@@ -13,7 +13,10 @@ from frisket.ai.message_content import render_input_block
 def extract_citation_fields(
     row_values: dict[str, Any], *, document_sources: bool = False
 ) -> frozenset[str]:
-    """Request only hints supported by the visible inputs or linked documents."""
+    """Request only hints supported by the visible inputs or linked documents.
+
+    Mixed rows containing a direct PDF use page-and-quote hints for all sources.
+    """
     fields = {"source", "quote"}
     if _segment_stream_columns(row_values):
         fields.add("segment_indices")

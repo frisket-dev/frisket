@@ -410,6 +410,7 @@ it('opens a retained source at its requested original page without fetching its 
 it.each([
   ['no_word_stream', 'could not be checked'],
   ['below_threshold', 'did not match'],
+  ['repeated_quote_ambiguous', 'matches multiple passages'],
   ['citation_page_out_of_range', 'outside this input'],
 ])('explains unverified PDF claims: %s', async (warning, message) => {
   getEvidenceViewer.mockResolvedValue({

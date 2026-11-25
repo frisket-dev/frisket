@@ -17,6 +17,7 @@ from frisket.engine.runner.grounding import (
     image_part,
 )
 from frisket.engine.store import Project
+from frisket.engine.store.document_text import document_text_provenance_refs
 from frisket.authoring.templates import render_column_template
 
 
@@ -181,8 +182,6 @@ def read_source_page(
             )
             for column_id in column_ids
         }
-        from frisket.engine.store.document_text import document_text_provenance_refs
-
         document_refs = document_text_provenance_refs(
             snapshot,
             sheet_id=sheet_id,

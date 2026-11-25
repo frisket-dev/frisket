@@ -24,7 +24,7 @@ from frisket.engine.store.transactions import write_transaction
 from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 
 
-def _prepared(source, text="Contract amount: $42"):
+def _prepared(source, text="Contract amount: $42", *, positioned=True):
     project, sheet, columns, rows, value, _data = source
     text_column = next(
         (c["id"] for c in project.columns(sheet) if c["name"] == "prepared"), None
@@ -69,7 +69,9 @@ def _prepared(source, text="Contract amount: $42"):
                             }
                             for index, word in enumerate(text.split())
                         ],
-                    },
+                    }
+                    if positioned
+                    else None,
                 ),
             ],
         )
@@ -177,9 +179,9 @@ def test_selected_pdf_pages_map_back_without_clamping_bad_claims(
     assert spans[0]["page_start"] == expected
     assert spans[0]["page_end"] == expected
     if expected is None:
-        assert (
-            "citation_page_out_of_range" in json.loads(spans[0]["metadata"])["warnings"]
-        )
+        metadata = json.loads(spans[0]["metadata"])
+        assert "citation_page_out_of_range" in metadata["warnings"]
+        assert metadata["alignment"] == "citation_page_out_of_range"
     document = next(
         part for part in request.messages[1]["content"] if part["type"] == "document"
     )
@@ -258,3 +260,54 @@ def test_same_filename_pdf_sources_remain_separately_labeled(
         "document: PDF attachment (filing.pdf)",
         "other: PDF attachment (filing.pdf)",
     ]
+
+
+def test_pdf_prepared_text_without_positions_reports_no_word_stream(source):
+    _prepared(source, positioned=False)
+    _result, _request, spans = _run(
+        source, {"source": "document", "page": 2, "quote": "Contract amount: $42"}
+    )
+    assert spans[0]["span_kind"] == "page_range"
+    assert json.loads(spans[0]["metadata"])["alignment"] == "no_word_stream"
+
+
+def test_default_pdf_citations_increase_estimate_for_schema_and_output(
+    source, monkeypatch
+):
+    from types import SimpleNamespace
+
+    from frisket.ai.llm.pdf_estimates import estimate_input_tokens
+    from frisket.ai.llm.pricing import estimate_output_tokens
+    from frisket.engine.runner import validation
+
+    project, _sheet, columns, rows, _value, _data = source
+    monkeypatch.setattr(
+        validation,
+        "model_pricing",
+        lambda *_args: SimpleNamespace(
+            price=(1.0, 2.0), cost_source="known", pricing_key=MODEL
+        ),
+    )
+    estimates = []
+    for options, expected_output_tokens in (
+        ({}, 300),
+        ({"grounding": {"enabled": False}}, 200),
+    ):
+        admitted = plan(source, "map.extract", **options)
+        spec = admitted.spec_dict()
+        values = row_values(project, admitted.program, spec, columns, rows[0])
+        call = admitted.program.render(values, spec)
+        assert estimate_output_tokens(call, spec=spec) == expected_output_tokens
+        input_tokens = estimate_input_tokens(
+            {"messages": call.messages, "schema": call.schema}
+        )
+        estimate = validation._estimate_run(
+            project, spec, program=admitted.program, scope_row_ids=[rows[0]]
+        ).presentation
+        assert estimate["avg_input_tokens"] == input_tokens
+        assert estimate["cost"] == round(
+            (input_tokens + 2 * expected_output_tokens) / 1e6, 4
+        )
+        estimates.append(estimate)
+    assert estimates[0]["avg_input_tokens"] > estimates[1]["avg_input_tokens"]
+    assert estimates[0]["cost"] > estimates[1]["cost"]
