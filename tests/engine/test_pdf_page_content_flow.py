@@ -249,7 +249,6 @@ def test_native_pages_real_conversion_and_ordinary_consumers(tmp_path: Path) -> 
                     "evidence": [
                         {
                             "quote": "boundary-right OMEGATWO",
-                            "grounding_method": "quote",
                         }
                     ],
                     "warnings": [],

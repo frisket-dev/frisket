@@ -500,6 +500,24 @@ def resolve_document_text_selection(
     )
 
 
+def document_text_provenance_refs(
+    db_or_project: Any, *, sheet_id: int, row_ids: list[int], column_ids: list[int]
+) -> dict[tuple[int, int], int]:
+    """Pin designated source/version geometry inside the caller's read snapshot."""
+    if not row_ids or not column_ids:
+        return {}
+    return {
+        (int(row[0]), int(row[1])): int(row[2])
+        for row in _db(db_or_project).execute(
+            "SELECT row_id,source_column_id,provenance_ref_id "
+            "FROM current_document_text_selections WHERE source_sheet_id=? "
+            "AND row_id IN (SELECT value FROM json_each(?)) "
+            "AND source_column_id IN (SELECT value FROM json_each(?))",
+            (sheet_id, json.dumps(row_ids), json.dumps(column_ids)),
+        )
+    }
+
+
 def inherit_document_text_manual_pins(
     db: sqlite3.Connection,
     encoded_edits: list[tuple[int, int, int, str, object]],

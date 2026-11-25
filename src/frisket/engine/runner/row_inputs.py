@@ -17,6 +17,7 @@ from frisket.engine.runner.grounding import (
     image_part,
 )
 from frisket.engine.store import Project
+from frisket.engine.store.document_text import document_text_provenance_refs
 from frisket.authoring.templates import render_column_template
 
 
@@ -136,6 +137,7 @@ class RowSourcePage:
     columns: Mapping[int, tuple[dict[int, Any], dict[int, dict[str, Any]]]]
     descriptors: Mapping[int, Any] = field(default_factory=dict)
     revisions: Mapping[str, int] = field(default_factory=dict)
+    document_text_refs: Mapping[tuple[int, int], int] = field(default_factory=dict)
 
     def cell(
         self, sheet_id: int, column_id: int, row_id: int
@@ -180,7 +182,19 @@ def read_source_page(
             )
             for column_id in column_ids
         }
-    return RowSourcePage(sheet_id, frozenset(row_ids), columns, descriptors, revisions)
+        document_refs = document_text_provenance_refs(
+            snapshot,
+            sheet_id=sheet_id,
+            row_ids=row_ids,
+            column_ids=[
+                cid
+                for cid, descriptor in descriptors.items()
+                if descriptor and descriptor["type"] == "file"
+            ],
+        )
+    return RowSourcePage(
+        sheet_id, frozenset(row_ids), columns, descriptors, revisions, document_refs
+    )
 
 
 def row_values(
@@ -296,6 +310,15 @@ def row_values(
 
             try:
                 val = pdf_part(project, val)
+                if capture is not None:
+                    capture[name]["pdf_input"] = {
+                        "page_count": val["page_count"],
+                        "prepared_ref_id": (
+                            source_page.document_text_refs.get((row_id, cid))
+                            if source_page is not None
+                            else None
+                        ),
+                    }
             except RowError as exc:
                 raise ModelRowInputError(exc, row_id=row_id, column=name) from exc
         # Handlers may transform mutable JSON inputs in place. Keep the page

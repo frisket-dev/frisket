@@ -30,8 +30,13 @@ def render_input_block(row_values: dict[str, Any]) -> list[dict[str, Any]]:
             for field in ("page_count", "text_char_count"):
                 if field in value:
                     document[field] = value[field]
+            parts.append(
+                {
+                    "type": "text",
+                    "text": f"{name}: PDF attachment ({document['filename']})",
+                }
+            )
             parts.append(document)
-            text_bits.append(f"{name}: PDF attachment ({document['filename']})")
         elif isinstance(value, dict) and value.get("__image_b64__"):
             parts.append(
                 {

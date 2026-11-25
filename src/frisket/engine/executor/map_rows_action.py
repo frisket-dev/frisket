@@ -1653,14 +1653,6 @@ class _TypedModelRowsProgram(_TypedMapRowsProgram):
             final: logical for logical, final in output_names.items()
         }
 
-    def disable_pdf_citations(self) -> None:
-        if self._uses_extract:
-            from frisket.actions.extraction_types import ExtractGrounding
-
-            self._params = self._params.model_copy(
-                update={"grounding": ExtractGrounding(enabled=False)}
-            )
-
     def postprocess_value(self, name: str, value: Any, spec: dict[str, Any]) -> Any:
         """Apply the Output model's field type and functional metadata."""
 
@@ -1838,15 +1830,6 @@ def build_typed_map_rows_plan(
         output_target_preconditions=output_target_preconditions,
         evaluation_context=evaluation_context,
     )
-    if (
-        bound.action.action_id in {"map.ask", "map.extract", "map.summarize"}
-        and isinstance(unresolved.program, _TypedModelRowsProgram)
-        and any(
-            references.source_column_types.get(name) == "file"
-            for name in unresolved.program.prompt_source_columns
-        )
-    ):
-        unresolved.program.disable_pdf_citations()
     unresolved.program.bind_project(project)
     return replace(
         unresolved,
@@ -2487,7 +2470,7 @@ def validate_model_rows_project_inputs(
         ):
             raise TypedMapRowsPlanError(
                 "pdf_citations_unsupported",
-                "Citations are unavailable for direct PDF input. Turn off citation-required policies.",
+                "Required citations are unavailable for direct PDF input. Choose optional citations.",
                 field="params.grounding",
             )
 

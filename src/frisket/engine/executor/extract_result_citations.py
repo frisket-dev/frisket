@@ -225,6 +225,40 @@ def _grounding_artifact_source(
     return None
 
 
+def _supports_citation(spans: list[dict[str, Any]], *, required: bool) -> bool:
+    return bool(spans) and (
+        not required or any(_span_is_usable(span) for span in spans)
+    )
+
+
+def _span_warnings(spans: list[dict[str, Any]]) -> list[str]:
+    warnings = [
+        str(warning)
+        for span in spans
+        for warning in (span.get("metadata") or {}).get("warnings", [])
+    ]
+    warnings.extend(
+        str(span["metadata"]["alignment"])
+        for span in spans
+        if (span.get("metadata") or {}).get("alignment")
+        and span["metadata"]["alignment"] not in _CONFIDENT_ALIGNMENTS
+    )
+    return warnings
+
+
+def _mark_source_producers(project, sources):
+    for source in sources.values():
+        ref = source.get("value_ref") or {}
+        run_id = ref.get("run_id")
+        if run_id is None:
+            continue
+        run = project.db.execute(
+            "SELECT action_kind FROM runs WHERE id=?", (int(run_id),)
+        ).fetchone()
+        if run is not None:
+            source["producer_action_kind"] = run["action_kind"]
+
+
 class ExtractResultCitations:
     """Frozen output policy plus captured input facts, shared by all extract rows."""
 
@@ -260,16 +294,7 @@ class ExtractResultCitations:
             name: {**deepcopy(source), "model_visible": False}
             for name, source in capture.items()
         }
-        for source in sources.values():
-            ref = source.get("value_ref") or {}
-            run_id = ref.get("run_id")
-            if run_id is None:
-                continue
-            run = self.project.db.execute(
-                "SELECT action_kind FROM runs WHERE id=?", (int(run_id),)
-            ).fetchone()
-            if run is not None:
-                source["producer_action_kind"] = run["action_kind"]
+        _mark_source_producers(self.project, sources)
         prompt_values = extract_prompt_values(
             self.project,
             values,
@@ -311,7 +336,8 @@ class ExtractResultCitations:
             source["model_visible"] = True
             if inherited_name is not None:
                 source["alias_of"] = inherited_name
-            source["value"] = deepcopy(value)
+            if name not in capture:
+                source["value"] = deepcopy(value)
             if isinstance(value, str):
                 source["captured_text"] = value
             elif looks_like_segment_list(value):
@@ -434,19 +460,22 @@ class ExtractResultCitations:
                             sheet_id=sheet_id,
                             row_id=row_id,
                         )
-                        resolved = _resolve_citation_entry_spans(
-                            project,
-                            artifact=artifact,
-                            sheet_id=sheet_id,
-                            row_id=row_id,
-                            entry=entry,
-                            rank=rank,
-                            captured_source=source,
-                            source_label=source_label,
-                            transcript_stream=transcript,
+                        resolved = (
+                            _resolve_citation_entry_spans(
+                                project,
+                                artifact=artifact,
+                                sheet_id=sheet_id,
+                                row_id=row_id,
+                                entry=entry,
+                                rank=rank,
+                                captured_source=source,
+                                source_label=source_label,
+                                transcript_stream=transcript,
+                            )
+                            or []
                         )
-                        if not resolved or not any(
-                            _span_is_usable(span) for span in resolved
+                        if not _supports_citation(
+                            resolved, required=self.citation_required
                         ):
                             warnings.append("evidence_span_unsupported")
                             unsupported.append(
@@ -460,13 +489,7 @@ class ExtractResultCitations:
                                 }
                             )
                             continue
-                        warnings.extend(
-                            str(span["metadata"]["alignment"])
-                            for span in resolved
-                            if (span.get("metadata") or {}).get("alignment")
-                            and span["metadata"]["alignment"]
-                            not in _CONFIDENT_ALIGNMENTS
-                        )
+                        warnings.extend(_span_warnings(resolved))
                         metadata = {
                             "schema_version": "frisket.map_extract_item_evidence_link.v1"
                             if is_list

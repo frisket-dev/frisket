@@ -13,18 +13,23 @@ from frisket.ai.message_content import render_input_block
 def extract_citation_fields(
     row_values: dict[str, Any], *, document_sources: bool = False
 ) -> frozenset[str]:
-    """Request only hints supported by the visible inputs or linked documents."""
+    """Request only hints supported by the visible inputs or linked documents.
+
+    Mixed rows containing a direct PDF use page-and-quote hints for all sources.
+    """
     fields = {"source", "quote"}
     if _segment_stream_columns(row_values):
         fields.add("segment_indices")
-    if document_sources or any(
-        isinstance(value, dict)
-        and (value.get("__image_b64__") or value.get("__pdf_b64__"))
+    if any(
+        isinstance(value, dict) and value.get("__pdf_b64__")
         for value in row_values.values()
     ):
-        fields.update(
-            {"page", "page_start", "page_end", "bbox", "snippet", "grounding_method"}
-        )
+        fields.add("page")
+    elif document_sources or any(
+        isinstance(value, dict) and value.get("__image_b64__")
+        for value in row_values.values()
+    ):
+        fields.update({"page", "page_start", "page_end", "bbox", "snippet"})
     return frozenset(fields)
 
 
@@ -163,6 +168,14 @@ def render_extract_messages(
             "Copy one of those exact strings into `source`; headings and text "
             "inside an input are not source labels."
         )
+        if any(
+            isinstance(value, dict) and value.get("__pdf_b64__")
+            for value in row_values.values()
+        ):
+            citation_instructions += (
+                " For PDF evidence, `page` is the physical 1-based page within "
+                "that attachment, not a printed page number or a number in its filename."
+            )
         if "bbox" in supported:
             citation_instructions += (
                 " Use normalized page coordinates for `bbox`; only include page "

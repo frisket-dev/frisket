@@ -352,7 +352,8 @@ def test_grounding_references_validate_missing_sources_and_refuse_required_pdf_c
     assert result.errors[0].code == error_code
     if bad_source == "required_pdf_citations":
         assert (
-            "Citations are unavailable for direct PDF input" in result.errors[0].message
+            "Required citations are unavailable for direct PDF input"
+            in result.errors[0].message
         )
     assert adapter.requests == []
     assert project.db.execute("SELECT COUNT(*) FROM runs").fetchone()[0] == 0

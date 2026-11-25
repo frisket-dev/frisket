@@ -22,7 +22,7 @@ import logging
 import math
 from dataclasses import dataclass
 from pathlib import Path
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from typing import Any, Literal
 
 from frisket.ai.llm.endpoint_config import LocalModelEndpointConfig
@@ -243,6 +243,61 @@ def cost_with_pricing(
 def estimate_tokens(text: str) -> int:
     """Crude but stable: ~4 chars/token. Used only for pre-run estimates."""
     return max(1, len(text) // 4)
+
+
+def estimate_output_tokens(
+    call: Any,
+    *,
+    spec: Mapping[str, Any] | None = None,
+) -> int:
+    """Estimate realistic output tokens for one rendered LLM call.
+
+    Uses a per-field baseline (150 + 50/field) plus a modest
+    allowance when grounded citations, justifications, or reasoning are
+    requested, bounded by the call's wire ``max_tokens``.
+    """
+    fields: Any = spec.get("fields") if isinstance(spec, Mapping) else None
+    schema: Any = getattr(call, "schema", None)
+    raw_props: Any = schema.get("properties") if isinstance(schema, Mapping) else None
+    props: Mapping[str, Any] | None = (
+        raw_props if isinstance(raw_props, Mapping) else None
+    )
+    if isinstance(fields, (list, tuple)) and fields:
+        field_count = len(fields)
+    elif props:
+        field_count = len(props)
+    else:
+        field_count = 1
+
+    est_out = 150 + 50 * max(1, field_count)
+
+    wants_explanation = False
+    if isinstance(spec, Mapping):
+        grounding: Any = spec.get("grounding")
+        wants_explanation = (
+            bool(spec.get("include_sources"))
+            or bool(spec.get("include_justification"))
+            or bool(spec.get("include_reasoning"))
+            or (isinstance(grounding, Mapping) and bool(grounding.get("enabled")))
+        )
+    if not wants_explanation and props:
+        for prop_name, prop_schema in props.items():
+            if isinstance(prop_name, str) and prop_name.endswith(
+                ("_justification", "_reasoning")
+            ):
+                wants_explanation = True
+                break
+            if isinstance(prop_schema, Mapping):
+                nested_props: Any = prop_schema.get("properties")
+                if isinstance(nested_props, Mapping) and "evidence" in nested_props:
+                    wants_explanation = True
+                    break
+
+    if wants_explanation:
+        est_out += 100 * max(1, field_count)
+
+    max_tokens = getattr(call, "max_tokens", None)
+    return max(1, min(int(max_tokens), est_out)) if max_tokens is not None else est_out
 
 
 def estimate_run_cost(

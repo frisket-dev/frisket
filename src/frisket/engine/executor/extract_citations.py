@@ -3,9 +3,12 @@
 from __future__ import annotations
 
 import hashlib
+from collections.abc import Sequence
+from dataclasses import dataclass
 from typing import Any
 
 from frisket.engine.store.value_codec import repair_unicode_text
+from frisket.engine.store.grounding_contract import WordToken
 
 
 _UNRESOLVED_TRANSCRIPT = object()
@@ -384,7 +387,7 @@ def _region_spans_from_matches(
     artifact: dict[str, Any],
     matches: list[Any],
     page_images: dict[str, Any],
-    snippet: str | None,
+    tokens: Sequence[WordToken],
     base_meta: dict[str, Any],
     alignment_meta: dict[str, Any],
     prepared: Any | None = None,
@@ -406,6 +409,9 @@ def _region_spans_from_matches(
         for spec in match.spans:
             if spec.span_kind != "region":
                 continue
+            matched_text = " ".join(
+                tokens[index].text for index in spec.metadata["covered_token_indices"]
+            )
             meta = {**base_meta, **alignment_meta, "align_score": match.score}
             if spec.metadata:
                 meta = {**meta, **spec.metadata}
@@ -417,8 +423,8 @@ def _region_spans_from_matches(
                     page_start=spec.page_start,
                     page_end=spec.page_end or spec.page_start,
                     bbox=spec.bbox,
-                    quote=spec.quote,
-                    snippet=snippet,
+                    quote=matched_text,
+                    snippet=matched_text,
                     selector=(
                         _prepared_selector(prepared, page=spec.page_start)
                         if prepared is not None
@@ -436,14 +442,13 @@ def _prepared_aligned_passage_spans(
     artifact: dict[str, Any],
     source: dict[str, Any],
     quote: str,
-    snippet: str | None,
     base_meta: dict[str, Any],
     page: int | None = None,
     page_end: int | None = None,
-) -> list[dict[str, Any]] | None:
+) -> tuple[list[dict[str, Any]] | None, str]:
     resolved = _prepared_word_stream(project, source)
     if resolved is None:
-        return None
+        return None, "no_word_stream"
     prepared, stream = resolved
     tokens = stream.tokens
     if page is not None:
@@ -455,7 +460,7 @@ def _prepared_aligned_passage_spans(
             if token.page is not None and lo <= token.page <= hi
         ]
     if not tokens:
-        return None
+        return None, "no_word_stream"
 
     from frisket.engine.store.grounding_contract import TextTarget, WordStream, ground
     from frisket.engine.store.passage_align import exact_matches
@@ -466,23 +471,21 @@ def _prepared_aligned_passage_spans(
     if not matches:
         fuzzy = ground(target, scoped_stream, threshold=0.8)
         if not fuzzy:
-            return None
+            return None, "below_threshold"
         if len(fuzzy) > 1 and abs(fuzzy[0].score - fuzzy[1].score) <= 1e-6:
-            return None
+            return None, "repeated_quote_ambiguous"
         matches = fuzzy[:1]
-    return (
-        _region_spans_from_matches(
-            project,
-            artifact=artifact,
-            matches=matches,
-            page_images={},
-            snippet=snippet,
-            base_meta=base_meta,
-            alignment_meta={"alignment": "aligned"},
-            prepared=prepared,
-        )
-        or None
+    spans = _region_spans_from_matches(
+        project,
+        artifact=artifact,
+        matches=matches,
+        page_images={},
+        tokens=tokens,
+        base_meta=base_meta,
+        alignment_meta={"alignment": "aligned"},
+        prepared=prepared,
     )
+    return (spans, "aligned") if spans else (None, "no_word_stream")
 
 
 def _model_bbox_spans(
@@ -499,7 +502,7 @@ def _model_bbox_spans(
 ) -> list[dict[str, Any]]:
     """Fail-closed model-bbox verification (extract-model-bbox-verification-v1).
 
-    A ``grounding_method=model_bbox`` rect is an UNVERIFIED model guess. Keep it
+    Every model-supplied rectangle is an unverified guess. Keep it
     as an authoritative ``region`` only if a resolvable OCR word stream
     corroborates it: the model box must overlap >=1 OCR block AND the quote must
     align within the overlapped blocks. Missing any of those (no word stream, no
@@ -535,7 +538,7 @@ def _model_bbox_spans(
                     artifact=artifact,
                     matches=matches,
                     page_images=resolved.page_images,
-                    snippet=snippet,
+                    tokens=overlapping,
                     base_meta=base_meta,
                     alignment_meta={"alignment": "model_bbox_verified"},
                 )
@@ -583,7 +586,6 @@ def _aligned_passage_spans(
     *,
     artifact: dict[str, Any],
     quote: str,
-    snippet: str | None,
     blob_hash: str | None,
     base_meta: dict[str, Any],
     page: int | None = None,
@@ -642,7 +644,7 @@ def _aligned_passage_spans(
         artifact=artifact,
         matches=matches[:1],
         page_images=resolved.page_images,
-        snippet=snippet,
+        tokens=tokens,
         base_meta=base_meta,
         alignment_meta={"alignment": "aligned"},
     )
@@ -893,6 +895,14 @@ def _resolve_citation_entry_spans(
             transcript_stream=transcript_stream,
         )
     prepared_source = captured_source or {}
+    if entry_spans is None and prepared_source.get("pdf_input"):
+        return _source_spans(
+            project,
+            artifact=artifact,
+            item=entry,
+            rank=rank,
+            captured_source=prepared_source,
+        )
     prepared_ref_id = _prepared_ref_id(prepared_source)
     passage = _optional_string(entry.get("quote"))
     if entry_spans is None and prepared_ref_id is not None:
@@ -928,19 +938,16 @@ def _resolve_citation_entry_spans(
                     return _source_spans(
                         project, artifact=pdf_artifact, item=entry, rank=rank
                     )
-                entry_spans.extend(
-                    _prepared_aligned_passage_spans(
-                        project,
-                        artifact=pdf_artifact,
-                        source=prepared_source,
-                        quote=passage,
-                        snippet=_optional_string(entry.get("snippet")),
-                        base_meta=metadata,
-                        page=_int_or_none(entry.get("page") or entry.get("page_start")),
-                        page_end=_int_or_none(entry.get("page_end")),
-                    )
-                    or []
+                aligned, _reason = _prepared_aligned_passage_spans(
+                    project,
+                    artifact=pdf_artifact,
+                    source=prepared_source,
+                    quote=passage,
+                    base_meta=metadata,
+                    page=_int_or_none(entry.get("page") or entry.get("page_start")),
+                    page_end=_int_or_none(entry.get("page_end")),
                 )
+                entry_spans.extend(aligned or [])
         return entry_spans
     if entry_spans is None and artifact.get("blob_hash"):
         entry_spans = _source_spans(project, artifact=artifact, item=entry, rank=rank)
@@ -960,8 +967,95 @@ def _resolve_citation_entry_spans(
     return entry_spans
 
 
+def _citation_pages(
+    artifact: dict[str, Any],
+    captured_source: dict[str, Any] | None,
+    page: int | None,
+    page_end: int | None,
+) -> tuple[int | None, int | None, bool]:
+    """Validate model page numbers before mapping a selected-page attachment."""
+    pdf_input = (captured_source or {}).get("pdf_input")
+    page_count = (
+        _int_or_none(pdf_input.get("page_count"))
+        if pdf_input
+        else _int_or_none(artifact.get("page_count"))
+    )
+    invalid = any(
+        number < 1 or (page_count is not None and number > page_count)
+        for number in (page, page_end)
+        if number is not None
+    ) or (page is not None and page_end is not None and page_end < page)
+    if invalid:
+        return None, None, True
+    if pdf_input:
+        selected_page = ((captured_source or {}).get("value") or {}).get("page")
+        if selected_page is not None:
+            page = page_end = selected_page
+    return page, page_end, False
+
+
+@dataclass(frozen=True)
+class _PassageLocation:
+    pdf_input: dict[str, Any] | None
+    page: int | None
+    page_end: int | None
+    invalid_page: bool
+
+
+def _source_passage_spans(
+    project: Any,
+    artifact: dict[str, Any],
+    passage: str,
+    metadata: dict[str, Any],
+    location: _PassageLocation,
+) -> tuple[list[dict[str, Any]] | None, str]:
+    """Direct PDF quotes use only the prepared geometry captured for the call."""
+    if not location.pdf_input:
+        return _aligned_passage_spans(
+            project,
+            artifact=artifact,
+            quote=passage,
+            blob_hash=_optional_string(artifact.get("blob_hash")),
+            base_meta=metadata,
+            page=location.page,
+            page_end=location.page_end,
+        )
+    ref_id = location.pdf_input.get("prepared_ref_id")
+    if location.invalid_page:
+        return None, "citation_page_out_of_range"
+    if ref_id is None:
+        return None, "no_word_stream"
+    return _prepared_aligned_passage_spans(
+        project,
+        artifact=artifact,
+        source={"value_ref": {"prepared_ref_id": ref_id}},
+        quote=passage,
+        base_meta=metadata,
+        page=location.page,
+        page_end=location.page_end,
+    )
+
+
+def _direct_pdf_bbox(
+    bbox: dict[str, Any] | None,
+    pdf_input: dict[str, Any] | None,
+    metadata: dict[str, Any],
+) -> dict[str, Any] | None:
+    if not pdf_input:
+        return bbox
+    # Direct-PDF schemas do not request boxes; unsolicited boxes cannot add precision.
+    if bbox is not None:
+        metadata["warnings"].append("model_bbox_unverified")
+    return None
+
+
 def _source_spans(
-    project: Any, *, artifact: dict[str, Any], item: dict[str, Any], rank: int
+    project: Any,
+    *,
+    artifact: dict[str, Any],
+    item: dict[str, Any],
+    rank: int,
+    captured_source: dict[str, Any] | None = None,
 ) -> list[dict[str, Any]]:
     """Resolve an evidence item into 1..N source spans (W2.1). A positionless
     ``quote`` aligns to the OCR word stream -> per-line ``region`` spans; a
@@ -971,8 +1065,12 @@ def _source_spans(
     from frisket.engine.store.citations import record_source_span
 
     bbox = _normalized_bbox(item.get("bbox"))
-    page = _int_or_none(item.get("page") or item.get("page_start"))
-    page_end = _int_or_none(item.get("page_end")) or page
+    page = _int_or_none(
+        item.get("page") if item.get("page") is not None else item.get("page_start")
+    )
+    page_end = _int_or_none(item.get("page_end"))
+    if page_end is None:
+        page_end = page
     passage = _optional_string(item.get("quote"))
     snippet = _optional_string(item.get("snippet"))
     grounding_method = _optional_string(item.get("grounding_method"))
@@ -983,42 +1081,32 @@ def _source_spans(
         "rank": rank,
         "warnings": [],
     }
+    pdf_input = (captured_source or {}).get("pdf_input")
+    page, page_end, invalid_page = _citation_pages(
+        artifact, captured_source, page, page_end
+    )
+    if invalid_page:
+        metadata["warnings"].append("citation_page_out_of_range")
+    bbox = _direct_pdf_bbox(bbox, pdf_input, metadata)
     if bbox is not None:
-        if grounding_method == "model_bbox":
-            return _model_bbox_spans(
-                project,
-                artifact=artifact,
-                bbox=bbox,
-                page=page,
-                page_end=page_end,
-                quote=passage,
-                snippet=snippet,
-                blob_hash=blob_hash,
-                base_meta=metadata,
-            )
-        return [
-            record_source_span(
-                project,
-                artifact_id=int(artifact["id"]),
-                span_kind="region",
-                page_start=page,
-                page_end=page_end,
-                bbox=[bbox],
-                quote=passage,
-                snippet=snippet,
-                metadata=metadata,
-            )
-        ]
-    if passage is not None:
-        spans, reason = _aligned_passage_spans(
+        return _model_bbox_spans(
             project,
             artifact=artifact,
+            bbox=bbox,
+            page=page,
+            page_end=page_end,
             quote=passage,
             snippet=snippet,
             blob_hash=blob_hash,
-            base_meta=metadata,
-            page=page,
-            page_end=page_end,
+            base_meta={**metadata, "grounding_method": "model_bbox"},
+        )
+    if passage is not None:
+        spans, reason = _source_passage_spans(
+            project,
+            artifact,
+            passage,
+            metadata,
+            _PassageLocation(pdf_input, page, page_end, invalid_page),
         )
         if spans is not None:
             return spans
@@ -1031,7 +1119,7 @@ def _source_spans(
             record_source_span(
                 project,
                 artifact_id=int(artifact["id"]),
-                span_kind="text",
+                span_kind="page_range" if pdf_input and page is not None else "text",
                 page_start=page,
                 page_end=page_end,
                 quote=passage,

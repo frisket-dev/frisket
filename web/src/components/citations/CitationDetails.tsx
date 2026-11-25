@@ -9,7 +9,13 @@ import { finiteNumber, formatMs, jsonRecord, pageAnchorId, selectorNumber } from
 
 const GROUNDING_DEGRADED_COPY: Record<string, string> = {
   no_word_stream:
-    'No positioned OCR/text stream for this source; run OCR to enable page highlights.',
+    'The model’s quote could not be checked against positioned source text. No verified highlight is available. Run OCR to enable page highlights.',
+  below_threshold:
+    "The model’s quote did not match the positioned source text. No verified highlight is available.",
+  'repeated_quote_ambiguous':
+    "The model’s quote matches multiple passages. No single verified highlight is available.",
+  citation_page_out_of_range:
+    'The model cited a page outside this input; no page location is shown.',
   model_bbox_unverified:
     'The model’s highlight box could not be verified against the page text, so this citation shows the page instead of a box.',
   temporal_span_clamped_to_artifact_duration_ms:

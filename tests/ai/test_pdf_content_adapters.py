@@ -43,10 +43,10 @@ def test_render_mixed_text_pdf_and_image_without_stringifying_pdf():
             "Photo": {"__image_b64__": "AA==", "mime": "image/png"},
         }
     )
-    assert content[1] == PDF
-    assert content[2]["type"] == "image"
+    assert content[2] == PDF
+    assert content[3]["type"] == "image"
     assert "Question: What happened?" in content[0]["text"]
-    assert "Report: PDF attachment (report.pdf)" in content[0]["text"]
+    assert content[1] == {"type": "text", "text": "Report: PDF attachment (report.pdf)"}
     assert PDF["data"] not in content[0]["text"]
     assert _content_from_pai(_content_to_pai(content)) == content
 

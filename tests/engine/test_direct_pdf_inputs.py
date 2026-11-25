@@ -122,11 +122,11 @@ def test_templates_preserve_pdf_carrier(source):
     assert values["document"]["__pdf_b64__"] not in values["input"]
 
 
-def test_pdf_extract_citations_are_effectively_off_without_rewriting_authored_identity(
+def test_pdf_optional_citations_preserve_authored_identity(
     source,
 ):
     admitted = plan(source, "map.extract")
-    assert admitted.program._params.grounding.enabled is False
+    assert admitted.program._params.grounding.enabled is True
     assert "grounding" not in admitted.request_identity["params"]
 
 
@@ -138,7 +138,9 @@ def test_pdf_extract_citations_are_effectively_off_without_rewriting_authored_id
     ],
 )
 def test_required_pdf_citations_refuse_at_admission(source, extra):
-    with pytest.raises(TypedMapRowsPlanError, match="Citations are unavailable"):
+    with pytest.raises(
+        TypedMapRowsPlanError, match="Required citations are unavailable"
+    ):
         plan(source, "map.extract", **extra)
 
 

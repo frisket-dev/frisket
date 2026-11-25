@@ -223,3 +223,29 @@ def test_model_returned_ocr_boxes_do_not_verify_another_model_box(
     assert len(spans) == 1
     assert spans[0]["span_kind"] == "page_range"
     assert "model_bbox_unverified" in spans[0]["metadata"]["warnings"]
+
+
+@pytest.mark.parametrize("method", [None, "exact_quote", "ocr_bbox", "model_bbox"])
+def test_image_model_box_cannot_choose_its_own_verification(project, method):
+    blob = project.add_blob(PNG_1X1, filename="image.png", mime="image/png")
+    with write_transaction(project.db):
+        artifact = record_source_artifact(
+            project,
+            artifact_kind="image",
+            media_type="image/png",
+            blob_hash=blob,
+        )
+        spans = _source_spans(
+            project,
+            artifact=artifact,
+            item={
+                "page": 1,
+                "quote": "claimed words",
+                "grounding_method": method,
+                "bbox": {"x0": 0.1, "y0": 0.1, "x1": 0.5, "y1": 0.5},
+            },
+            rank=0,
+        )
+    assert spans[0]["span_kind"] == "page_range"
+    assert not spans[0]["bbox"]
+    assert "model_bbox_unverified" in spans[0]["metadata"]["warnings"]
