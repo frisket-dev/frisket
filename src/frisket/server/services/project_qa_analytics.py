@@ -465,19 +465,18 @@ def _base_ctes(
 ) -> tuple[list[str], list[Any]]:
     ordered = sorted(involved)
     source = ["scoped.row_id"]
-    joins: list[str] = []
+    source_params: list[Any] = []
+    # Current heads are unique per cell: these aggregates only pivot values.
+    # One decoder join keeps view expansion independent of the requested width.
     for index, column_id in enumerate(ordered):
         source.extend(
             (
-                f"c{index}.value AS v{index}",
-                f"c{index}.value_kind AS k{index}",
-                f"c{index}.validity AS q{index}",
+                f"MAX(CASE WHEN cell.column_id=? THEN cell.value END) AS v{index}",
+                f"MAX(CASE WHEN cell.column_id=? THEN cell.value_kind END) AS k{index}",
+                f"MAX(CASE WHEN cell.column_id=? THEN cell.validity END) AS q{index}",
             )
         )
-        joins.append(
-            f"LEFT JOIN current_cell_values c{index} "
-            f"ON c{index}.row_id=scoped.row_id AND c{index}.column_id=?"
-        )
+        source_params.extend([column_id] * 3)
     positions = {column_id: index for index, column_id in enumerate(ordered)}
     prepared = ["source.*"]
     for index, group in enumerate(request.groups):
@@ -514,15 +513,20 @@ def _base_ctes(
         + ("MATERIALIZED " if request.groups else "")
         + "(SELECT "
         + ", ".join(source)
-        + " FROM scoped "
-        + " ".join(joins)
+        + " FROM scoped"
+        + (
+            " LEFT JOIN current_cell_values cell ON cell.row_id=scoped.row_id "
+            "AND cell.column_id IN (SELECT value FROM json_each(?)) GROUP BY scoped.row_id"
+            if ordered
+            else ""
+        )
         + ")",
         "prepared AS "
         + ("MATERIALIZED " if materialize_prepared else "")
         + "(SELECT "
         + ", ".join(prepared)
         + " FROM source)",
-    ], [*where_params, *ordered]
+    ], [*where_params, *source_params, *([json.dumps(ordered)] if ordered else [])]
 
 
 def _group_field_names(request: AnalyticsRequest) -> list[str]:
@@ -577,7 +581,9 @@ def _metric_ref(request: AnalyticsRequest, metric_id: str) -> str:
         index for index, metric in enumerate(request.metrics) if metric.id == metric_id
     )
     return (
-        f"m{index}.value" if request.metrics[index].kind == "median" else f"a.m{index}"
+        f"medians.m{index}"
+        if request.metrics[index].kind == "median"
+        else f"a.m{index}"
     )
 
 
@@ -655,37 +661,51 @@ def _median_ctes(
     group_fields: list[str],
 ) -> tuple[list[str], str]:
     del columns
-    selected: list[str] = []
-    joins: list[str] = []
-    partitions = ", ".join(group_fields)
-    for index, metric in enumerate(request.metrics):
-        if metric.kind != "median":
-            continue
-        numeric = _numeric_value(request, metric.measured_column_id)
-        partition = f"PARTITION BY {partitions} " if partitions else ""
-        group_select = ", ".join(group_fields)
-        comma = ", " if group_select else ""
-        ctes.append(
-            f"median_source_{index} AS (SELECT {group_select}{comma}{numeric} AS value, "
-            f"ROW_NUMBER() OVER ({partition}ORDER BY {numeric}) AS rn, "
-            f"COUNT(*) OVER ({partition}) AS n FROM prepared WHERE {numeric} IS NOT NULL)"
-        )
-        ctes.append(
-            f"median_{index} AS (SELECT {group_select}{comma}CASE WHEN MAX(n) % 2 = 1 "
+    medians = [
+        (index, metric)
+        for index, metric in enumerate(request.metrics)
+        if metric.kind == "median"
+    ]
+    if not medians:
+        return [], ""
+    group_select = ", ".join(group_fields)
+    prefix = f"{group_select}, " if group_fields else ""
+    cases = " ".join(
+        f"WHEN {index} THEN {_numeric_value(request, metric.measured_column_id)}"
+        for index, metric in medians
+    )
+    ctes.extend(
+        [
+            "median_metrics(metric_index) AS (VALUES "
+            + ", ".join(f"({index})" for index, _ in medians)
+            + ")",
+            f"median_inputs AS (SELECT {prefix}metric_index, CASE metric_index {cases} END AS value "
+            "FROM prepared CROSS JOIN median_metrics)",
+            f"median_ranked AS (SELECT {prefix}metric_index,value, "
+            f"ROW_NUMBER() OVER (PARTITION BY {prefix}metric_index ORDER BY value) AS rn, "
+            f"COUNT(*) OVER (PARTITION BY {prefix}metric_index) AS n "
+            "FROM median_inputs WHERE value IS NOT NULL)",
+            f"median_counts AS (SELECT {prefix}metric_index, CASE WHEN MAX(n) % 2 = 1 "
             "THEN MAX(CASE WHEN rn=(n + 1) / 2 THEN value END) "
             "ELSE MAX(CASE WHEN rn=n / 2 THEN value / 2.0 END) + "
             "MAX(CASE WHEN rn=n / 2 + 1 THEN value / 2.0 END) END AS value "
-            f"FROM median_source_{index}"
-            + (f" GROUP BY {group_select}" if group_select else "")
-            + ")"
-        )
-        selected.append(f"m{index}.value AS m{index}")
-        join_condition = (
-            " AND ".join(f"a.{field} IS m{index}.{field}" for field in group_fields)
-            or "1=1"
-        )
-        joins.append(f" LEFT JOIN median_{index} m{index} ON {join_condition}")
-    return selected, "".join(joins)
+            f"FROM median_ranked GROUP BY {prefix}metric_index)",
+            "median_values AS (SELECT "
+            + prefix
+            + ", ".join(
+                f"MAX(CASE WHEN metric_index={index} THEN value END) AS m{index}"
+                for index, _ in medians
+            )
+            + " FROM median_counts"
+            + (f" GROUP BY {group_select}" if group_fields else "")
+            + ")",
+        ]
+    )
+    selected = [f"medians.m{index} AS m{index}" for index, _ in medians]
+    join_condition = (
+        " AND ".join(f"a.{field} IS medians.{field}" for field in group_fields) or "1=1"
+    )
+    return selected, f" LEFT JOIN median_values medians ON {join_condition}"
 
 
 def _denominator_fields(
