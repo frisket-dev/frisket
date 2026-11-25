@@ -1628,3 +1628,46 @@ def test_internal_error_reporter_failure_does_not_prevent_terminal_turn(tmp_path
             await service.shutdown()
 
     asyncio.run(scenario())
+
+
+@pytest.mark.parametrize("group_count", [0, 4])
+def test_distinct_medians_at_supported_width_keep_missing_and_odd_counts(
+    make_project, group_count
+):
+    project = make_project("wide-medians")
+    sheet = project.add_sheet("figures")
+    groups = {
+        f"group{i}": project.add_column(sheet, f"group{i}") for i in range(group_count)
+    }
+    amounts = {
+        f"value{i}": project.add_column(sheet, f"value{i}", type="number")
+        for i in range(12)
+    }
+    group_values = dict.fromkeys(groups, "A")
+    if groups:
+        group_values["group0"] = None
+    records = []
+    for value in (1, 3):
+        record = {**group_values, **{name: value + i for i, name in enumerate(amounts)}}
+        record["value11"] = None
+        if value == 3:
+            record["value0"] = None
+        records.append(record)
+    project.add_rows(sheet, records, {**groups, **amounts})
+    request = AnalyticsRequest.model_validate(
+        {
+            "sheet_id": sheet,
+            "groups": [{"column_id": cid} for cid in groups.values()],
+            "metrics": [
+                {"id": name, "kind": "median", "column_id": cid}
+                for name, cid in amounts.items()
+            ],
+        }
+    )
+    result = evaluate_analytics(project, request, {"kind": "sheet", "sheet_id": sheet})
+    expected = {name: i + 2 for i, name in enumerate(amounts)}
+    expected["value0"] = 1
+    expected["value11"] = None
+    assert result["row_count"] == 2
+    assert len(result["groups"]) == 1
+    assert result["groups"][0]["metrics"] == expected
