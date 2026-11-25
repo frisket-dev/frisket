@@ -3,12 +3,17 @@
 from __future__ import annotations
 
 import json
+from types import SimpleNamespace
 
 import pytest
 
 from executor_harness import run_action_with_confirmation
 from tests.engine.test_direct_pdf_inputs import MODEL, plan, source as source
 from frisket.ai.llm import LLMResponse, ModelRouter
+from frisket.ai.llm.pdf_estimates import estimate_input_tokens
+from frisket.ai.llm.pricing import estimate_output_tokens
+from frisket.engine.runner import validation
+from frisket.engine.store import ocr_word_stream
 from frisket.engine.runner.row_inputs import row_values
 from frisket.engine.store.cell_writes import EditCellWrite, insert_edits
 from frisket.engine.store.citations import (
@@ -210,8 +215,6 @@ def test_pdf_geometry_is_pinned_before_provider_call_and_displays_matched_text(s
 def test_pdf_without_designated_pair_does_not_search_other_same_blob_geometry(
     source, monkeypatch
 ):
-    from frisket.engine.store import ocr_word_stream
-
     project, _sheet, columns, _rows, _value, _data = source
     _prepared(source)
     with project.db:
@@ -274,12 +277,6 @@ def test_pdf_prepared_text_without_positions_reports_no_word_stream(source):
 def test_default_pdf_citations_increase_estimate_for_schema_and_output(
     source, monkeypatch
 ):
-    from types import SimpleNamespace
-
-    from frisket.ai.llm.pdf_estimates import estimate_input_tokens
-    from frisket.ai.llm.pricing import estimate_output_tokens
-    from frisket.engine.runner import validation
-
     project, _sheet, columns, rows, _value, _data = source
     monkeypatch.setattr(
         validation,

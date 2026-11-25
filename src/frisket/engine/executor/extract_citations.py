@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 from collections.abc import Sequence
+from dataclasses import dataclass
 from typing import Any
 
 from frisket.engine.store.value_codec import repair_unicode_text
@@ -966,6 +967,88 @@ def _resolve_citation_entry_spans(
     return entry_spans
 
 
+def _citation_pages(
+    artifact: dict[str, Any],
+    captured_source: dict[str, Any] | None,
+    page: int | None,
+    page_end: int | None,
+) -> tuple[int | None, int | None, bool]:
+    """Validate model page numbers before mapping a selected-page attachment."""
+    pdf_input = (captured_source or {}).get("pdf_input")
+    page_count = (
+        _int_or_none(pdf_input.get("page_count"))
+        if pdf_input
+        else _int_or_none(artifact.get("page_count"))
+    )
+    invalid = any(
+        number < 1 or (page_count is not None and number > page_count)
+        for number in (page, page_end)
+        if number is not None
+    ) or (page is not None and page_end is not None and page_end < page)
+    if invalid:
+        return None, None, True
+    if pdf_input:
+        selected_page = ((captured_source or {}).get("value") or {}).get("page")
+        if selected_page is not None:
+            page = page_end = selected_page
+    return page, page_end, False
+
+
+@dataclass(frozen=True)
+class _PassageLocation:
+    pdf_input: dict[str, Any] | None
+    page: int | None
+    page_end: int | None
+    invalid_page: bool
+
+
+def _source_passage_spans(
+    project: Any,
+    artifact: dict[str, Any],
+    passage: str,
+    metadata: dict[str, Any],
+    location: _PassageLocation,
+) -> tuple[list[dict[str, Any]] | None, str]:
+    """Direct PDF quotes use only the prepared geometry captured for the call."""
+    if not location.pdf_input:
+        return _aligned_passage_spans(
+            project,
+            artifact=artifact,
+            quote=passage,
+            blob_hash=_optional_string(artifact.get("blob_hash")),
+            base_meta=metadata,
+            page=location.page,
+            page_end=location.page_end,
+        )
+    ref_id = location.pdf_input.get("prepared_ref_id")
+    if location.invalid_page:
+        return None, "citation_page_out_of_range"
+    if ref_id is None:
+        return None, "no_word_stream"
+    return _prepared_aligned_passage_spans(
+        project,
+        artifact=artifact,
+        source={"value_ref": {"prepared_ref_id": ref_id}},
+        quote=passage,
+        base_meta=metadata,
+        page=location.page,
+        page_end=location.page_end,
+    )
+
+
+def _direct_pdf_bbox(
+    bbox: dict[str, Any] | None,
+    pdf_input: dict[str, Any] | None,
+    metadata: dict[str, Any],
+) -> dict[str, Any] | None:
+    if not pdf_input:
+        return bbox
+    # Direct-PDF schemas do not request boxes; unsolicited boxes cannot add precision.
+    if bbox is not None:
+        metadata["warnings"].append("model_bbox_unverified")
+    return None
+
+
 def _source_spans(
     project: Any,
     *,
@@ -999,27 +1082,12 @@ def _source_spans(
         "warnings": [],
     }
     pdf_input = (captured_source or {}).get("pdf_input")
-    page_count = (
-        _int_or_none(pdf_input.get("page_count"))
-        if pdf_input
-        else _int_or_none(artifact.get("page_count"))
+    page, page_end, invalid_page = _citation_pages(
+        artifact, captured_source, page, page_end
     )
-    invalid_page = any(
-        number < 1 or (page_count is not None and number > page_count)
-        for number in (page, page_end)
-        if number is not None
-    ) or (page is not None and page_end is not None and page_end < page)
     if invalid_page:
-        page = page_end = None
         metadata["warnings"].append("citation_page_out_of_range")
-    if pdf_input:
-        selected_page = ((captured_source or {}).get("value") or {}).get("page")
-        if not invalid_page and selected_page is not None:
-            page = page_end = selected_page
-        # Direct-PDF schemas do not request boxes; unsolicited boxes cannot add precision.
-        if bbox is not None:
-            metadata["warnings"].append("model_bbox_unverified")
-        bbox = None
+    bbox = _direct_pdf_bbox(bbox, pdf_input, metadata)
     if bbox is not None:
         return _model_bbox_spans(
             project,
@@ -1033,34 +1101,13 @@ def _source_spans(
             base_meta={**metadata, "grounding_method": "model_bbox"},
         )
     if passage is not None:
-        if pdf_input:
-            ref_id = pdf_input.get("prepared_ref_id")
-            spans, reason = (
-                _prepared_aligned_passage_spans(
-                    project,
-                    artifact=artifact,
-                    source={"value_ref": {"prepared_ref_id": ref_id}},
-                    quote=passage,
-                    base_meta=metadata,
-                    page=page,
-                    page_end=page_end,
-                )
-                if ref_id is not None and not invalid_page
-                else (
-                    None,
-                    "citation_page_out_of_range" if invalid_page else "no_word_stream",
-                )
-            )
-        else:
-            spans, reason = _aligned_passage_spans(
-                project,
-                artifact=artifact,
-                quote=passage,
-                blob_hash=blob_hash,
-                base_meta=metadata,
-                page=page,
-                page_end=page_end,
-            )
+        spans, reason = _source_passage_spans(
+            project,
+            artifact,
+            passage,
+            metadata,
+            _PassageLocation(pdf_input, page, page_end, invalid_page),
+        )
         if spans is not None:
             return spans
         # Degradation Law: keep the positionless text span, but record WHY the
