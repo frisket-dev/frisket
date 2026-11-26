@@ -2,10 +2,10 @@ from __future__ import annotations
 from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 
 import asyncio
-from typing import Any
+from typing import Annotated, Any
 
 import pytest
-from pydantic import BaseModel, Field
+from pydantic import AfterValidator, BaseModel, Field
 
 from frisket.actions.core import (
     ActionCategory,
@@ -30,6 +30,7 @@ from frisket.actions.types import (
 )
 from frisket.engine.executor.map_rows_action import build_typed_map_rows_plan
 from frisket.engine.runner.row_inputs import row_values
+from frisket.engine.store.runs import EXPECTED_ROW_ERROR
 from frisket.ops.base import ActionContext
 
 
@@ -251,10 +252,57 @@ def test_dynamic_response_schema_is_distinct_from_frozen_publication_schema(sour
         {"score": 2}, plan.spec_dict(), row_values={"input": "Ada"}
     )
     assert publication.cells["answer"]["value"] == 2
-    with pytest.raises(RowError):
-        plan.program.normalize_model_output(
-            {"score": 0}, plan.spec_dict(), row_values={"input": "Ada"}
+    rejected = plan.program.normalize_model_output(
+        {"score": 0}, plan.spec_dict(), row_values={"input": "Ada"}
+    )
+    assert rejected.cells["answer"]["value"] is None
+    assert rejected.cells["answer"]["error_code"] == "return_schema_mismatch"
+    assert rejected.cells["answer"]["outcome"] == EXPECTED_ROW_ERROR
+
+
+def _refuse_zero(count: int) -> int:
+    if count == 0:
+        raise RowError("invalid_response", "a count of zero is not an answer")
+    return count
+
+
+class RefusingWireAnswer(BaseModel):
+    count: Annotated[int, AfterValidator(_refuse_zero)] = Field(ge=0, le=3)
+
+
+def refusing_prompt(
+    params: SelectedParams, row: Row
+) -> ModelPrompt[RefusingWireAnswer]:
+    return ModelPrompt(messages=({"role": "user", "content": str(row.values)},))
+
+
+def refusing_complete(
+    params: SelectedParams, row: Row, response: RefusingWireAnswer
+) -> RowResult[PublishedAnswer]:
+    return RowResult(
+        output=PublishedAnswer(
+            answer=Outcome.ok(f"{row.values['input']}: {response.count}")
         )
+    )
+
+
+def test_row_error_from_the_response_model_fails_only_that_answer(source):
+    plan = plan_for(
+        source,
+        declaration(refusing_prompt, complete=refusing_complete),
+        model="anthropic/claude-haiku-4-5",
+    )
+    values = {"input": "Ada"}
+    accepted = plan.program.normalize_model_output(
+        {"count": 2}, plan.spec_dict(), row_values=values
+    )
+    assert accepted.cells["answer"]["value"] == "Ada: 2"
+    rejected = plan.program.normalize_model_output(
+        {"count": 0}, plan.spec_dict(), row_values=values
+    )
+    assert rejected.cells["answer"]["value"] is None
+    assert rejected.cells["answer"]["error_code"] == "invalid_response"
+    assert rejected.cells["answer"]["outcome"] == EXPECTED_ROW_ERROR
 
 
 def test_model_rows_rejects_async_completion_and_missing_model():
