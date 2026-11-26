@@ -1,26 +1,26 @@
 from __future__ import annotations
-from functools import partial
-
-from model_doubles import canned_reply_router
-from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 
 import json
+from functools import partial
 from typing import Any
 
 import pytest
+from executor_harness import run_action_with_confirmation
+from jsonschema import Draft202012Validator
+from model_doubles import ScriptedAdapter, canned_reply_router
+from typed_model_fixtures import model_plan, render_ner
 
 import frisket.ops.ner_citations as ner_module
-from typed_model_fixtures import model_plan, render_ner
-from frisket.actions.ner import NerModelOutput, normalize_ner_output
-from executor_harness import run_action_with_confirmation
+from frisket.actions import ner
+from frisket.actions.ner import normalize_ner_output
 from frisket.actions.system import validate_root_action as validate_action_spec
-from frisket.ai.llm import ModelRouter
-from frisket.ops.ner_citations import _NER_CITATION_CAPTURE_KEY
+from frisket.ai.llm import LLMResponse, ModelRouter
 from frisket.engine.runner import MapRunner
 from frisket.engine.store import Project
 from frisket.engine.store.citations import list_cell_citations, resolve_citation_viewer
 from frisket.execution.attempt_authority import UnroutedOnlyAuthority
-
+from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
+from frisket.ops.ner_citations import _NER_CITATION_CAPTURE_KEY
 
 PROJECT_ID = "project-ner-llm-dispatch"
 
@@ -42,13 +42,191 @@ def test_model_dispatch_is_selected_from_typed_engine(engine):
     assert plan.program.is_llm(plan.spec_dict()) is (engine == "llm")
 
 
-def test_model_schema_excludes_derived_fingerprint():
-    assert (
-        "fingerprint"
-        not in NerModelOutput.model_json_schema()["$defs"]["EntityModelValue"][
-            "properties"
+SPEECH = (
+    "To a place that's Precincts out of four fifty two. We're at 174,000 "
+    "votes to ten thousand. Mm-hmm. Uh Basically Joker."
+)
+# The exact structured answer a provider returned for SPEECH under the
+# all-optional entity schema: a garbled type and no offsets.
+GARBLED_ENTITY = {"text": "Joker", "type": "person','label':null,"}
+PERSON_AND_ORGANIZATION = {"labels": ["person", "organization"]}
+
+
+def _entity_item_schema(labels: list[str]) -> dict[str, Any]:
+    schema = render_ner({"body": SPEECH}, {"labels": labels}).schema
+    return schema["properties"]["entities"]["items"]
+
+
+def test_model_schema_requires_located_entities_of_the_requested_labels():
+    item = _entity_item_schema(["Person", "people", "organisation"])
+    assert set(item["required"]) == {"text", "type", "start", "end"}
+    assert item["properties"]["type"] == {
+        "type": "string",
+        "enum": ["person", "organization"],
+    }
+    assert {"fingerprint", "metadata", "label"}.isdisjoint(item["properties"])
+    validator = Draft202012Validator(_entity_item_schema(["person", "organization"]))
+    assert not validator.is_valid(GARBLED_ENTITY)
+    assert not validator.is_valid({**GARBLED_ENTITY, "start": None, "end": None})
+    assert validator.is_valid(
+        {"text": "Joker", "type": "person", "start": None, "end": None}
+    )
+
+
+def _complete(
+    entities: list[dict[str, Any]],
+    values: dict[str, str] | None = None,
+) -> dict[str, Any]:
+    values = values if values is not None else {"body": SPEECH}
+    plan = model_plan(
+        {
+            "action_kind": "map.ner",
+            "input_columns": list(values),
+            "engine": "llm",
+            "model": "anthropic/claude-sonnet-5-5",
+            **PERSON_AND_ORGANIZATION,
+        }
+    )
+    publication = plan.program.normalize_model_output(
+        {"entities": entities}, plan.spec_dict(), row_values=values
+    )
+    return publication.cells["entities"]
+
+
+def _spans(cell: dict[str, Any]) -> list[tuple[str, str, int, int]]:
+    return [
+        (entity["text"], entity["type"], entity["start"], entity["end"])
+        for entity in cell["value"]
+    ]
+
+
+def test_completion_locates_an_entity_returned_without_offsets():
+    cell = _complete([{"text": "Joker", "type": "person", "start": None, "end": None}])
+    assert _spans(cell) == [("Joker", "person", 112, 117)]
+    assert "warnings" not in cell
+
+
+def test_completion_relocates_wrong_offsets_and_keeps_correct_ones():
+    cell = _complete(
+        [
+            {"text": "Joker", "type": "person", "start": 0, "end": 5},
+            {"text": "Precincts", "type": "organization", "start": 18, "end": 27},
         ]
     )
+    assert _spans(cell) == [
+        ("Joker", "person", 112, 117),
+        ("Precincts", "organization", 18, 27),
+    ]
+
+
+def test_repeated_mentions_take_distinct_positions_nearest_the_stated_offset():
+    text = {"body": "Ada met Ada and Ada."}
+    assert _spans(
+        _complete(
+            [
+                {"text": "Ada", "type": "person", "start": 9, "end": 12},
+                {"text": "Ada", "type": "person", "start": 9, "end": 12},
+            ],
+            text,
+        )
+    ) == [("Ada", "person", 8, 11), ("Ada", "person", 16, 19)]
+    assert _spans(
+        _complete(
+            [
+                {"text": "Ada", "type": "person", "start": None, "end": None},
+                {"text": "Ada", "type": "person", "start": None, "end": None},
+            ],
+            text,
+        )
+    ) == [("Ada", "person", 0, 3), ("Ada", "person", 8, 11)]
+
+
+def test_a_correct_position_is_kept_when_an_earlier_mention_has_none():
+    cell = _complete(
+        [
+            {"text": "Jordan", "type": "location", "start": None, "end": None},
+            {"text": "Jordan", "type": "person", "start": 0, "end": 6},
+        ],
+        values={"body": "Jordan scored. Jordan signed the treaty."},
+    )
+    assert _spans(cell) == [
+        ("Jordan", "location", 15, 21),
+        ("Jordan", "person", 0, 6),
+    ]
+
+
+def test_a_repeated_name_is_searched_for_once(monkeypatch: pytest.MonkeyPatch):
+    calls: list[str] = []
+    find = ner.text_occurrences
+
+    def counting(source: str, passage: str) -> list[tuple[int, int]]:
+        calls.append(passage)
+        return find(source, passage)
+
+    monkeypatch.setattr(ner, "text_occurrences", counting)
+    body = " ".join(["Ada"] * 40)
+    stated = [
+        {"text": "Ada", "type": "person", "start": 4 * i, "end": 4 * i + 3}
+        for i in range(39)
+    ]
+    cell = _complete(
+        [*stated, {"text": "Ada", "type": "person", "start": None, "end": None}],
+        values={"body": body},
+    )
+    assert [(e["start"], e["end"]) for e in cell["value"]] == [
+        (4 * i, 4 * i + 3) for i in range(40)
+    ]
+    assert calls == ["Ada"]
+
+
+def test_a_stated_end_past_the_text_is_corrected():
+    cell = _complete(
+        [{"text": "Bob", "type": "person", "start": 10, "end": 1000}],
+        values={"body": "Alice met Bob"},
+    )
+    assert _spans(cell) == [("Bob", "person", 10, 13)]
+
+
+def test_prompt_names_the_same_types_the_schema_allows():
+    call = render_ner({"body": "text"}, {"labels": ["ORG", "people"]})
+    system = call.messages[0]["content"]
+    assert "types: organization, person." in system
+    assert "ORG" not in system
+
+
+def test_discarded_entities_are_reported_on_the_row():
+    cell = _complete(
+        [
+            {"text": "Joker", "type": "person", "start": 112, "end": 117},
+            {"text": "Batman", "type": "person", "start": 0, "end": 6},
+            {"text": "Riddler", "type": "person", "start": None, "end": None},
+            {"text": "Joker", "type": "person", "start": 112, "end": 117},
+        ]
+    )
+    assert _spans(cell) == [("Joker", "person", 112, 117)]
+    assert cell["warnings"] == [
+        "2 entities the model returned were discarded: text not found in the source.",
+        "1 entity the model returned was discarded: it repeats a mention already "
+        "returned.",
+    ]
+
+
+def test_multi_column_offsets_index_the_joined_source_text():
+    values = {"speaker": "Ada", "body": "wrote notes"}
+    cell = _complete(
+        [
+            {"text": "Ada", "type": "person", "start": 9, "end": 12},
+            {"text": "speaker", "type": "person", "start": 0, "end": 7},
+        ],
+        values,
+    )
+    assert _spans(cell) == [("Ada", "person", 0, 3)]
+    assert cell["warnings"] == [
+        "1 entity the model returned was discarded: text not found in the source."
+    ]
+
+
+def test_stored_entity_schema_keeps_derived_fingerprint():
     plan = model_plan(
         {"action_kind": "map.ner", "input_columns": ["body"], "labels": ["person"]}
     )
@@ -230,7 +408,7 @@ def test_map_ner_llm_engine_runs_and_writes_unified_entities(
             "entities": [
                 {
                     "text": "Ada Lovelace",
-                    "label": "person",  # raw "label" key -- canonicalize_entities renames it
+                    "type": "person",
                     "start": 0,
                     "end": 12,
                     "score": 0.92,
@@ -255,7 +433,7 @@ def test_map_ner_llm_engine_runs_and_writes_unified_entities(
     assert column["type"] == "json"
     values = project.get_values(sheet_id, column["id"])
     (row_id, entities) = next(iter(values.items()))
-    # unified shape: "label" -> "type", canonicalized -- same contract
+    # unified shape, canonicalized -- same contract
     # spacy/gliner write (tests/test_entities_output_spans.py).
     assert entities == [
         {
@@ -356,10 +534,9 @@ def test_returned_ner_checkpoint_keeps_private_evidence_when_publish_rolls_back(
     assert tuple(project.db.iterdump()) == before
 
 
-def test_map_ner_llm_engine_drops_malformed_model_entities(project: Project) -> None:
-    """postprocess_value's canonicalization runs on the llm path too: a
-    malformed model entity (missing start/end) is dropped rather than
-    corrupting the cell, same as spacy/gliner (canonicalize_entities)."""
+def test_map_ner_llm_engine_reports_entities_whose_text_is_not_in_the_source(
+    project: Project,
+) -> None:
     sheet_id = _seed_project(project)
     action = _map_ner_llm_action(
         sheet_id, idempotency_key="map_ner_llm_dispatch@sha256:malformed"
@@ -368,7 +545,7 @@ def test_map_ner_llm_engine_drops_malformed_model_entities(project: Project) -> 
         {
             "entities": [
                 {"text": "Ada Lovelace", "type": "person", "start": 0, "end": 12},
-                {"type": "person"},  # missing text/start/end -- dropped
+                {"text": "Grace Hopper", "type": "person", "start": 0, "end": 12},
             ]
         }
     )
@@ -388,6 +565,61 @@ def test_map_ner_llm_engine_drops_malformed_model_entities(project: Project) -> 
             "score": None,
             "fingerprint": "ada lovelace",
         }
+    ]
+    (warnings,) = project.db.execute(
+        "SELECT warnings FROM results WHERE run_id=? AND column_id=?",
+        (result.run_id, column["id"]),
+    ).fetchone()
+    assert json.loads(warnings) == [
+        "1 entity the model returned was discarded: text not found in the source."
+    ]
+
+
+def _reply(data: dict[str, Any]) -> LLMResponse:
+    return LLMResponse(
+        content=json.dumps(data),
+        data=data,
+        tokens_in=42,
+        tokens_out=17,
+        cost=0.004,
+        model="anthropic/claude-sonnet-5-5",
+    )
+
+
+def test_map_ner_llm_engine_corrects_a_garbled_type_and_locates_the_entity(
+    project: Project,
+) -> None:
+    sheet_id = _seed_project(project, body=SPEECH)
+    action = _map_ner_llm_action(
+        sheet_id,
+        idempotency_key="map_ner_llm_dispatch@sha256:garbled",
+        labels=["person", "organization"],
+        model="anthropic/claude-sonnet-5-5",
+    )
+    adapter = ScriptedAdapter(
+        [
+            _reply({"entities": [GARBLED_ENTITY]}),
+            _reply(
+                {
+                    "entities": [
+                        {"text": "Joker", "type": "person", "start": 0, "end": 5}
+                    ]
+                }
+            ),
+        ]
+    )
+    router, _canned = _stub_router({})
+    router._adapters["anthropic"] = adapter
+
+    result = run_action_with_confirmation(
+        project, action, project_id=PROJECT_ID, router=router
+    )
+    assert result.status == "completed", result.errors
+    assert len(adapter.seen) == 2
+    column = next(c for c in project.columns(sheet_id) if c["name"] == "entities")
+    (entities,) = project.get_values(sheet_id, column["id"]).values()
+    assert [(e["text"], e["type"], e["start"], e["end"]) for e in entities] == [
+        ("Joker", "person", 112, 117)
     ]
 
 
@@ -432,3 +664,40 @@ def test_map_ner_llm_highlights_every_exact_repeated_mention(
     assert [
         (span["selector"]["char_start"], span["selector"]["char_end"]) for span in spans
     ] == [(0, 3), (8, 11)]
+
+
+def test_map_ner_llm_keeps_located_mentions_of_a_name_with_two_types(
+    project: Project,
+) -> None:
+    sheet_id = _seed_project(project, body="Jordan scored. Jordan signed the treaty.")
+    action = _map_ner_llm_action(
+        sheet_id,
+        idempotency_key="map_ner_llm_dispatch@sha256:two-types",
+        labels=["person", "location"],
+    )
+    router, _adapter = _stub_router(
+        {
+            "entities": [
+                {"text": "Jordan", "type": "person", "start": 0, "end": 6},
+                {"text": "Jordan", "type": "location", "start": 15, "end": 21},
+            ]
+        }
+    )
+
+    result = run_action_with_confirmation(
+        project, action, project_id=PROJECT_ID, router=router
+    )
+    assert result.status == "completed", result.errors
+    column = next(c for c in project.columns(sheet_id) if c["name"] == "entities")
+    row_id, entities = next(iter(project.get_values(sheet_id, column["id"]).items()))
+    assert [(e["type"], e["start"], e["end"]) for e in entities] == [
+        ("person", 0, 6),
+        ("location", 15, 21),
+    ]
+    link = list_cell_citations(
+        project, sheet_id=sheet_id, row_id=row_id, column_id=column["id"]
+    )["links"][0]
+    spans = resolve_citation_viewer(project, link["id"])["artifacts"][0]["spans"]
+    assert [
+        (span["selector"]["char_start"], span["selector"]["char_end"]) for span in spans
+    ] == [(0, 6), (15, 21)]

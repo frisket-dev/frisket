@@ -6,7 +6,7 @@ import hashlib
 import json
 from typing import TYPE_CHECKING, Any, Mapping
 
-from frisket.ops.ner_text import ner_text
+from frisket.ops.ner_text import ner_text, text_occurrences
 
 if TYPE_CHECKING:
     from frisket.actions.ner import NerParams
@@ -105,18 +105,24 @@ def capture_result_evidence(
         expanded: list[dict[str, Any]] = []
         expanded_positions: list[list[list[int]]] = []
         seen_mentions: set[tuple[str, Any, int, int]] = set()
+        types_by_text: dict[str, set[Any]] = {}
+        for entity in entities:
+            if isinstance(entity, dict) and isinstance(entity.get("text"), str):
+                types_by_text.setdefault(entity["text"], set()).add(entity.get("type"))
         for entity in entities:
             if not isinstance(entity, dict) or not isinstance(entity.get("text"), str):
                 continue
             passage = entity["text"]
-            matches: list[list[int]] = []
-            search_from = 0
-            while passage:
-                start = source_text.find(passage, search_from)
-                if start < 0:
-                    break
-                matches.append([start, start + len(passage)])
-                search_from = start + len(passage)
+            matches = text_occurrences(source_text, passage)
+            # A name the model gave two types keeps each mention where it was
+            # located; one type is highlighted at every occurrence.
+            if len(types_by_text[passage]) > 1:
+                located = [
+                    span
+                    for span in matches
+                    if span == (entity.get("start"), entity.get("end"))
+                ]
+                matches = located or matches
             if matches:
                 for start, end in matches:
                     mention = {**entity, "start": start, "end": end}

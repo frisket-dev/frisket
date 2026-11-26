@@ -3,7 +3,7 @@ from __future__ import annotations
 import pytest
 from pydantic import ValidationError
 
-from frisket.actions.ner import NerParams, NerModelOutput
+from frisket.actions.ner import NerParams
 from frisket.actions.system import validate_root_action
 from typed_model_fixtures import model_request
 from frisket.server.action_catalog_hints import project_action_catalog_launcher_hints
@@ -121,11 +121,6 @@ def test_ner_scope_and_confirmation_belong_to_request():
     wrong = request.model_dump(mode="json")
     wrong["params"]["row_ids"] = [9]
     assert not validate_root_action(wrong).ok
-
-
-def test_llm_request_schema_never_asks_model_for_fingerprint():
-    schema = NerModelOutput.model_json_schema()
-    assert "fingerprint" not in schema["$defs"]["EntityModelValue"]["properties"]
 
 
 def test_extra_instructions_defaults_empty_and_strips():

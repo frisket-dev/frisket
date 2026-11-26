@@ -23,6 +23,7 @@ from frisket.actions.model_rows import FILE_SOURCE_CONVERSION_HINT
 from frisket.actions.types import (
     ActionParams,
     ColumnRef,
+    DynamicOutput,
     EngineRef,
     ModelPrompt,
     ModelRef,
@@ -31,9 +32,9 @@ from frisket.actions.types import (
     Template,
 )
 from frisket.ai.message_content import render_input_block
-from frisket.ops.entities import canonicalize_entities
+from frisket.ops.entities import canonicalize_entities, canonicalize_entity_type
 from frisket.ops.ner_llm import entities_extract_instruction
-from frisket.ops.ner_text import ner_text
+from frisket.ops.ner_text import ner_text, text_occurrences
 
 
 class NerColumn(ColumnRef[Any]):
@@ -91,7 +92,6 @@ class NerParams(ActionParams):
         if self.engine.root != "llm" and self.model is not None:
             raise ValueError("a model is only available for the LLM engine")
         if self.engine.root == "spacy":
-            from frisket.ops.entities import canonicalize_entity_type
             from frisket.ops.spacy_ner import SPACY_CANONICAL_TYPES
 
             unsupported = [
@@ -128,21 +128,95 @@ class NerOutput(BaseModel):
     )
 
 
-class EntityModelValue(TypedDict, total=False):
-    # Strict providers require every key; null carries optional absence.
-    # The existing normalizer discards incomplete spans and missing hints.
-    text: str | None
-    type: str | None
-    label: str | None
-    start: int | None
-    end: int | None
-    score: float | None
+def _requested_types(params: NerParams) -> list[str]:
+    return list(
+        dict.fromkeys(canonicalize_entity_type(label) for label in params.labels)
+    )
 
 
-class NerModelOutput(BaseModel):
-    """Provider values exclude server-derived fingerprints and metadata."""
+def ner_response_schema(params: NerParams) -> dict[str, Any]:
+    """Entities of the requested types; the server owns their positions.
 
-    entities: list[EntityModelValue]
+    Offsets are nullable because ``ner_complete`` locates every entity in the
+    source text itself. Fingerprints and metadata are server-derived and never
+    requested.
+    """
+
+    entity = {
+        "type": "object",
+        "properties": {
+            "text": {"type": "string"},
+            "type": {"type": "string", "enum": _requested_types(params)},
+            "start": {"type": ["integer", "null"]},
+            "end": {"type": ["integer", "null"]},
+            "score": {"type": ["number", "null"]},
+        },
+        "required": ["text", "type", "start", "end"],
+    }
+    return {
+        "type": "object",
+        "properties": {"entities": {"type": "array", "items": entity}},
+        "required": ["entities"],
+    }
+
+
+_NOT_IN_SOURCE = "text not found in the source"
+_REPEATED = "it repeats a mention already returned"
+
+
+def _located_entities(
+    source: str, entities: Sequence[Mapping[str, Any]]
+) -> tuple[list[dict[str, Any]], tuple[str, ...]]:
+    """Place each model entity on a distinct occurrence of its text.
+
+    Stated offsets that already select the text are kept; every other entity
+    then takes the free occurrence nearest its stated start, or the first.
+    """
+
+    spans: list[tuple[int, int] | None] = [None] * len(entities)
+    taken: set[tuple[int, int]] = set()
+    # Positions the model got right are reserved before any other is repaired.
+    for index, entity in enumerate(entities):
+        text, start, end = entity["text"], entity["start"], entity["end"]
+        if (
+            text
+            and start is not None
+            and end is not None
+            and start >= 0
+            and end - start == len(text)
+            and source[start:end] == text
+            and (start, end) not in taken
+        ):
+            spans[index] = (start, end)
+            taken.add((start, end))
+    occurrences: dict[str, list[tuple[int, int]]] = {}
+    discarded = {_NOT_IN_SOURCE: 0, _REPEATED: 0}
+    located: list[dict[str, Any]] = []
+    for index, entity in enumerate(entities):
+        span = spans[index]
+        if span is None:
+            text = entity["text"]
+            if text not in occurrences:
+                occurrences[text] = text_occurrences(source, text)
+            free = [found for found in occurrences[text] if found not in taken]
+            if not free:
+                discarded[_REPEATED if occurrences[text] else _NOT_IN_SOURCE] += 1
+                continue
+            start = entity["start"]
+            span = (
+                min(free, key=lambda found: abs(found[0] - start))
+                if start is not None
+                else free[0]
+            )
+            taken.add(span)
+        located.append({**entity, "start": span[0], "end": span[1]})
+    warnings = tuple(
+        f"{count} {'entity' if count == 1 else 'entities'} the model returned "
+        f"{'was' if count == 1 else 'were'} discarded: {reason}."
+        for reason, count in discarded.items()
+        if count
+    )
+    return located, warnings
 
 
 def normalize_ner_output(raw: Sequence[Mapping[str, Any]]) -> NerOutput:
@@ -152,13 +226,15 @@ def normalize_ner_output(raw: Sequence[Mapping[str, Any]]) -> NerOutput:
     return NerOutput.model_validate({"entities": entities})
 
 
-def ner_prompt(params: NerParams, row: Row) -> ModelPrompt[NerModelOutput]:
+def ner_prompt(params: NerParams, row: Row) -> ModelPrompt[DynamicOutput]:
     system = "\n\n".join(
         (
             "You extract named entities from documents for an investigative "
             "journalist. Extract only entities that are actually present in "
             "the text; never invent one.",
-            entities_extract_instruction(params.labels, params.extra_instructions),
+            entities_extract_instruction(
+                _requested_types(params), params.extra_instructions
+            ),
             "Report entity text from the user message only. Character "
             "offsets are advisory; the server validates them independently.",
         )
@@ -172,7 +248,8 @@ def ner_prompt(params: NerParams, row: Row) -> ModelPrompt[NerModelOutput]:
         messages=(
             {"role": "system", "content": system},
             {"role": "user", "content": user_content},
-        )
+        ),
+        response_schema=ner_response_schema(params),
     )
 
 
@@ -186,9 +263,13 @@ async def ner_direct(
 
 
 def ner_complete(
-    params: NerParams, row: Row, response: NerModelOutput
+    params: NerParams, row: Row, response: DynamicOutput
 ) -> RowResult[NerOutput]:
-    return RowResult(output=normalize_ner_output(response.entities))
+    del params
+    entities, warnings = _located_entities(
+        ner_text(row.values), response.root["entities"]
+    )
+    return RowResult(output=normalize_ner_output(entities), warnings=warnings)
 
 
 NER = action(
