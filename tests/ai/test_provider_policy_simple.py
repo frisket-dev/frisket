@@ -13,7 +13,7 @@ from frisket.ai.llm import ModelRouter
 from frisket.ai.llm.adapters import _strictify
 from frisket.ai.llm.structured import StructuredCompleter, StructuredRequest
 from frisket.ops.extraction import extract_citation_fields, extract_response_schema
-from frisket.actions.ner import NerModelOutput, normalize_ner_output
+from typed_model_fixtures import render_ner
 
 
 def complete(model, schema, data, *, params=None):
@@ -234,34 +234,26 @@ def test_reasoning_sampling_omitted_on_direct_and_openrouter_routes(model):
     assert "top_p" not in body
 
 
-@pytest.mark.parametrize("model", ["openai/gpt-4o", "gemini/gemini-3.5-flash"])
-def test_ner_optional_advisory_fields_keep_native_output_and_accept_nulls(model):
-    data = {
-        "entities": [
-            {
-                "text": "Ada",
-                "type": "PERSON",
-                "label": None,
-                "start": 0,
-                "end": 3,
-                "score": None,
-            },
-            {
-                "text": None,
-                "type": None,
-                "label": None,
-                "start": None,
-                "end": None,
-                "score": None,
-            },
-        ]
-    }
-    result, body = complete(model, NerModelOutput.model_json_schema(), data)
+@pytest.mark.parametrize(
+    "model", ["anthropic/claude-sonnet-5-5", "openai/gpt-4o", "gemini/gemini-3.5-flash"]
+)
+def test_ner_entity_schema_keeps_native_output_and_corrects_unrequested_types(model):
+    schema = render_ner({"body": "Ada"}, {"labels": ["person"]}).schema
+    replies = [
+        {"entities": [{"text": "Ada", "type": "person','label':null,"}]},
+        {"entities": [{"text": "Ada", "type": "person", "start": None, "end": None}]},
+    ]
+    result, body = complete(model, schema, lambda call: replies[call - 1])
     assert result.method_used == "native_strict"
-    assert body["response_format"]["type"] == "json_schema"
-    normalized = normalize_ner_output(result.data["entities"]).entities
-    assert len(normalized) == 1
-    assert normalized[0]["text"] == "Ada"
+    assert result.attempts == 2
+    assert result.data == replies[1]
+    if model.startswith("anthropic/"):
+        sent = body["output_config"]["format"]["schema"]
+    else:
+        sent = body["response_format"]["json_schema"]["schema"]
+    item = sent["properties"]["entities"]["items"]
+    assert item["properties"]["type"]["enum"] == ["person"]
+    assert {"text", "type", "start", "end"} <= set(item["required"])
 
 
 @pytest.mark.parametrize(

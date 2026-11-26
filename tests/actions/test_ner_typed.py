@@ -5,13 +5,12 @@ from pydantic import ValidationError
 
 from frisket.actions.ner import (
     NER,
-    NerModelOutput,
     NerParams,
     ner_complete,
     ner_direct,
     ner_prompt,
 )
-from frisket.actions.types import Row
+from frisket.actions.types import DynamicOutput, Row
 
 
 def test_route_validation_keeps_local_free_and_requires_an_explicit_llm_model():
@@ -31,14 +30,7 @@ def test_route_validation_keeps_local_free_and_requires_an_explicit_llm_model():
     assert NerParams(source=["body"], labels=["person"]).model is None
 
 
-def test_provider_schema_excludes_comparison_keys_and_stored_output_stays_feedable():
-    schema = NerModelOutput.model_json_schema()
-    properties = schema["$defs"]["EntityModelValue"]["properties"]
-    # ``label`` is the raw provider spelling canonical normalization maps onto
-    # ``type`` (see ner_complete below); the server-derived comparison keys
-    # never reach the provider schema.
-    assert set(properties) == {"text", "type", "label", "start", "end", "score"}
-    assert {"fingerprint", "metadata"}.isdisjoint(properties)
+def test_stored_output_stays_feedable():
     output = NER.run.output_fields[0]
     assert output.key == "entities"
     assert output.named_result.may_feed == ["derive.table_from_list"]
@@ -47,7 +39,7 @@ def test_provider_schema_excludes_comparison_keys_and_stored_output_stays_feedab
 def test_model_request_uses_the_exact_unicode_input_and_normalizes_server_keys():
     params = NerParams(
         source=["body"],
-        labels=["organization"],
+        labels=["ORG"],
         engine="llm",
         model="openai/gpt-4o-mini",
     )
@@ -57,11 +49,17 @@ def test_model_request_uses_the_exact_unicode_input_and_normalizes_server_keys()
     result = ner_complete(
         params,
         row,
-        NerModelOutput(
-            entities=[
-                {"text": "ACME Corp.", "type": "ORG", "start": 2, "end": 12},
-                {"text": "invalid missing coordinates"},
-            ]
+        DynamicOutput(
+            {
+                "entities": [
+                    {
+                        "text": "ACME Corp.",
+                        "type": "organization",
+                        "start": 2,
+                        "end": 12,
+                    }
+                ]
+            }
         ),
     )
     assert result.output.entities == [
@@ -72,9 +70,9 @@ def test_model_request_uses_the_exact_unicode_input_and_normalizes_server_keys()
             "end": 12,
             "score": None,
             "fingerprint": "acme corp",
-            "metadata": {"raw_label": "ORG"},
         }
     ]
+    assert result.warnings == ()
 
 
 @pytest.mark.asyncio
