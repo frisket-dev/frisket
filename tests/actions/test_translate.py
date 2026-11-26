@@ -107,3 +107,51 @@ def test_detected_language_is_required_when_active_and_materializes_as_category(
         ),
     )
     assert result.output.detected_language is None
+
+
+@pytest.mark.parametrize("blank", ["", " \n\t "])
+def test_blank_model_translation_is_stored_as_given(blank):
+    params = TranslateParams(source=["text"], model="anthropic/example")
+    result = complete_translation(
+        params, Row({"text": "Hola"}), DynamicOutput({"translation": blank})
+    )
+    assert result.output.translation == blank
+    assert result.warnings == ()
+
+
+@pytest.mark.parametrize(
+    ("raw", "shown"),
+    [
+        ("Deutsch", "Deutsch"),
+        ("Brazilian\nPortuguese", "Brazilian Portuguese"),
+        ("x" * 200, "x" * 40 + "…"),
+    ],
+)
+def test_unrecognised_detected_language_is_left_empty_with_one_warning(raw, shown):
+    params = TranslateParams(
+        source=["text"], model="anthropic/example", save_detected_language=True
+    )
+    result = complete_translation(
+        params,
+        Row({"text": "Hola"}),
+        DynamicOutput({"translation": "Hello", "detected_language": raw}),
+    )
+    assert result.output.detected_language is None
+    assert result.output.translation == "Hello"
+    assert result.warnings == (
+        f'The model\'s detected language "{shown}" was not recognised and was '
+        "left empty.",
+    )
+
+
+@pytest.mark.parametrize("raw", ["German", "pt_BR", None, ""])
+def test_recognised_or_absent_detected_language_adds_no_warning(raw):
+    params = TranslateParams(
+        source=["text"], model="anthropic/example", save_detected_language=True
+    )
+    result = complete_translation(
+        params,
+        Row({"text": "Hallo"}),
+        DynamicOutput({"translation": "Hello", "detected_language": raw}),
+    )
+    assert result.warnings == ()

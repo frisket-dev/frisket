@@ -213,7 +213,10 @@ def normalize_detected_bcp47(raw: str | None) -> str | None:
     BCP-47 value, OR an LLM-produced language NAME (``English``). Names map
     through the table; a code's primary subtag is validated as a 2-3 letter
     language subtag. Anything unrecognized returns ``None`` so the caller stores
-    null (with a warning) rather than a raw, non-conformant value.
+    null rather than a raw, non-conformant value; the model path reports such a
+    value as a row warning. The other engines pass provider codes or an
+    already-normalized source language here, so only a malformed provider code
+    could be dropped.
     """
     if not raw or not isinstance(raw, str):
         return None
