@@ -1665,8 +1665,8 @@ class _TypedModelRowsProgram(_TypedMapRowsProgram):
         self, data: dict[str, Any], spec: dict[str, Any], *, row_values: dict[str, Any]
     ) -> PreparedRowPublication:
         del spec
-        response = self._response_model.model_validate(data)
         try:
+            response = self._response_model.model_validate(data)
             produced = (
                 self._model_rows.complete(self._params, Row(row_values), response)
                 if self._model_rows.complete is not None
