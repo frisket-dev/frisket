@@ -1666,16 +1666,21 @@ class _TypedModelRowsProgram(_TypedMapRowsProgram):
     ) -> PreparedRowPublication:
         del spec
         response = self._response_model.model_validate(data)
-        produced = (
-            self._model_rows.complete(self._params, Row(row_values), response)
-            if self._model_rows.complete is not None
-            else RowResult(output=response)
-        )
-        if inspect.isawaitable(produced):
-            if inspect.iscoroutine(produced):
-                produced.close()
-            raise TypeError("model_rows completion must return synchronously")
-        return self._prepare_publication(produced)
+        try:
+            produced = (
+                self._model_rows.complete(self._params, Row(row_values), response)
+                if self._model_rows.complete is not None
+                else RowResult(output=response)
+            )
+            if inspect.isawaitable(produced):
+                if inspect.iscoroutine(produced):
+                    produced.close()
+                raise TypeError("model_rows completion must return synchronously")
+            return self._prepare_publication(produced)
+        except RowError as error:
+            # The model call has returned: fail this row like any other row
+            # error, and the runner attaches that call's accounting to it.
+            return self._row_error_publication(error)
 
     def render(
         self,
