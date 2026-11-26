@@ -17,6 +17,7 @@ from executor_harness import (
 )
 from frisket.ai.llm import LLMError, LLMRequest, LLMResponse, ModelRouter
 from frisket.engine.store import Project
+from frisket.engine.store.runs import RunResultStore
 
 
 class _FailingTranslateAdapter:
@@ -364,3 +365,138 @@ def test_map_translate_provider_failure_fails_the_run(
         assert failed.receipt_id is not None
         assert failed.errors[0].code == "model_run_failed"
         assert len(adapter.requests) == 2
+
+
+class _PerRowTranslateAdapter:
+    """Answers each row by the first reply whose key appears in its prompt."""
+
+    def __init__(self, replies: dict[str, dict[str, Any]]) -> None:
+        self.replies = replies
+        self.requests: list[LLMRequest] = []
+
+    async def complete(self, req: LLMRequest, client: Any) -> LLMResponse:
+        self.requests.append(req)
+        prompt = json.dumps(req.messages, ensure_ascii=False)
+        reply = next(reply for key, reply in self.replies.items() if key in prompt)
+        return LLMResponse(
+            content=json.dumps(reply),
+            data=json.loads(json.dumps(reply)),
+            tokens_in=54,
+            tokens_out=18,
+            cost=0.003,
+            model=req.model,
+        )
+
+
+def _translation_results(
+    project: Project, sheet_id: int, run_id: int, column: str
+) -> dict[str, dict[str, Any]]:
+    """Stored results of one generated column, keyed by the row's statement."""
+    statement_id = next(
+        c["id"] for c in project.columns(sheet_id) if c["name"] == "statement"
+    )
+    statements = project.get_values(sheet_id, int(statement_id))
+    column_id = next(c["id"] for c in project.columns(sheet_id) if c["name"] == column)
+    return {
+        statements.get(int(row["row_id"])) or "": {
+            **dict(row),
+            "warnings": json.loads(row["warnings"] or "[]"),
+        }
+        for row in project.db.execute(
+            "SELECT row_id, value, outcome, error, error_code, warnings "
+            "FROM results WHERE run_id=? AND column_id=?",
+            (run_id, column_id),
+        )
+    }
+
+
+@pytest.mark.parametrize("blank", ["", "  \n "])
+def test_map_translate_empty_model_translation_fails_the_row_as_empty_output(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, blank: str
+) -> None:
+    """A blank translation of non-empty source text is the empty_output
+    terminal failure the other engines record, settled with its billed call;
+    a row whose inputs are all empty still never reaches the model."""
+    with case_env(CASES[0], tmp_path, monkeypatch) as env:
+        project, sheet_id = env.project, env.seeded["sheet_id"]
+        columns = {column["name"]: column["id"] for column in project.columns(sheet_id)}
+        project.add_rows(sheet_id, [{"statement": "", "speaker": ""}], columns)
+        adapter = _PerRowTranslateAdapter(
+            {
+                "Bonjour le monde": {"translation": blank, "detected_language": "fr"},
+                "Gracias por venir": {
+                    "translation": "Thanks for coming",
+                    "detected_language": "es",
+                },
+            }
+        )
+        env.run_kwargs["router"] = _translate_router(adapter, max_retries=0)
+        result = env.run(
+            _map_translate_action(
+                sheet_id, idempotency_key="map_translate@sha256:empty-translation"
+            )
+        )
+
+        assert result.status == "partial", result.errors
+        assert len(adapter.requests) == 2
+        rows = _translation_results(project, sheet_id, result.run_id, "translation")
+        failed = rows["Bonjour le monde"]
+        assert failed["outcome"] == "empty_output"
+        assert failed["error"]
+        assert failed["error_code"] == "empty_output"
+        assert failed["value"] is None
+        assert rows["Gracias por venir"]["outcome"] == "ok"
+        assert rows["Gracias por venir"]["value"] == "Thanks for coming"
+        assert rows[""]["value"] is None
+        assert rows[""]["error"] is None
+        assert rows[""]["outcome"] not in {"empty_output", "model_error"}
+
+        run = project.db.execute(
+            "SELECT failed_rows, cost_actual FROM runs WHERE id=?", (result.run_id,)
+        ).fetchone()
+        assert int(run["failed_rows"]) == 1
+        assert run["cost_actual"] == 0.006
+        model_calls = RunResultStore(project).model_calls(result.run_id)
+        assert len(model_calls) == 2
+        assert {row["provider_cost_usd"] for row in model_calls} == {0.003}
+
+
+def test_map_translate_unrecognised_detected_language_is_a_row_warning(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    with case_env(CASES[0], tmp_path, monkeypatch) as env:
+        adapter = _PerRowTranslateAdapter(
+            {
+                "Bonjour le monde": {
+                    "translation": "Hello world",
+                    "detected_language": "Deutsch",
+                },
+                "Gracias por venir": {
+                    "translation": "Thanks for coming",
+                    "detected_language": "Spanish",
+                },
+            }
+        )
+        env.run_kwargs["router"] = _translate_router(adapter)
+        result = env.run(
+            _map_translate_action(
+                env.seeded["sheet_id"],
+                idempotency_key="map_translate@sha256:unrecognised-language",
+            )
+        )
+
+        assert result.status == "completed", result.errors
+        detected = _translation_results(
+            env.project,
+            env.seeded["sheet_id"],
+            result.run_id,
+            "translation_detected_language",
+        )
+        assert detected["Bonjour le monde"]["value"] is None
+        assert detected["Bonjour le monde"]["outcome"] != "empty_output"
+        assert detected["Bonjour le monde"]["warnings"] == [
+            'The model\'s detected language "Deutsch" was not recognised and '
+            "was left empty."
+        ]
+        assert detected["Gracias por venir"]["value"] == "es"
+        assert detected["Gracias por venir"]["warnings"] == []

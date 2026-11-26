@@ -21,7 +21,10 @@ from frisket.execution.credential_use import (
     require_consented_credential,
 )
 from frisket.ops.base import ActionContext, ActionProgramInvocationHalt
-from frisket.ops.integrations.translate_common import TranslateEngineError
+from frisket.ops.integrations.translate_common import (
+    TranslateEngineError,
+    require_nonempty_translation,
+)
 
 if TYPE_CHECKING:
     from frisket.engine._workers.opus_mt_session import OpusMtSession
@@ -179,38 +182,6 @@ class TranslationEngine:
             if callable(signal):
                 return signal
         return None
-
-    @staticmethod
-    def _require_nonempty(translation: str, engine: str) -> str:
-        """F1 (eval failure-modes): a non-LLM engine returning an EMPTY
-        translation over NON-EMPTY source text is a per-row FAILURE, not a
-        terminal-ok empty cell.
-
-        Every branch below reaches this only AFTER the empty-source early return
-        in ``execute()`` (``if not text``), so the source is guaranteed non-empty
-        here: an empty result therefore means the provider returned nothing, the
-        GGUF degenerated, or DeepL sent an empty ``text`` — not a legitimately
-        empty input. Previously ``""`` was written as a green ``ok`` cell that
-        backfill never revisited (``_result_outcome`` maps a non-None value to
-        ``ok``). The typed error routes through MapRunner's hosted-engine catch
-        (``error_code="empty_output"``), which records the row as a TERMINAL
-        failure (empty-output terminal-row contract): shown honestly as failed,
-        never re-run by automatic backfill — whether a retry would fix it is
-        not our judgment call — but re-runnable by a deliberate user retry
-        (``run.backfill`` with explicit ``row_ids``). ``retryable=False``
-        states that fact; MapRunner classifies on the CODE, not this flag.
-        """
-
-        if translation is None or not str(translation).strip():
-            raise TranslateEngineError(
-                code="empty_output",
-                message=(
-                    f"{engine} returned an empty translation for non-empty "
-                    "source text; the row was not translated."
-                ),
-                retryable=False,
-            )
-        return translation
 
     @staticmethod
     def _source_text(row_values: dict[str, Any]) -> str:
@@ -388,7 +359,9 @@ class TranslationEngine:
                 **({"cost_source": "unknown"} if cost is None else {}),
             }
             try:
-                translation = self._require_nonempty(first.get("text", ""), engine)
+                translation = require_nonempty_translation(
+                    first.get("text", ""), engine
+                )
             except TranslateEngineError as exc:
                 # The provider response completed before output validation;
                 # carry its paid fact through the row-error boundary.
@@ -508,7 +481,7 @@ class TranslationEngine:
             # save_detected_language still gets the honest (explicit) code.
             return self._shaped_result(
                 spec,
-                self._require_nonempty(results[0] if results else "", "opus_mt"),
+                require_nonempty_translation(results[0] if results else "", "opus_mt"),
                 src_code,
             )
 
@@ -587,7 +560,7 @@ class TranslationEngine:
             # Local/free, no detection: detected_raw=None -> no detected column.
             return self._shaped_result(
                 spec,
-                self._require_nonempty(results[0] if results else "", "hy_mt2"),
+                require_nonempty_translation(results[0] if results else "", "hy_mt2"),
                 None,
             )
 

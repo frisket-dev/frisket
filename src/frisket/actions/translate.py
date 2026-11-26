@@ -37,7 +37,14 @@ from frisket.actions.types import (
     RowError,
 )
 from frisket.ai.message_content import render_input_block
-from frisket.ops.integrations.translate_common import normalize_detected_bcp47
+from frisket.ops.integrations.translate_common import (
+    normalize_detected_bcp47,
+    require_nonempty_translation,
+)
+
+# Long enough for any language name, short enough to keep a row warning
+# readable when the model writes prose into the field.
+_SHOWN_LANGUAGE_CHARS = 40
 
 
 class TranslationColumn(ColumnRef[Any]):
@@ -141,6 +148,16 @@ def translate_prompt(params: TranslateParams, row: Row) -> ModelPrompt[DynamicOu
     )
 
 
+def _unrecognised_language_warning(raw: str) -> str:
+    shown = " ".join(raw.split())
+    if len(shown) > _SHOWN_LANGUAGE_CHARS:
+        shown = shown[:_SHOWN_LANGUAGE_CHARS] + "…"
+    return (
+        f'The model\'s detected language "{shown}" was not recognised and was '
+        "left empty."
+    )
+
+
 def complete_translation(
     params: TranslateParams, row: Row, response: DynamicOutput
 ) -> RowResult[TranslateOutput]:
@@ -150,24 +167,28 @@ def complete_translation(
             "Translation response is missing detected_language.",
         )
     values = TranslateOutput.model_validate(response.root)
-    normalized_language = (
-        normalize_detected_bcp47(
-            values.detected_language.root
-            if values.detected_language is not None
-            else None
-        )
-        if params.save_detected_language
+    translation = require_nonempty_translation(values.translation, "The model")
+    raw_language = (
+        values.detected_language.root
+        if params.save_detected_language and values.detected_language is not None
         else None
+    )
+    normalized_language = normalize_detected_bcp47(raw_language)
+    warnings = (
+        (_unrecognised_language_warning(raw_language),)
+        if raw_language and raw_language.strip() and normalized_language is None
+        else ()
     )
     return RowResult(
         output=TranslateOutput(
-            translation=values.translation,
+            translation=translation,
             detected_language=(
                 DetectedLanguage(normalized_language)
                 if normalized_language is not None
                 else None
             ),
-        )
+        ),
+        warnings=warnings,
     )
 
 

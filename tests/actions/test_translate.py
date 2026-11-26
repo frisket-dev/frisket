@@ -9,6 +9,7 @@ from frisket.actions.translate import (
     translation_outputs,
 )
 from frisket.actions.types import DynamicOutput, Row, RowError
+from frisket.ops.integrations.translate_common import TranslateEngineError
 
 
 def test_runtime_default_remains_llm_and_model_is_required():
@@ -107,3 +108,52 @@ def test_detected_language_is_required_when_active_and_materializes_as_category(
         ),
     )
     assert result.output.detected_language is None
+
+
+@pytest.mark.parametrize("blank", ["", " \n\t "])
+def test_blank_model_translation_of_nonempty_source_is_empty_output(blank):
+    params = TranslateParams(source=["text"], model="anthropic/example")
+    with pytest.raises(TranslateEngineError) as caught:
+        complete_translation(
+            params, Row({"text": "Hola"}), DynamicOutput({"translation": blank})
+        )
+    assert caught.value.code == "empty_output"
+    assert caught.value.retryable is False
+
+
+@pytest.mark.parametrize(
+    ("raw", "shown"),
+    [
+        ("Deutsch", "Deutsch"),
+        ("Brazilian\nPortuguese", "Brazilian Portuguese"),
+        ("x" * 200, "x" * 40 + "…"),
+    ],
+)
+def test_unrecognised_detected_language_is_left_empty_with_one_warning(raw, shown):
+    params = TranslateParams(
+        source=["text"], model="anthropic/example", save_detected_language=True
+    )
+    result = complete_translation(
+        params,
+        Row({"text": "Hola"}),
+        DynamicOutput({"translation": "Hello", "detected_language": raw}),
+    )
+    assert result.output.detected_language is None
+    assert result.output.translation == "Hello"
+    assert result.warnings == (
+        f'The model\'s detected language "{shown}" was not recognised and was '
+        "left empty.",
+    )
+
+
+@pytest.mark.parametrize("raw", ["German", "pt_BR", None, ""])
+def test_recognised_or_absent_detected_language_adds_no_warning(raw):
+    params = TranslateParams(
+        source=["text"], model="anthropic/example", save_detected_language=True
+    )
+    result = complete_translation(
+        params,
+        Row({"text": "Hallo"}),
+        DynamicOutput({"translation": "Hello", "detected_language": raw}),
+    )
+    assert result.warnings == ()

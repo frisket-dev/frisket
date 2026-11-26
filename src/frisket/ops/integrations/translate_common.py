@@ -6,6 +6,8 @@ dispatch, and the (held) action-level target preflight:
 
 - ``TranslateEngineError`` — the per-row error taxonomy the clients raise and
   MapRunner surfaces as the row's ``error_code``.
+- ``require_nonempty_translation`` — every engine's empty-translation row
+  failure (``empty_output``).
 - ``normalize_detected_bcp47`` — the ONE canonical STORED form for detected
   source language across engines: proper subtag casing, primary-subtag
   validation, LLM prose ("English") mapped via a name table, unknown → None
@@ -29,6 +31,31 @@ from frisket.ops.integrations.hosted_error import HostedEngineError
 # ``DatalabEngineError``), not a subclass, so every existing
 # ``except TranslateEngineError`` / ``isinstance`` call site keeps working.
 TranslateEngineError = HostedEngineError
+
+
+def require_nonempty_translation(translation: str | None, engine: str) -> str:
+    """An empty translation of non-empty source text fails its row.
+
+    Callers reach this only for non-empty source: the engines after their
+    empty-source return, and the model path because a row whose inputs are
+    all empty never reaches the model. An empty result therefore means the
+    provider returned nothing, not that there was nothing to translate. The
+    ``empty_output`` code makes the row a terminal failure: shown as failed,
+    never re-run by automatic backfill, re-runnable by a deliberate retry
+    (``run.backfill`` with explicit ``row_ids``). ``retryable=False`` states
+    that fact; the runner classifies on the code, not this flag.
+    """
+
+    if translation is None or not str(translation).strip():
+        raise TranslateEngineError(
+            code="empty_output",
+            message=(
+                f"{engine} returned an empty translation for non-empty "
+                "source text; the row was not translated."
+            ),
+            retryable=False,
+        )
+    return translation
 
 
 # The hosted engines that bill per character (DeepL, Google) — the local
@@ -213,7 +240,10 @@ def normalize_detected_bcp47(raw: str | None) -> str | None:
     BCP-47 value, OR an LLM-produced language NAME (``English``). Names map
     through the table; a code's primary subtag is validated as a 2-3 letter
     language subtag. Anything unrecognized returns ``None`` so the caller stores
-    null (with a warning) rather than a raw, non-conformant value.
+    null rather than a raw, non-conformant value; the model path reports such a
+    value as a row warning. The other engines pass provider codes or an
+    already-normalized source language here, so only a malformed provider code
+    could be dropped.
     """
     if not raw or not isinstance(raw, str):
         return None
