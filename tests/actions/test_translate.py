@@ -9,7 +9,6 @@ from frisket.actions.translate import (
     translation_outputs,
 )
 from frisket.actions.types import DynamicOutput, Row, RowError
-from frisket.ops.integrations.translate_common import TranslateEngineError
 
 
 def test_runtime_default_remains_llm_and_model_is_required():
@@ -111,14 +110,13 @@ def test_detected_language_is_required_when_active_and_materializes_as_category(
 
 
 @pytest.mark.parametrize("blank", ["", " \n\t "])
-def test_blank_model_translation_of_nonempty_source_is_empty_output(blank):
+def test_blank_model_translation_is_stored_as_given(blank):
     params = TranslateParams(source=["text"], model="anthropic/example")
-    with pytest.raises(TranslateEngineError) as caught:
-        complete_translation(
-            params, Row({"text": "Hola"}), DynamicOutput({"translation": blank})
-        )
-    assert caught.value.code == "empty_output"
-    assert caught.value.retryable is False
+    result = complete_translation(
+        params, Row({"text": "Hola"}), DynamicOutput({"translation": blank})
+    )
+    assert result.output.translation == blank
+    assert result.warnings == ()
 
 
 @pytest.mark.parametrize(

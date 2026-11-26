@@ -37,10 +37,7 @@ from frisket.actions.types import (
     RowError,
 )
 from frisket.ai.message_content import render_input_block
-from frisket.ops.integrations.translate_common import (
-    normalize_detected_bcp47,
-    require_nonempty_translation,
-)
+from frisket.ops.integrations.translate_common import normalize_detected_bcp47
 
 # Long enough for any language name, short enough to keep a row warning
 # readable when the model writes prose into the field.
@@ -167,7 +164,6 @@ def complete_translation(
             "Translation response is missing detected_language.",
         )
     values = TranslateOutput.model_validate(response.root)
-    translation = require_nonempty_translation(values.translation, "The model")
     raw_language = (
         values.detected_language.root
         if params.save_detected_language and values.detected_language is not None
@@ -181,7 +177,9 @@ def complete_translation(
     )
     return RowResult(
         output=TranslateOutput(
-            translation=translation,
+            # The model's answer is stored as given, empty included; whether
+            # it is right is not this action's judgement.
+            translation=values.translation,
             detected_language=(
                 DetectedLanguage(normalized_language)
                 if normalized_language is not None

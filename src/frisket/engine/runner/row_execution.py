@@ -686,14 +686,12 @@ async def _execute_row(
                 "until the provider request is reconciled.",
             ) from e
         # Only explicitly terminal codes are excluded from automatic backfill.
-        # A completion that refuses a returned model answer keeps that call's
-        # accounting, as hosted engines carry theirs on the error.
         return _failed_cells(
             field_names,
             code=e.code,
             message=e.message,
             outcome=e.code if e.code in TERMINAL_FAILURE_OUTCOMES else "model_error",
-            accounting=e.accounting or meta or None,
+            accounting=e.accounting or None,
         )
     except (LLMError, CacheMiss, ValueError, RuntimeError) as e:
         persist_trace(error=safe_error("model_error", e, max_chars=500).text)

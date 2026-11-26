@@ -411,12 +411,11 @@ def _translation_results(
 
 
 @pytest.mark.parametrize("blank", ["", "  \n "])
-def test_map_translate_empty_model_translation_fails_the_row_as_empty_output(
+def test_map_translate_stores_a_blank_model_translation_as_given(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, blank: str
 ) -> None:
-    """A blank translation of non-empty source text is the empty_output
-    terminal failure the other engines record, settled with its billed call;
-    a row whose inputs are all empty still never reaches the model."""
+    """A blank model answer over non-empty source is a successful row with
+    that value; a row whose inputs are all empty never reaches the model."""
     with case_env(CASES[0], tmp_path, monkeypatch) as env:
         project, sheet_id = env.project, env.seeded["sheet_id"]
         columns = {column["name"]: column["id"] for column in project.columns(sheet_id)}
@@ -433,32 +432,28 @@ def test_map_translate_empty_model_translation_fails_the_row_as_empty_output(
         env.run_kwargs["router"] = _translate_router(adapter, max_retries=0)
         result = env.run(
             _map_translate_action(
-                sheet_id, idempotency_key="map_translate@sha256:empty-translation"
+                sheet_id, idempotency_key="map_translate@sha256:blank-translation"
             )
         )
 
-        assert result.status == "partial", result.errors
+        assert result.status == "completed", result.errors
         assert len(adapter.requests) == 2
         rows = _translation_results(project, sheet_id, result.run_id, "translation")
-        failed = rows["Bonjour le monde"]
-        assert failed["outcome"] == "empty_output"
-        assert failed["error"]
-        assert failed["error_code"] == "empty_output"
-        assert failed["value"] is None
-        assert rows["Gracias por venir"]["outcome"] == "ok"
+        blank_row = rows["Bonjour le monde"]
+        assert blank_row["outcome"] == "ok"
+        assert blank_row["error"] is None
+        assert blank_row["error_code"] is None
+        assert blank_row["value"] == blank
         assert rows["Gracias por venir"]["value"] == "Thanks for coming"
         assert rows[""]["value"] is None
         assert rows[""]["error"] is None
-        assert rows[""]["outcome"] not in {"empty_output", "model_error"}
 
         run = project.db.execute(
             "SELECT failed_rows, cost_actual FROM runs WHERE id=?", (result.run_id,)
         ).fetchone()
-        assert int(run["failed_rows"]) == 1
+        assert int(run["failed_rows"]) == 0
         assert run["cost_actual"] == 0.006
-        model_calls = RunResultStore(project).model_calls(result.run_id)
-        assert len(model_calls) == 2
-        assert {row["provider_cost_usd"] for row in model_calls} == {0.003}
+        assert len(RunResultStore(project).model_calls(result.run_id)) == 2
 
 
 def test_map_translate_unrecognised_detected_language_is_a_row_warning(
