@@ -68,9 +68,29 @@ test('notification settings manages channels routes digests and delivery health'
   const digestRoute = page.getByTestId('notification-route-item').filter({ hasText: 'Budget daily email digest' });
   await expect(digestRoute.getByTestId('notification-digest-preview')).toContainText('daily digest at 09:00 UTC');
 
+  const testResponsePromise = page.waitForResponse(
+    (response) =>
+      response.request().method() === 'POST' &&
+      response.url().includes(`/api/projects/${pid}/notification-routes/`) &&
+      response.url().endsWith('/test'),
+  );
   await digestRoute.getByTestId('notification-route-test').click();
-  await expect(page.getByTestId('notification-delivery-request').first()).toContainText('test request');
-  await expect(page.getByTestId('notification-delivery-request').first()).toContainText('queued');
+  const testResponse = await testResponsePromise;
+  expect(testResponse.ok()).toBeTruthy();
+  const testRequest = await testResponse.json();
+  expect(testRequest.delivery_kind).toBe('test');
+  expect(['queued', 'skipped']).toContain(testRequest.status);
+
+  const deliveryCard = page.getByTestId('notification-delivery-request').first();
+  await expect(deliveryCard).toContainText(`test request ${testRequest.id}`);
+  await expect(deliveryCard).toContainText('Budget daily email digest');
+  // The background delivery worker starts immediately after POST .../test; with
+  // RESEND_API_KEY unset in E2E it can transition the request from queued to
+  // skipped ("email channel secret unavailable") before the panel reloads.
+  await expect(deliveryCard).toContainText(/queued|skipped/i);
+  if (/skipped/i.test((await deliveryCard.textContent()) ?? '')) {
+    await expect(deliveryCard).toContainText('email channel secret unavailable');
+  }
 
   await digestRoute.getByTestId('notification-route-toggle').click();
   await expect(digestRoute).toContainText('disabled');

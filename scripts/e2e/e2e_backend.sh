@@ -42,7 +42,7 @@ fi
 # the environment or .secrets/frisket.env would satisfy resolve_credential (env
 # wins over project secrets, src/frisket/credentials.py) and silently break
 # that premise, so gate-tested credentials never reach the e2e backend.
-unset CENSUS_API_KEY FEC_API_KEY
+unset CENSUS_API_KEY FEC_API_KEY RESEND_API_KEY SLACK_WEBHOOK_URL
 if [ "${FRISKET_E2E_MINIMAL_DEPS:-0}" = "1" ]; then
   # Preserve the preceding keyless `uv sync --no-dev`; syncing here would
   # silently restore dev groups and local-E2E extras.
